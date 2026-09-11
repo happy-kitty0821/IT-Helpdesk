@@ -300,7 +300,7 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .pdf-viewer > header a svg { width: 16px; }
 .pdf-viewer > header button { width: 40px; height: 40px; border: 1px solid #dbe2ee; background: #fff; color: #334155; border-radius: 10px; display: grid; place-items: center; cursor: pointer; }
 .pdf-viewer > header button svg { width: 18px; }
-.pdf-viewer iframe { width: 100%; height: 100%; border: 0; background: #475569; }
+.pdf-viewer iframe, .pdf-viewer object { width: 100%; height: 100%; border: 0; background: #475569; }
 
 .user-summary { display: flex; align-items: center; gap: 10px; }
 .user-summary > span { min-height: 46px; padding: 0 14px; border: 1px solid #dbe2ee; border-radius: 12px; background: #fff; display: flex; align-items: center; gap: 7px; color: #64748b; font-size: .82rem; }
@@ -414,3 +414,4 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+

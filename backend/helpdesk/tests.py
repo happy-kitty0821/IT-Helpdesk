@@ -6,7 +6,7 @@ from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import GuideArticle, SoftwareResource
+from .models import GuideArticle, RoleGrant, SoftwareResource
 
 
 @override_settings(ALLOWED_REGISTRATION_DOMAINS=('iic.edu.np',))
@@ -46,6 +46,7 @@ class AuthenticationTests(APITestCase):
             })
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @override_settings(GOOGLE_OAUTH_CLIENT_ID='')
     def test_google_login_requires_configuration(self):
         response = self.client.post('/api/v1/auth/google/', {'credential': 'token'})
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -58,6 +59,8 @@ class AdminContentTests(APITestCase):
         self.media_override.enable()
         User = get_user_model()
         self.superuser = User.objects.create_superuser('admin', 'admin@iic.edu.np', 'Strong-Test-Password-2026!')
+        # Grant the administrator role so IsAdministrator / IsContentEditor checks pass.
+        RoleGrant.objects.create(user=self.superuser, role='administrator')
         self.member = User.objects.create_user('member', 'member@iic.edu.np', 'Strong-Test-Password-2026!')
 
     def tearDown(self):
@@ -85,6 +88,7 @@ class AdminContentTests(APITestCase):
         }, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(GuideArticle.objects.get().created_by, self.superuser)
+        self.client.logout()
         public = self.client.get('/api/v1/guides/')
         self.assertEqual(len(public.data), 0)
 

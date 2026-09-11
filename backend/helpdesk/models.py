@@ -2,6 +2,20 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
+
+
+class RoleChoices(models.TextChoices):
+    VISITOR = 'visitor', 'Visitor'
+    STUDENT = 'student', 'Student'
+    FACULTY_STAFF = 'faculty_staff', 'Faculty and Staff'
+    IT_AGENT = 'it_agent', 'IT Agent'
+    IT_NOC_INTERN = 'it_noc_intern', 'IT NOC Intern'
+    SERVICE_LEAD = 'service_lead', 'Service Lead'
+    DESIGNATED_APPROVER = 'designated_approver', 'Designated Approver'
+    CONTENT_EDITOR = 'content_editor', 'Content Editor'
+    ADMINISTRATOR = 'administrator', 'Administrator'
 
 
 class ServiceCategory(models.Model):
@@ -55,6 +69,14 @@ class Ticket(models.Model):
     priority = models.CharField(max_length=2, choices=Priority.choices, default=Priority.NORMAL)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_tickets',
+    )
+    team = models.CharField(max_length=100, blank=True, default='')
 
     class Meta:
         ordering = ('-created_at',)
@@ -120,3 +142,139 @@ class SoftwareResource(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class DomainRoleMapping(models.Model):
+    """Maps an email domain to a role that is automatically assigned on user creation."""
+
+    domain = models.CharField(max_length=253, unique=True, help_text='e.g. iic.edu.np')
+    role = models.CharField(max_length=20, choices=RoleChoices.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('domain',)
+
+    def __str__(self):
+        return f'{self.domain} → {self.role}'
+
+
+class UserProfile(models.Model):
+    """One-to-one extension of auth.User storing programme and department."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='profile',
+    )
+    programme = models.CharField(max_length=200, blank=True)
+    department = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Profile({self.user})'
+
+
+class RoleGrantQuerySet(models.QuerySet):
+    """Custom QuerySet for RoleGrant with helpers for active-grant filtering."""
+
+    def active_for(self, user):
+        """Return grants for *user* that have not yet expired."""
+        now = timezone.now()
+        return self.filter(user=user).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+        )
+
+
+class RoleGrant(models.Model):
+    """Records a single role assignment for a user, with optional expiry."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='rolegrant_set',
+    )
+    role = models.CharField(max_length=20, choices=RoleChoices.choices)
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='granted_roles',
+    )
+    granted_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    objects = RoleGrantQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'role'],
+                condition=Q(expires_at__isnull=True),
+                name='unique_active_rolegrant',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'role'], name='rolegrant_user_role_idx'),
+            models.Index(fields=['expires_at'], name='rolegrant_expires_at_idx'),
+        ]
+
+    def __str__(self):
+        expiry = f' (expires {self.expires_at})' if self.expires_at else ''
+        return f'{self.user} — {self.role}{expiry}'
+
+
+class RoleAuditEvent(models.Model):
+    """Immutable log of every role grant and revocation."""
+
+    ACTION_GRANTED = 'granted'
+    ACTION_REVOKED = 'revoked'
+    ACTION_CHOICES = [
+        (ACTION_GRANTED, 'Granted'),
+        (ACTION_REVOKED, 'Revoked'),
+    ]
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_actions',
+    )
+    target = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='audit_events',
+    )
+    role = models.CharField(max_length=20)
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-timestamp',)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise PermissionError("RoleAuditEvent records are immutable.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError("RoleAuditEvent records cannot be deleted.")
+
+    def __str__(self):
+        return f'{self.timestamp} {self.actor} → {self.target}: {self.action} {self.role}'
+
+
+class InternCategoryScope(models.Model):
+    """Defines which ServiceCategory slugs are accessible to IT NOC Intern users."""
+
+    slug = models.SlugField(unique=True)
+    description = models.CharField(max_length=200, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ('slug',)
+
+    def __str__(self):
+        return self.slug

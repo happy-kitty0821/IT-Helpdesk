@@ -62,7 +62,13 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Strip COOP from /media/ responses so Chrome can render PDFs in iframes.
+    'Project.middleware.MediaCoopMiddleware',
 ]
+
+# Allow same-origin framing so the PDF viewer modal can embed media files
+# served from the same origin. Cross-origin framing is still blocked.
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 ROOT_URLCONF = 'Project.urls'
 
@@ -175,3 +181,12 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+# Default intern category scope slugs used as a fallback when the
+# InternCategoryScope table is empty (e.g., before the seed migration runs).
+HELPDESK_INTERN_SCOPE_SLUGS = [
+    'laptop-device-support',
+    'wifi-issue',
+    'general-it-support',
+]
+

@@ -2,3 +2,4 @@ Django==5.2.17
 djangorestframework==3.18.1
 google-auth==2.41.1
 python-dotenv==1.1.1
+hypothesis==6.135.2

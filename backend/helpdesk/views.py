@@ -1,4 +1,4 @@
-from django.conf import settings
+﻿from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.db import transaction
 from django.db.models import Q
@@ -16,10 +16,12 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import GuideArticle, ServiceCategory, SoftwareResource, Ticket
+from .permissions import IsAdministrator, IsContentEditor, IsServiceLead
 from .serializers import (
     GoogleCredentialSerializer,
     LoginSerializer,
     RegistrationSerializer,
+    RoleGrantSerializer,
     ServiceCategorySerializer,
     SoftwareResourceSerializer,
     TicketSerializer,
@@ -34,6 +36,41 @@ def health(request):
     return JsonResponse({'status': 'ok', 'service': 'iic-helpdesk-api'})
 
 
+# ---------------------------------------------------------------------------
+# Audience filtering utility (Requirement 3.1, 3.2)
+# ---------------------------------------------------------------------------
+
+# Audience values permitted for each role level
+_AUDIENCE_MAP = {
+    'administrator': {'public', 'student', 'staff', 'all'},
+    'service_lead': {'public', 'student', 'staff', 'all'},
+    'content_editor': {'public', 'student', 'staff', 'all'},
+    'designated_approver': {'public', 'student', 'staff', 'all'},
+    'it_agent': {'public', 'student', 'staff', 'all'},
+    'it_noc_intern': {'public', 'student', 'staff', 'all'},
+    'faculty_staff': {'public', 'student', 'staff', 'all'},
+    'student': {'public', 'student'},
+    'visitor': {'public', 'all'},
+}
+
+_ROLE_PRIORITY = [
+    'administrator', 'service_lead', 'designated_approver', 'content_editor',
+    'it_agent', 'it_noc_intern', 'faculty_staff', 'student', 'visitor',
+]
+
+
+def get_permitted_audiences(request) -> set:
+    """Return the set of audience values the requesting user may access."""
+    if not request.user or not request.user.is_authenticated:
+        return {'public'}
+    from .permissions import get_user_roles
+    roles = get_user_roles(request.user)
+    for role in _ROLE_PRIORITY:
+        if role in roles:
+            return _AUDIENCE_MAP[role]
+    return {'public'}
+
+
 class CsrfView(APIView):
     authentication_classes = ()
     permission_classes = (permissions.AllowAny,)
@@ -43,7 +80,11 @@ class CsrfView(APIView):
 
 
 class CurrentUserView(APIView):
+    permission_classes = (permissions.AllowAny,)
+
     def get(self, request):
+        if not request.user or not request.user.is_authenticated:
+            return Response({'roles': ['visitor'], 'category_scope': None})
         return Response(UserSerializer(request.user).data)
 
 
@@ -85,6 +126,10 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
+    # Allow unauthenticated requests — logging out an already-logged-out
+    # session is a safe no-op and should not return 401.
+    permission_classes = (permissions.AllowAny,)
+
     def post(self, request):
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -149,7 +194,12 @@ class ServiceCategoryList(generics.ListAPIView):
     permission_classes = (permissions.AllowAny,)
     pagination_class = None
     serializer_class = ServiceCategorySerializer
-    queryset = ServiceCategory.objects.filter(is_active=True)
+
+    def get_queryset(self):
+        return ServiceCategory.objects.filter(
+            audience__in=get_permitted_audiences(self.request),
+            is_active=True,
+        )
 
 
 class TicketListCreate(generics.ListCreateAPIView):
@@ -158,36 +208,107 @@ class TicketListCreate(generics.ListCreateAPIView):
     def get_queryset(self):
         return Ticket.objects.filter(requester=self.request.user).select_related('category')
 
+    def perform_create(self, serializer):
+        category = serializer.validated_data.get('category')
+        if category:
+            permitted = get_permitted_audiences(self.request)
+            if category.audience not in permitted:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied(
+                    detail='Your role is not eligible for this service category.',
+                    code='audience_not_eligible',
+                )
+        serializer.save(requester=self.request.user)
 
-class IsSuperuser(permissions.BasePermission):
-    message = 'Superuser access is required.'
 
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+class TicketDetail(generics.RetrieveAPIView):
+    serializer_class = TicketSerializer
+
+    def get_queryset(self):
+        from .permissions import user_has_intern_scope_only, get_intern_scope_slugs
+        qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
+        if user_has_intern_scope_only(self.request.user):
+            qs = qs.filter(category__slug__in=get_intern_scope_slugs())
+        return qs
+
+
+class TicketAssignView(APIView):
+    permission_classes = (IsServiceLead,)
+
+    def patch(self, request, pk):
+        from rest_framework.exceptions import ValidationError
+        from .permissions import get_user_roles, get_intern_scope_slugs, user_has_intern_scope_only
+
+        try:
+            ticket = Ticket.objects.select_related('category').get(pk=pk)
+        except Ticket.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        assignee_id = request.data.get('assigned_to')
+        team = request.data.get('team')
+
+        if assignee_id is not None:
+            User = get_user_model()
+            try:
+                assignee = User.objects.get(pk=assignee_id)
+            except User.DoesNotExist:
+                return Response({'assigned_to': ['User not found.']}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Validate assignee has a staff role
+            ASSIGNABLE_ROLES = {'it_agent', 'it_noc_intern', 'service_lead', 'administrator'}
+            assignee_roles = get_user_roles(assignee)
+            if not assignee_roles.intersection(ASSIGNABLE_ROLES):
+                return Response(
+                    {'assigned_to': ['User must hold an IT agent or higher role to be assigned tickets.']},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # If assignee is intern-only, check category scope
+            if user_has_intern_scope_only(assignee):
+                if ticket.category.slug not in get_intern_scope_slugs():
+                    return Response(
+                        {
+                            'code': 'category_not_in_scope',
+                            'detail': 'This ticket category is not within the permitted scope for this intern.',
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+            ticket.assigned_to = assignee
+
+        if team is not None:
+            ticket.team = team
+
+        ticket.save()
+        return Response(TicketSerializer(ticket).data)
 
 
 class PublicGuideList(generics.ListAPIView):
     permission_classes = (permissions.AllowAny,)
     pagination_class = None
     serializer_class = GuideArticleSerializer
-    queryset = GuideArticle.objects.filter(
-        status=GuideArticle.Status.PUBLISHED,
-        audience=ServiceCategory.Audience.PUBLIC,
-    ).select_related('created_by', 'updated_by')
+
+    def get_queryset(self):
+        return GuideArticle.objects.filter(
+            status=GuideArticle.Status.PUBLISHED,
+            audience__in=get_permitted_audiences(self.request),
+        ).select_related('created_by', 'updated_by')
 
 
 class PublicSoftwareList(generics.ListAPIView):
     permission_classes = (permissions.AllowAny,)
     pagination_class = None
     serializer_class = SoftwareResourceSerializer
-    queryset = SoftwareResource.objects.filter(
-        status=SoftwareResource.Status.ACTIVE,
-        audience=ServiceCategory.Audience.PUBLIC,
-    ).select_related('guide', 'updated_by')
+
+    def get_queryset(self):
+        return SoftwareResource.objects.filter(
+            status=SoftwareResource.Status.ACTIVE,
+            audience__in=get_permitted_audiences(self.request),
+        ).select_related('guide', 'updated_by')
 
 
 class AdminGuideListCreate(generics.ListCreateAPIView):
-    permission_classes = (IsSuperuser,)
+    permission_classes = (IsContentEditor,)
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     serializer_class = GuideArticleSerializer
     queryset = GuideArticle.objects.select_related('created_by', 'updated_by')
@@ -197,7 +318,7 @@ class AdminGuideListCreate(generics.ListCreateAPIView):
 
 
 class AdminGuideDetail(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = (IsSuperuser,)
+    permission_classes = (IsContentEditor,)
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     serializer_class = GuideArticleSerializer
     queryset = GuideArticle.objects.select_related('created_by', 'updated_by')
@@ -213,7 +334,7 @@ class AdminGuideDetail(generics.RetrieveUpdateDestroyAPIView):
 
 
 class AdminSoftwareListCreate(generics.ListCreateAPIView):
-    permission_classes = (IsSuperuser,)
+    permission_classes = (IsContentEditor,)
     serializer_class = SoftwareResourceSerializer
     queryset = SoftwareResource.objects.select_related('guide', 'updated_by')
 
@@ -222,7 +343,7 @@ class AdminSoftwareListCreate(generics.ListCreateAPIView):
 
 
 class AdminSoftwareDetail(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = (IsSuperuser,)
+    permission_classes = (IsContentEditor,)
     serializer_class = SoftwareResourceSerializer
     queryset = SoftwareResource.objects.select_related('guide', 'updated_by')
 
@@ -231,12 +352,12 @@ class AdminSoftwareDetail(generics.RetrieveUpdateDestroyAPIView):
 
 
 class AdminUserList(generics.ListAPIView):
-    permission_classes = (IsSuperuser,)
+    permission_classes = (IsAdministrator,)
     pagination_class = None
     serializer_class = AdminUserSerializer
 
     def get_queryset(self):
-        queryset = get_user_model().objects.order_by('-is_superuser', '-is_staff', 'first_name', 'username')
+        queryset = get_user_model().objects.prefetch_related('rolegrant_set').order_by('-is_superuser', '-is_staff', 'first_name', 'username')
         query = self.request.query_params.get('q', '').strip()
         if query:
             queryset = queryset.filter(
@@ -249,13 +370,13 @@ class AdminUserList(generics.ListAPIView):
 
 
 class AdminUserDetail(generics.RetrieveUpdateAPIView):
-    permission_classes = (IsSuperuser,)
+    permission_classes = (IsAdministrator,)
     serializer_class = AdminUserSerializer
     queryset = get_user_model().objects.all()
 
 
 class AdminSummaryView(APIView):
-    permission_classes = (IsSuperuser,)
+    permission_classes = (IsAdministrator,)
 
     def get(self, request):
         User = get_user_model()
@@ -268,3 +389,96 @@ class AdminSummaryView(APIView):
             'software': SoftwareResource.objects.count(),
             'active_software': SoftwareResource.objects.filter(status=SoftwareResource.Status.ACTIVE).count(),
         })
+
+
+class UserRoleListCreate(APIView):
+    """GET/POST /api/v1/admin/users/<pk>/roles/"""
+    permission_classes = (IsAdministrator,)
+
+    def _get_user_or_404(self, pk):
+        User = get_user_model()
+        try:
+            return User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        target = self._get_user_or_404(pk)
+        if target is None:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from .models import RoleGrant
+        grants = RoleGrant.objects.active_for(target)
+        serializer = RoleGrantSerializer(grants, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, pk):
+        target = self._get_user_or_404(pk)
+        if target is None:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = RoleGrantSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from .models import RoleGrant, RoleAuditEvent
+        from django.db import transaction as db_transaction
+        with db_transaction.atomic():
+            grant = RoleGrant.objects.create(
+                user=target,
+                role=serializer.validated_data['role'],
+                expires_at=serializer.validated_data.get('expires_at'),
+                granted_by=request.user,
+            )
+            RoleAuditEvent.objects.create(
+                actor=request.user,
+                target=target,
+                role=grant.role,
+                action=RoleAuditEvent.ACTION_GRANTED,
+            )
+            # Sync Django flags
+            if grant.role == 'administrator':
+                get_user_model().objects.filter(pk=target.pk).update(is_superuser=True, is_staff=True)
+            elif grant.role in ('service_lead', 'it_agent', 'it_noc_intern', 'content_editor',
+                                'designated_approver', 'faculty_staff'):
+                get_user_model().objects.filter(pk=target.pk).update(is_staff=True)
+        return Response(RoleGrantSerializer(grant).data, status=status.HTTP_201_CREATED)
+
+
+class UserRoleDetail(APIView):
+    """DELETE /api/v1/admin/users/<pk>/roles/<role>/"""
+    permission_classes = (IsAdministrator,)
+
+    def delete(self, request, pk, role):
+        # Self-revoke guard
+        if str(request.user.pk) == str(pk) and role == 'administrator':
+            return Response(
+                {'code': 'self_revoke_denied', 'detail': 'You cannot revoke your own administrator role.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        User = get_user_model()
+        try:
+            target = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        from .models import RoleGrant, RoleAuditEvent
+        from django.db import transaction as db_transaction
+        from django.utils import timezone
+
+        grant = RoleGrant.objects.active_for(target).filter(role=role).first()
+        if grant is None:
+            return Response({'detail': 'Role grant not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        with db_transaction.atomic():
+            # Revoke by setting expires_at to now
+            grant.expires_at = timezone.now()
+            grant.save(update_fields=['expires_at'])
+            RoleAuditEvent.objects.create(
+                actor=request.user,
+                target=target,
+                role=role,
+                action=RoleAuditEvent.ACTION_REVOKED,
+            )
+            # Sync flags for administrator revocation
+            if role == 'administrator':
+                remaining = RoleGrant.objects.active_for(target).filter(role='administrator').exists()
+                if not remaining:
+                    User.objects.filter(pk=target.pk).update(is_superuser=False)
+        return Response(status=status.HTTP_204_NO_CONTENT)

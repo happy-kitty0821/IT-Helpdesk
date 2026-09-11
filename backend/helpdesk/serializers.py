@@ -1,10 +1,10 @@
-from django.conf import settings
+﻿from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import GuideArticle, ServiceCategory, SoftwareResource, Ticket
+from .models import GuideArticle, RoleGrant, ServiceCategory, SoftwareResource, Ticket
 
 
 def email_domain_allowed(email):
@@ -17,13 +17,25 @@ def email_domain_allowed(email):
 
 class UserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
+    category_scope = serializers.SerializerMethodField()
 
     class Meta:
         model = get_user_model()
-        fields = ('id', 'username', 'email', 'name', 'is_staff', 'is_superuser')
+        fields = ('id', 'username', 'email', 'name', 'is_staff', 'is_superuser', 'roles', 'category_scope')
 
     def get_name(self, obj):
         return obj.get_full_name() or obj.username
+
+    def get_roles(self, obj):
+        from helpdesk.permissions import get_user_roles
+        return sorted(get_user_roles(obj))
+
+    def get_category_scope(self, obj):
+        from helpdesk.permissions import get_intern_scope_slugs, user_has_intern_scope_only
+        if user_has_intern_scope_only(obj):
+            return get_intern_scope_slugs()
+        return None
 
 
 class RegistrationSerializer(serializers.Serializer):
@@ -77,13 +89,22 @@ class TicketSerializer(serializers.ModelSerializer):
     reference = serializers.CharField(read_only=True)
     requester = serializers.PrimaryKeyRelatedField(read_only=True)
     status = serializers.CharField(read_only=True)
+    assigned_to = serializers.PrimaryKeyRelatedField(read_only=True)
+    team = serializers.CharField(read_only=True)
+    assignee_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
         fields = (
             'id', 'reference', 'requester', 'category', 'subject', 'description',
-            'status', 'priority', 'created_at', 'updated_at',
+            'status', 'priority', 'assigned_to', 'team', 'assignee_name',
+            'created_at', 'updated_at',
         )
+
+    def get_assignee_name(self, obj):
+        if obj.assigned_to:
+            return obj.assigned_to.get_full_name() or obj.assigned_to.username
+        return None
 
     def validate_subject(self, value):
         value = value.strip()
@@ -154,7 +175,13 @@ class GuideArticleSerializer(serializers.ModelSerializer):
         return instance
 
     def get_pdf_url(self, obj):
-        return obj.pdf_file.url if obj.pdf_file else None
+        if not obj.pdf_file:
+            return None
+        url = obj.pdf_file.url
+        request = self.context.get("request")
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
 
     def get_pdf_name(self, obj):
         return obj.pdf_file.name.rsplit('/', 1)[-1] if obj.pdf_file else None
@@ -176,17 +203,33 @@ class GuideArticleSerializer(serializers.ModelSerializer):
 
 class AdminUserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
 
     class Meta:
         model = get_user_model()
         fields = (
             'id', 'username', 'email', 'first_name', 'last_name', 'name',
             'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
+            'roles',
         )
         read_only_fields = ('username', 'email', 'name', 'date_joined', 'last_login')
 
     def get_name(self, obj):
         return obj.get_full_name() or obj.username
+
+    def get_roles(self, obj):
+        from django.utils import timezone
+        # Use prefetched data when available to avoid N+1 queries.
+        if hasattr(obj, '_prefetched_objects_cache') and 'rolegrant_set' in obj._prefetched_objects_cache:
+            now = timezone.now()
+            grants = obj._prefetched_objects_cache['rolegrant_set']
+            return sorted(
+                g.role for g in grants
+                if g.expires_at is None or g.expires_at > now
+            )
+        # Fallback: hit the database directly.
+        from helpdesk.permissions import get_user_roles
+        return sorted(get_user_roles(obj))
 
     def validate(self, attrs):
         request = self.context.get('request')
@@ -221,3 +264,31 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
 
     def get_updated_by_name(self, obj):
         return obj.updated_by.get_full_name() or obj.updated_by.username if obj.updated_by else None
+
+
+class RoleGrantSerializer(serializers.ModelSerializer):
+    granted_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoleGrant
+        fields = ('id', 'role', 'granted_by', 'granted_by_name', 'granted_at', 'expires_at')
+        read_only_fields = ('id', 'granted_by', 'granted_by_name', 'granted_at')
+
+    def validate_role(self, value):
+        from helpdesk.models import RoleChoices
+        valid_values = {c[0] for c in RoleChoices.choices}
+        if value not in valid_values:
+            raise serializers.ValidationError(f"Value '{value}' is not a valid choice.")
+        return value
+
+    def validate_expires_at(self, value):
+        if value is not None:
+            from django.utils import timezone
+            if value <= timezone.now():
+                raise serializers.ValidationError('expires_at must be a future datetime.')
+        return value
+
+    def get_granted_by_name(self, obj):
+        if obj.granted_by:
+            return obj.granted_by.get_full_name() or obj.granted_by.username
+        return None

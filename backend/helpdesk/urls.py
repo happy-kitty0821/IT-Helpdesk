@@ -17,7 +17,11 @@ from .views import (
     PublicGuideList,
     PublicSoftwareList,
     ServiceCategoryList,
+    TicketAssignView,
+    TicketDetail,
     TicketListCreate,
+    UserRoleDetail,
+    UserRoleListCreate,
     health,
 )
 
@@ -31,6 +35,8 @@ urlpatterns = [
     re_path(r'^auth/logout/?$', LogoutView.as_view(), name='auth-logout'),
     path('services/', ServiceCategoryList.as_view(), name='service-list'),
     path('tickets/', TicketListCreate.as_view(), name='ticket-list-create'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/?$', TicketDetail.as_view(), name='ticket-detail'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/assign/?$', TicketAssignView.as_view(), name='ticket-assign'),
     re_path(r'^guides/?$', PublicGuideList.as_view(), name='public-guide-list'),
     re_path(r'^software/?$', PublicSoftwareList.as_view(), name='public-software-list'),
     re_path(r'^admin/summary/?$', AdminSummaryView.as_view(), name='admin-summary'),
@@ -40,4 +46,6 @@ urlpatterns = [
     re_path(r'^admin/software/(?P<pk>[0-9]+)/?$', AdminSoftwareDetail.as_view(), name='admin-software-detail'),
     re_path(r'^admin/users/?$', AdminUserList.as_view(), name='admin-user-list'),
     re_path(r'^admin/users/(?P<pk>[0-9]+)/?$', AdminUserDetail.as_view(), name='admin-user-detail'),
+    re_path(r'^admin/users/(?P<pk>[0-9]+)/roles/?$', UserRoleListCreate.as_view(), name='admin-user-roles'),
+    re_path(r'^admin/users/(?P<pk>[0-9]+)/roles/(?P<role>[a-z_]+)/?$', UserRoleDetail.as_view(), name='admin-user-role-detail'),
 ]

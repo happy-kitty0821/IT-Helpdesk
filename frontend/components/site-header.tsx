@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -12,7 +12,7 @@ export function SiteHeader() {
   useEffect(() => {
     fetch("/api/v1/auth/me/", { credentials: "include" })
       .then((response) => response.ok ? response.json() : null)
-      .then(setUser)
+      .then((data) => setUser(data?.id ? data as AuthUser : null))
       .catch(() => setUser(null));
   }, []);
 
