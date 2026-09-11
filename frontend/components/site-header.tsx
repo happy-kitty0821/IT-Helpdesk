@@ -1,8 +1,27 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { authPost, type AuthUser } from "@/lib/auth";
 import { ThemeToggle } from "./theme-toggle";
 
 export function SiteHeader() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    fetch("/api/v1/auth/me/", { credentials: "include" })
+      .then((response) => response.ok ? response.json() : null)
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  async function signOut() {
+    await authPost("logout", {});
+    setUser(null);
+    window.location.assign("/");
+  }
+
   return (
     <header className="site-header">
       <div className="shell header-inner">
@@ -13,6 +32,8 @@ export function SiteHeader() {
         <nav aria-label="Primary navigation">
           <Link href="#services">Services</Link>
           <Link href="#status">Status</Link>
+          {user ? <span className="account-name" title={user.email}>{user.name}</span> : <Link href="/login">Sign in</Link>}
+          {user && <button type="button" className="text-button" onClick={signOut}>Sign out</button>}
           <Link href="/tickets/new" className="nav-action">Request support</Link>
           <ThemeToggle />
         </nav>

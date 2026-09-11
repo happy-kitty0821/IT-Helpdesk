@@ -30,6 +30,13 @@ ALLOWED_HOSTS = [host.strip() for host in os.environ.get(
     'DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1'
 ).split(',') if host.strip()]
 
+ALLOWED_REGISTRATION_DOMAINS = tuple(
+    domain.strip().lower() for domain in os.environ.get(
+        'ALLOWED_REGISTRATION_DOMAINS', 'iic.edu.np'
+    ).split(',') if domain.strip()
+)
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
+
 
 # Application definition
 
@@ -132,7 +139,25 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_RATES': {
+        'auth_login': '10/minute',
+        'auth_register': '5/hour',
+        'auth_google': '10/minute',
+    },
 }
+
+AUTHENTICATION_BACKENDS = [
+    'helpdesk.authentication.EmailOrUsernameBackend',
+]
+
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.environ.get(
+    'CSRF_TRUSTED_ORIGINS', 'http://localhost:3000'
+).split(',') if origin.strip()]
 
 
 # Email
