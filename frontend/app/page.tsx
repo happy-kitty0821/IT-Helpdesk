@@ -48,7 +48,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ q
         </section>
 
         <section className="resource-strip shell" aria-label="Self-service resources">
-          <article><BookOpen aria-hidden="true" /><div><h2>Guides & software</h2><p>Installation steps and approved downloads are being prepared for the IIC catalogue.</p></div><span aria-label="Coming soon">Coming soon</span></article>
+          <article><BookOpen aria-hidden="true" /><div><h2>Guides & software</h2><p>Read approved setup instructions and find software resources.</p></div><span className="resource-links"><Link href="/help">Guides</Link><Link href="/software">Software</Link></span></article>
           <article id="status"><Clock3 aria-hidden="true" /><div><h2>Service status</h2><p>All published services currently show their latest available status.</p></div><strong><i aria-hidden="true" /> Operational</strong></article>
         </section>
       </main>

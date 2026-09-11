@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.db import transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
@@ -9,18 +10,22 @@ from django.views.decorators.csrf import csrf_protect
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from rest_framework import generics, permissions, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import ServiceCategory, Ticket
+from .models import GuideArticle, ServiceCategory, SoftwareResource, Ticket
 from .serializers import (
     GoogleCredentialSerializer,
     LoginSerializer,
     RegistrationSerializer,
     ServiceCategorySerializer,
+    SoftwareResourceSerializer,
     TicketSerializer,
     UserSerializer,
+    AdminUserSerializer,
+    GuideArticleSerializer,
     email_domain_allowed,
 )
 
@@ -152,3 +157,114 @@ class TicketListCreate(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return Ticket.objects.filter(requester=self.request.user).select_related('category')
+
+
+class IsSuperuser(permissions.BasePermission):
+    message = 'Superuser access is required.'
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
+class PublicGuideList(generics.ListAPIView):
+    permission_classes = (permissions.AllowAny,)
+    pagination_class = None
+    serializer_class = GuideArticleSerializer
+    queryset = GuideArticle.objects.filter(
+        status=GuideArticle.Status.PUBLISHED,
+        audience=ServiceCategory.Audience.PUBLIC,
+    ).select_related('created_by', 'updated_by')
+
+
+class PublicSoftwareList(generics.ListAPIView):
+    permission_classes = (permissions.AllowAny,)
+    pagination_class = None
+    serializer_class = SoftwareResourceSerializer
+    queryset = SoftwareResource.objects.filter(
+        status=SoftwareResource.Status.ACTIVE,
+        audience=ServiceCategory.Audience.PUBLIC,
+    ).select_related('guide', 'updated_by')
+
+
+class AdminGuideListCreate(generics.ListCreateAPIView):
+    permission_classes = (IsSuperuser,)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+    serializer_class = GuideArticleSerializer
+    queryset = GuideArticle.objects.select_related('created_by', 'updated_by')
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+
+class AdminGuideDetail(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsSuperuser,)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+    serializer_class = GuideArticleSerializer
+    queryset = GuideArticle.objects.select_related('created_by', 'updated_by')
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        pdf_file = instance.pdf_file
+        instance.delete()
+        if pdf_file:
+            pdf_file.delete(save=False)
+
+
+class AdminSoftwareListCreate(generics.ListCreateAPIView):
+    permission_classes = (IsSuperuser,)
+    serializer_class = SoftwareResourceSerializer
+    queryset = SoftwareResource.objects.select_related('guide', 'updated_by')
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+
+class AdminSoftwareDetail(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsSuperuser,)
+    serializer_class = SoftwareResourceSerializer
+    queryset = SoftwareResource.objects.select_related('guide', 'updated_by')
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+
+class AdminUserList(generics.ListAPIView):
+    permission_classes = (IsSuperuser,)
+    pagination_class = None
+    serializer_class = AdminUserSerializer
+
+    def get_queryset(self):
+        queryset = get_user_model().objects.order_by('-is_superuser', '-is_staff', 'first_name', 'username')
+        query = self.request.query_params.get('q', '').strip()
+        if query:
+            queryset = queryset.filter(
+                Q(username__icontains=query) |
+                Q(email__icontains=query) |
+                Q(first_name__icontains=query) |
+                Q(last_name__icontains=query)
+            )
+        return queryset
+
+
+class AdminUserDetail(generics.RetrieveUpdateAPIView):
+    permission_classes = (IsSuperuser,)
+    serializer_class = AdminUserSerializer
+    queryset = get_user_model().objects.all()
+
+
+class AdminSummaryView(APIView):
+    permission_classes = (IsSuperuser,)
+
+    def get(self, request):
+        User = get_user_model()
+        return Response({
+            'users': User.objects.filter(is_active=True).count(),
+            'tickets': Ticket.objects.count(),
+            'open_tickets': Ticket.objects.exclude(status__in=(Ticket.Status.CLOSED, Ticket.Status.CANCELLED)).count(),
+            'guides': GuideArticle.objects.count(),
+            'published_guides': GuideArticle.objects.filter(status=GuideArticle.Status.PUBLISHED).count(),
+            'software': SoftwareResource.objects.count(),
+            'active_software': SoftwareResource.objects.filter(status=SoftwareResource.Status.ACTIVE).count(),
+        })

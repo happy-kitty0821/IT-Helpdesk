@@ -9,8 +9,9 @@ export function ThemeToggle() {
   useEffect(() => {
     const stored = localStorage.getItem("iic-theme");
     const initial = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setDark(initial);
     document.documentElement.dataset.theme = initial ? "dark" : "light";
+    const frame = requestAnimationFrame(() => setDark(initial));
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   function toggleTheme() {

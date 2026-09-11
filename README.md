@@ -34,6 +34,15 @@ Create or rotate the initial administrator without committing a password:
 - Requester-scoped ticket list and creation API using Django sessions
 - Initial service and ticket database models with migrations
 - Responsive IIC home page, working service search, theme preference, and reduced-motion support
-- Request form interface ready for institutional sign-in integration
+- Email/username login, approved-domain registration, Google Workspace sign-in, and session logout
+- Superuser-only dashboard at `http://localhost:3000/admin`
+- PDF guide management at `http://localhost:3000/admin/guides` with upload, replacement, validation, draft, publish, and archive workflows
+- Software management at `http://localhost:3000/admin/software` with version, platform, licence, audience, download link, and related-guide fields
+- User management at `http://localhost:3000/admin/users` for account status, staff access, and superuser access
+- Public PDF viewer and software catalogue at `/help` and `/software`
+
+The Admin navigation item is shown only to authenticated superusers. Every admin API endpoint also enforces the superuser permission on the server and returns HTTP 403 to other users.
+
+Guide uploads accept validated PDF files up to 15 MB. During local development Django stores them under `backend/media/guides/`, while Next.js proxies `/media/*` so the public helpdesk can render each document in its built-in viewer.
 
 See `IIC-IT-Helpdesk-Project-Specification.md` for the complete functional and non-functional requirements.

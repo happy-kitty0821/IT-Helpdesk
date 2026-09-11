@@ -1,7 +1,12 @@
+import tempfile
+
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
+
+from .models import GuideArticle, SoftwareResource
 
 
 @override_settings(ALLOWED_REGISTRATION_DOMAINS=('iic.edu.np',))
@@ -44,3 +49,86 @@ class AuthenticationTests(APITestCase):
     def test_google_login_requires_configuration(self):
         response = self.client.post('/api/v1/auth/google/', {'credential': 'token'})
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+class AdminContentTests(APITestCase):
+    def setUp(self):
+        self.temp_media = tempfile.TemporaryDirectory()
+        self.media_override = override_settings(MEDIA_ROOT=self.temp_media.name)
+        self.media_override.enable()
+        User = get_user_model()
+        self.superuser = User.objects.create_superuser('admin', 'admin@iic.edu.np', 'Strong-Test-Password-2026!')
+        self.member = User.objects.create_user('member', 'member@iic.edu.np', 'Strong-Test-Password-2026!')
+
+    def tearDown(self):
+        self.media_override.disable()
+        self.temp_media.cleanup()
+
+    def pdf(self, name='guide.pdf'):
+        return SimpleUploadedFile(name, b'%PDF-1.4\n%%EOF', content_type='application/pdf')
+
+    def test_regular_user_cannot_access_admin_content(self):
+        self.client.force_authenticate(self.member)
+        response = self.client.get('/api/v1/admin/guides/')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_superuser_can_create_and_publish_guide(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post('/api/v1/admin/guides/', {
+            'title': 'Connect to campus Wi-Fi',
+            'slug': 'connect-campus-wifi',
+            'summary': 'Steps for joining the IIC student wireless network.',
+            'pdf_file': self.pdf(),
+            'audience': 'all',
+            'tags': '["wifi", "network"]',
+            'status': 'published',
+        }, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(GuideArticle.objects.get().created_by, self.superuser)
+        public = self.client.get('/api/v1/guides/')
+        self.assertEqual(len(public.data), 0)
+
+    def test_guide_requires_a_real_pdf(self):
+        self.client.force_authenticate(self.superuser)
+        response = self.client.post('/api/v1/admin/guides/', {
+            'title': 'Invalid guide', 'slug': 'invalid-guide', 'summary': 'Not a PDF',
+            'pdf_file': SimpleUploadedFile('guide.pdf', b'not-pdf', content_type='application/pdf'),
+            'audience': 'public', 'tags': '[]', 'status': 'published',
+        }, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_public_guide_exposes_pdf_url(self):
+        self.client.force_authenticate(self.superuser)
+        created = self.client.post('/api/v1/admin/guides/', {
+            'title': 'Public guide', 'slug': 'public-guide', 'summary': 'Downloadable help guide',
+            'pdf_file': self.pdf('public-guide.pdf'), 'audience': 'public',
+            'tags': '["help"]', 'status': 'published',
+        }, format='multipart')
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.client.force_authenticate(user=None)
+        response = self.client.get('/api/v1/guides/')
+        self.assertEqual(response.data[0]['pdf_name'], 'public-guide.pdf')
+        self.assertTrue(response.data[0]['pdf_url'].endswith('.pdf'))
+
+    def test_superuser_can_manage_other_users_but_not_demote_self(self):
+        self.client.force_authenticate(self.superuser)
+        updated = self.client.patch(f'/api/v1/admin/users/{self.member.id}/', {
+            'first_name': 'Support', 'is_staff': True,
+        }, format='json')
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.is_staff)
+        self.assertEqual(self.member.first_name, 'Support')
+
+        self_update = self.client.patch(f'/api/v1/admin/users/{self.superuser.id}/', {
+            'is_superuser': False,
+        }, format='json')
+        self.assertEqual(self_update.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_public_software_only_lists_active_items(self):
+        SoftwareResource.objects.create(name='Active Tool', slug='active-tool', description='Available tool', platforms=['Web'], audience='public', status='active')
+        SoftwareResource.objects.create(name='Draft Tool', slug='draft-tool', description='Hidden tool', platforms=['Windows'], status='draft')
+        self.client.force_authenticate(user=None)
+        response = self.client.get('/api/v1/software/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in response.data], ['active-tool'])
