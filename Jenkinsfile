@@ -115,7 +115,8 @@ pipeline {
 
                     cd "$BACKEND_DIR"
 
-                    "$BACKEND_PYTHON" manage.py migrate --noinput
+                    sudo -n -u iicapp \
+                        "$BACKEND_PYTHON" manage.py migrate --noinput
                 '''
             }
         }
@@ -127,7 +128,8 @@ pipeline {
 
                     cd "$BACKEND_DIR"
 
-                    "$BACKEND_PYTHON" manage.py collectstatic --noinput
+                    sudo -n -u iicapp \
+                        "$BACKEND_PYTHON" manage.py collectstatic --noinput
                 '''
             }
         }
