@@ -4,8 +4,10 @@ pipeline {
     environment {
         BACKEND_DIR = '/var/www/iic-app/backend'
         FRONTEND_DIR = '/var/www/iic-app/frontend'
+
         BACKEND_PYTHON = '/var/www/iic-app/backend/venv/bin/python'
         BACKEND_PIP = '/var/www/iic-app/backend/venv/bin/pip'
+
         PNPM = '/usr/bin/pnpm'
     }
 
@@ -15,8 +17,13 @@ pipeline {
             steps {
                 sh '''
                     set -e
+
+                    echo "Installing backend dependencies..."
+
                     cd backend
                     "$BACKEND_PIP" install -r requirements.txt
+
+                    echo "Backend dependencies installed."
                 '''
             }
         }
@@ -25,8 +32,13 @@ pipeline {
             steps {
                 sh '''
                     set -e
+
+                    echo "Running Django system checks..."
+
                     cd backend
                     "$BACKEND_PYTHON" manage.py check
+
+                    echo "Django validation passed."
                 '''
             }
         }
@@ -35,8 +47,13 @@ pipeline {
             steps {
                 sh '''
                     set -e
+
+                    echo "Running backend tests..."
+
                     cd backend
                     "$BACKEND_PYTHON" manage.py test
+
+                    echo "Backend tests passed."
                 '''
             }
         }
@@ -45,8 +62,13 @@ pipeline {
             steps {
                 sh '''
                     set -e
+
+                    echo "Installing frontend dependencies..."
+
                     cd frontend
                     "$PNPM" install --frozen-lockfile
+
+                    echo "Frontend dependencies installed."
                 '''
             }
         }
@@ -55,8 +77,13 @@ pipeline {
             steps {
                 sh '''
                     set -e
+
+                    echo "Building frontend..."
+
                     cd frontend
                     "$PNPM" build
+
+                    echo "Frontend build completed."
                 '''
             }
         }
@@ -83,7 +110,7 @@ pipeline {
                         backend/ \
                         "$BACKEND_DIR"/
 
-                    echo "Backend deployed."
+                    echo "Backend deployment completed."
                 '''
             }
         }
@@ -139,7 +166,7 @@ pipeline {
                         frontend/ \
                         "$FRONTEND_DIR"/
 
-                    echo "Frontend deployed."
+                    echo "Frontend deployment completed."
                 '''
             }
         }
@@ -149,9 +176,12 @@ pipeline {
                 sh '''
                     set -e
 
-                    cd "$FRONTEND_DIR"
+                    echo "Installing frontend production dependencies..."
 
+                    cd "$FRONTEND_DIR"
                     "$PNPM" install --frozen-lockfile
+
+                    echo "Frontend production dependencies installed."
                 '''
             }
         }
@@ -197,20 +227,36 @@ pipeline {
                         http://127.0.0.1:8000/api/v1/health/
 
                     echo
+                    echo "Backend health check passed."
 
                     echo "Checking frontend..."
 
-                    curl --fail --silent --show-error \
-                        http://127.0.0.1:3000/ \
-                        > /dev/null
+                    for i in $(seq 1 10); do
 
-                    echo "All health checks passed."
+                        if curl --fail --silent --show-error \
+                            http://127.0.0.1:3000/ \
+                            > /dev/null; then
+
+                            echo "Frontend health check passed."
+                            echo "All health checks passed."
+
+                            exit 0
+                        fi
+
+                        echo "Frontend not ready yet. Attempt $i/10..."
+                        sleep 2
+                    done
+
+                    echo "Frontend health check failed after 10 attempts."
+
+                    exit 1
                 '''
             }
         }
     }
 
     post {
+
         success {
             echo 'IIC IT Helpdesk deployment completed successfully.'
         }
