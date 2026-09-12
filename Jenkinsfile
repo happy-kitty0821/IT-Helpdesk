@@ -76,8 +76,11 @@ pipeline {
 
                     echo "Deploying backend source..."
 
-                    rsync -a --no-owner --no-group \\
-                        --delete \
+                    rsync -a \
+    --no-owner \
+    --no-group \
+    --no-times \
+    --delete \
                         --exclude='.env' \
                         --exclude='venv/' \
                         --exclude='db.sqlite3' \
@@ -123,8 +126,11 @@ pipeline {
 
                     echo "Deploying frontend..."
 
-                    rsync -a --no-owner --no-group \\
-                        --delete \
+                    rsync -a \
+    --no-owner \
+    --no-group \
+    --no-times \
+    --delete \
                         --exclude='node_modules/' \
                         frontend/ \
                         "$FRONTEND_DIR"/
