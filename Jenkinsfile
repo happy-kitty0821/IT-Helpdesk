@@ -75,16 +75,26 @@ pipeline {
 
         stage('Frontend - Build') {
             steps {
-                sh '''
-                    set -e
+                withCredentials([
+                    string(
+                        credentialsId: 'iic-google-client-id',
+                        variable: 'NEXT_PUBLIC_GOOGLE_CLIENT_ID'
+                    )
+                ]) {
+                    sh '''
+                        set -e
 
-                    echo "Building frontend..."
+                        echo "Building frontend..."
 
-                    cd frontend
-                    "$PNPM" build
+                        cd frontend
 
-                    echo "Frontend build completed."
-                '''
+                        export NEXT_PUBLIC_GOOGLE_CLIENT_ID
+
+                        "$PNPM" build
+
+                        echo "Frontend build completed."
+                    '''
+                }
             }
         }
 
