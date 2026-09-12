@@ -2,32 +2,20 @@ pipeline {
     agent any
 
     environment {
-        DEPLOY_DIR = '/var/www/iic-app'
-
         BACKEND_DIR = '/var/www/iic-app/backend'
         FRONTEND_DIR = '/var/www/iic-app/frontend'
-
         BACKEND_PYTHON = '/var/www/iic-app/backend/venv/bin/python'
         BACKEND_PIP = '/var/www/iic-app/backend/venv/bin/pip'
-
         PNPM = '/usr/bin/pnpm'
     }
 
     stages {
 
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-
         stage('Backend - Install Dependencies') {
             steps {
                 sh '''
                     set -e
-
                     cd backend
-
                     "$BACKEND_PIP" install -r requirements.txt
                 '''
             }
@@ -37,9 +25,7 @@ pipeline {
             steps {
                 sh '''
                     set -e
-
                     cd backend
-
                     "$BACKEND_PYTHON" manage.py check
                 '''
             }
@@ -49,9 +35,7 @@ pipeline {
             steps {
                 sh '''
                     set -e
-
                     cd backend
-
                     "$BACKEND_PYTHON" manage.py test
                 '''
             }
@@ -61,9 +45,7 @@ pipeline {
             steps {
                 sh '''
                     set -e
-
                     cd frontend
-
                     "$PNPM" install --frozen-lockfile
                 '''
             }
@@ -73,9 +55,7 @@ pipeline {
             steps {
                 sh '''
                     set -e
-
                     cd frontend
-
                     "$PNPM" build
                 '''
             }
@@ -86,7 +66,7 @@ pipeline {
                 sh '''
                     set -e
 
-                    echo "Deploying backend source..."
+                    echo "Deploying backend..."
 
                     rsync -a \
                         --no-owner \
@@ -103,7 +83,7 @@ pipeline {
                         backend/ \
                         "$BACKEND_DIR"/
 
-                    echo "Backend source deployed."
+                    echo "Backend deployed."
                 '''
             }
         }
@@ -113,10 +93,14 @@ pipeline {
                 sh '''
                     set -e
 
-                    cd "$BACKEND_DIR"
+                    echo "Running database migrations..."
 
                     sudo -n -u iicapp \
-                        "$BACKEND_PYTHON" manage.py migrate --noinput
+                        "$BACKEND_PYTHON" \
+                        "$BACKEND_DIR/manage.py" \
+                        migrate --noinput
+
+                    echo "Database migrations completed."
                 '''
             }
         }
@@ -126,10 +110,14 @@ pipeline {
                 sh '''
                     set -e
 
-                    cd "$BACKEND_DIR"
+                    echo "Collecting static files..."
 
                     sudo -n -u iicapp \
-                        "$BACKEND_PYTHON" manage.py collectstatic --noinput
+                        "$BACKEND_PYTHON" \
+                        "$BACKEND_DIR/manage.py" \
+                        collectstatic --noinput
+
+                    echo "Static files collected."
                 '''
             }
         }
@@ -173,7 +161,12 @@ pipeline {
                 sh '''
                     set -e
 
-                    sudo -n /usr/bin/systemctl restart iic-helpdesk-backend.service
+                    echo "Restarting backend..."
+
+                    sudo -n /usr/bin/systemctl \
+                        restart iic-helpdesk-backend.service
+
+                    echo "Backend restarted."
                 '''
             }
         }
@@ -183,7 +176,12 @@ pipeline {
                 sh '''
                     set -e
 
-                    sudo -n /usr/bin/systemctl restart iic-helpdesk-frontend.service
+                    echo "Restarting frontend..."
+
+                    sudo -n /usr/bin/systemctl \
+                        restart iic-helpdesk-frontend.service
+
+                    echo "Frontend restarted."
                 '''
             }
         }
@@ -205,8 +203,6 @@ pipeline {
                     curl --fail --silent --show-error \
                         http://127.0.0.1:3000/ \
                         > /dev/null
-
-                    echo
 
                     echo "All health checks passed."
                 '''
