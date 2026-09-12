@@ -76,7 +76,7 @@ pipeline {
 
                     echo "Deploying backend source..."
 
-                    rsync -a \
+                    rsync -a --no-owner --no-group \\
                         --delete \
                         --exclude='.env' \
                         --exclude='venv/' \
@@ -123,7 +123,7 @@ pipeline {
 
                     echo "Deploying frontend..."
 
-                    rsync -a \
+                    rsync -a --no-owner --no-group \\
                         --delete \
                         --exclude='node_modules/' \
                         frontend/ \
