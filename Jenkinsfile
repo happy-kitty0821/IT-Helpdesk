@@ -45,6 +45,18 @@ pipeline {
             }
         }
 
+        stage('Backend - Tests') {
+            steps {
+                sh '''
+                    set -e
+
+                    cd backend
+
+                    "$BACKEND_PYTHON" manage.py test
+                '''
+            }
+        }
+
         stage('Frontend - Install Dependencies') {
             steps {
                 sh '''
@@ -77,10 +89,11 @@ pipeline {
                     echo "Deploying backend source..."
 
                     rsync -a \
-    --no-owner \
-    --no-group \
-    --no-times \
-    --delete \
+                        --no-owner \
+                        --no-group \
+                        --no-times \
+                        --no-perms \
+                        --delete \
                         --exclude='.env' \
                         --exclude='venv/' \
                         --exclude='db.sqlite3' \
@@ -127,10 +140,11 @@ pipeline {
                     echo "Deploying frontend..."
 
                     rsync -a \
-    --no-owner \
-    --no-group \
-    --no-times \
-    --delete \
+                        --no-owner \
+                        --no-group \
+                        --no-times \
+                        --no-perms \
+                        --delete \
                         --exclude='node_modules/' \
                         frontend/ \
                         "$FRONTEND_DIR"/
@@ -183,6 +197,7 @@ pipeline {
                         http://127.0.0.1:8000/api/v1/health/
 
                     echo
+
                     echo "Checking frontend..."
 
                     curl --fail --silent --show-error \
@@ -190,6 +205,7 @@ pipeline {
                         > /dev/null
 
                     echo
+
                     echo "All health checks passed."
                 '''
             }
