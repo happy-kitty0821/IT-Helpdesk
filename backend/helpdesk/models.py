@@ -34,6 +34,7 @@ class ServiceCategory(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    form_schema = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ('sort_order', 'name')
@@ -77,6 +78,7 @@ class Ticket(models.Model):
         related_name='assigned_tickets',
     )
     team = models.CharField(max_length=100, blank=True, default='')
+    extra_fields = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ('-created_at',)

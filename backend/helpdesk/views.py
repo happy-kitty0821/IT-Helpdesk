@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 from .models import GuideArticle, ServiceCategory, SoftwareResource, Ticket
 from .permissions import IsAdministrator, IsContentEditor, IsServiceLead
 from .serializers import (
+    AdminServiceCategorySerializer,
     GoogleCredentialSerializer,
     LoginSerializer,
     RegistrationSerializer,
@@ -482,3 +483,48 @@ class UserRoleDetail(APIView):
                 if not remaining:
                     User.objects.filter(pk=target.pk).update(is_superuser=False)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminServiceCategoryList(generics.ListCreateAPIView):
+    permission_classes = (IsServiceLead,)
+    serializer_class = AdminServiceCategorySerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return ServiceCategory.objects.order_by('sort_order', 'name')
+
+
+class AdminServiceCategoryDetail(generics.RetrieveUpdateAPIView):
+    permission_classes = (IsServiceLead,)
+    serializer_class = AdminServiceCategorySerializer
+    queryset = ServiceCategory.objects.all()
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+
+class AdminServiceCategoryReorder(APIView):
+    permission_classes = (IsServiceLead,)
+
+    def post(self, request):
+        data = request.data
+        if not isinstance(data, list):
+            return Response({'detail': 'Payload must be a JSON array.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(data) > 100:
+            return Response({'detail': 'Payload may contain at most 100 items.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Validate each item
+        for item in data:
+            if not isinstance(item, dict) or 'id' not in item or 'sort_order' not in item:
+                return Response({'detail': 'Each item must have id and sort_order.'}, status=status.HTTP_400_BAD_REQUEST)
+            if not isinstance(item['sort_order'], int) or not (0 <= item['sort_order'] <= 32767):
+                return Response({'detail': 'sort_order must be an integer between 0 and 32767.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Verify all ids exist
+        ids = [item['id'] for item in data]
+        found_ids = set(ServiceCategory.objects.filter(pk__in=ids).values_list('pk', flat=True))
+        missing = [i for i in ids if i not in found_ids]
+        if missing:
+            return Response({'detail': f'Category id(s) not found: {missing}.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Apply atomically
+        from django.db import transaction as db_transaction
+        with db_transaction.atomic():
+            for item in data:
+                ServiceCategory.objects.filter(pk=item['id']).update(sort_order=item['sort_order'])
+        return Response({'detail': 'Sort order updated.'}, status=status.HTTP_200_OK)

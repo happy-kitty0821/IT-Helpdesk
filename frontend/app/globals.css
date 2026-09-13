@@ -419,7 +419,96 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
   .user-summary { width: 100%; }
 }
 
+/* ── DynamicField component ───────────────────────────────────────────────── */
+.ticket-form-field { display: grid; gap: 8px; }
+.ticket-form-field > label { display: grid; gap: 8px; font-weight: 750; }
+.ticket-form-field__checkbox-label { display: flex !important; flex-direction: row; align-items: center; gap: 10px; font-weight: 750; cursor: pointer; }
+.ticket-form-field__checkbox-label input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; }
+.ticket-form-field__required { color: var(--accent); margin-left: 3px; }
+.ticket-form-field__help { color: var(--muted); font-size: .85rem; font-weight: 400; }
+.field-error { color: #b91c1c; font-size: .85rem; font-weight: 600; }
+[data-theme="dark"] .field-error { color: #fca5a5; }
+.ticket-form-field input:not([type="checkbox"]),
+.ticket-form-field select,
+.ticket-form-field textarea { border-color: var(--control); }
+.ticket-form-field input[aria-invalid="true"],
+.ticket-form-field select[aria-invalid="true"],
+.ticket-form-field textarea[aria-invalid="true"] { border-color: #b91c1c; outline-color: #b91c1c; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
 
+
+/* ── Ticket confirmation screen ─────────────────────────────────────────── */
+.ticket-confirmation { padding-block: 60px; display: grid; gap: 16px; justify-items: start; }
+.ticket-confirmation svg { width: 48px; height: 48px; color: var(--success); }
+.ticket-confirmation h1 { font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -.04em; margin-bottom: 0; }
+.ticket-confirmation p { color: var(--muted); margin: 0; }
+.ticket-confirmation strong { color: var(--foreground); }
+
+/* ── Dynamic field wrapper ───────────────────────────────────────────────── */
+.ticket-form-field { display: grid; gap: 8px; font-weight: 750; }
+.ticket-form-field label { display: grid; gap: 8px; }
+.ticket-form-field__checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.ticket-form-field__checkbox-label input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; }
+.ticket-form-field__required { color: var(--accent); margin-left: 2px; }
+.ticket-form-field__help { color: var(--muted); font-size: .875rem; font-weight: 450; }
+.field-error { color: #b91c1c; font-size: .875rem; font-weight: 600; }
+[data-theme="dark"] .field-error { color: #fca5a5; }
+
+/* ── FieldBuilder component ──────────────────────────────────────────────── */
+.field-builder { display: grid; gap: 8px; }
+
+.field-builder-empty { color: #64748b; font-size: .9rem; padding: 20px; text-align: center; border: 1px dashed #94a3b8; border-radius: 10px; margin: 0; }
+
+.field-row { border: 1px solid #dbe2ee; border-radius: 10px; background: #fff; overflow: hidden; }
+
+.field-row-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; cursor: pointer; user-select: none; transition: background 120ms ease; }
+.field-row-header:hover { background: #f8faff; }
+.field-row-header:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+.field-row-summary { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.field-row-label { font-weight: 600; font-size: .9rem; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-row-unnamed { color: #94a3b8; font-style: italic; font-weight: 400; }
+.field-row-required { color: var(--accent); font-weight: 800; font-size: .9rem; }
+
+.field-row-actions { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+
+.field-move-btn, .field-delete-btn { width: 28px; height: 28px; border: 1px solid #dbe2ee; border-radius: 7px; background: #fff; color: #475569; font-size: .72rem; cursor: pointer; display: grid; place-items: center; padding: 0; transition: border-color 120ms ease, color 120ms ease; }
+.field-move-btn:hover:not(:disabled) { border-color: #94a3b8; color: #1e293b; }
+.field-move-btn:disabled { opacity: .35; cursor: not-allowed; }
+.field-delete-btn { color: #b91c1c; }
+.field-delete-btn:hover { border-color: #fca5a5; background: #fef2f2; }
+
+.field-type-badge { border-radius: 999px; padding: 2px 8px; font-size: .72rem; font-weight: 800; letter-spacing: .03em; flex-shrink: 0; }
+.badge-text     { color: #1e40af; background: #dbeafe; }
+.badge-textarea { color: #5b21b6; background: #ede9fe; }
+.badge-select   { color: #065f46; background: #d1fae5; }
+.badge-email    { color: #92400e; background: #fef3c7; }
+.badge-phone    { color: #9a3412; background: #ffedd5; }
+.badge-checkbox { color: #1e293b; background: #f1f5f9; }
+
+.field-row-body { border-top: 1px solid #e2e8f0; padding: 14px; background: #f8fafc; }
+
+.field-row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field-row-full { grid-column: 1 / -1; }
+
+.field-row-input-label { display: grid; gap: 5px; font-size: .82rem; font-weight: 700; color: #374151; }
+.field-row-input-label input,
+.field-row-input-label select,
+.field-row-input-label textarea { width: 100%; border: 1px solid #94a3b8; border-radius: 8px; padding: 7px 9px; font-size: .85rem; font-weight: 400; background: #fff; color: #0f172a; }
+.field-row-input-label textarea { resize: vertical; }
+.field-row-input-label small { color: #64748b; font-weight: 400; }
+
+.field-row-checkbox-label { flex-direction: row; align-items: center; }
+.field-row-checkbox-label input[type="checkbox"] { width: 16px; height: 16px; justify-self: start; }
+
+.field-builder-add { margin-top: 4px; width: 100%; min-height: 40px; border: 1.5px dashed #8fa8de; border-radius: 10px; background: #f8faff; color: #234395; font-weight: 750; font-size: .88rem; cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+.field-builder-add:hover { background: #edf3ff; border-color: #234395; }
+
+/* ── Services admin page ─────────────────────────────────────────────────── */
+.services-table .table-head,
+.services-table article { grid-template-columns: minmax(180px, 1.6fr) .55fr .55fr .55fr 40px; }
+.schema-section { border-top: 1px solid #e2e8f0; margin-top: 4px; padding-top: 16px; }
+.schema-section > h3 { font-size: .88rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 10px; }

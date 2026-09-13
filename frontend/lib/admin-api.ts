@@ -1,4 +1,5 @@
 ﻿import { csrfToken } from "@/lib/auth";
+import type { FieldDefinition } from "./services";
 
 export type Guide = {
   id: number;
@@ -43,6 +44,18 @@ export type ManagedUser = {
   date_joined: string;
   last_login: string | null;
   roles: RoleValue[];
+};
+
+export type AdminService = {
+  id: number;
+  name: string;
+  slug: string;
+  summary: string;
+  audience: 'public' | 'student' | 'staff' | 'all';
+  icon: string;
+  sort_order: number;
+  is_active: boolean;
+  form_schema: FieldDefinition[];
 };
 
 export type RoleGrant = {
@@ -146,6 +159,31 @@ export async function revokeRole(userId: number, role: RoleValue): Promise<void>
     headers: { "X-CSRFToken": token },
   });
   if (!response.ok && response.status !== 404) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(messageFrom(data));
+  }
+}
+
+/** Fetch all service categories for the admin panel. */
+export async function adminGetServices(): Promise<AdminService[]> {
+  return adminGet<AdminService[]>('services');
+}
+
+/** Create or update a service category. */
+export async function adminSaveService(body: Partial<AdminService>, id?: number): Promise<AdminService> {
+  return adminSave<AdminService>('services', body as object, id);
+}
+
+/** Atomically update sort_order for multiple categories. */
+export async function adminReorderServices(order: { id: number; sort_order: number }[]): Promise<void> {
+  const token = await csrfToken();
+  const response = await fetch('/api/v1/admin/services/reorder/', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token },
+    body: JSON.stringify(order),
+  });
+  if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(messageFrom(data));
   }

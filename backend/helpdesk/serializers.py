@@ -82,7 +82,21 @@ class GoogleCredentialSerializer(serializers.Serializer):
 class ServiceCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceCategory
-        fields = ('id', 'name', 'slug', 'summary', 'audience', 'icon')
+        fields = ('id', 'name', 'slug', 'summary', 'audience', 'icon', 'form_schema')
+
+
+class AdminServiceCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceCategory
+        fields = (
+            'id', 'name', 'slug', 'summary', 'audience', 'icon',
+            'sort_order', 'is_active', 'form_schema',
+        )
+
+    def validate_form_schema(self, value):
+        from .validators import validate_form_schema
+        validate_form_schema(value)
+        return value
 
 
 class TicketSerializer(serializers.ModelSerializer):
@@ -92,13 +106,14 @@ class TicketSerializer(serializers.ModelSerializer):
     assigned_to = serializers.PrimaryKeyRelatedField(read_only=True)
     team = serializers.CharField(read_only=True)
     assignee_name = serializers.SerializerMethodField()
+    extra_fields = serializers.JSONField(default=dict)
 
     class Meta:
         model = Ticket
         fields = (
             'id', 'reference', 'requester', 'category', 'subject', 'description',
             'status', 'priority', 'assigned_to', 'team', 'assignee_name',
-            'created_at', 'updated_at',
+            'extra_fields', 'created_at', 'updated_at',
         )
 
     def get_assignee_name(self, obj):
@@ -117,6 +132,20 @@ class TicketSerializer(serializers.ModelSerializer):
         if len(value) < 20:
             raise serializers.ValidationError('Describe the issue in at least 20 characters.')
         return value
+
+    def validate(self, attrs):
+        category = attrs.get('category') or (self.instance.category if self.instance else None)
+        extra_fields = attrs.get('extra_fields', {})
+        if category and hasattr(category, 'form_schema'):
+            from .validators import validate_extra_fields
+            validate_extra_fields(extra_fields, category.form_schema)
+        return attrs
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        if rep.get('extra_fields') is None:
+            rep['extra_fields'] = {}
+        return rep
 
     def create(self, validated_data):
         return Ticket.objects.create(requester=self.context['request'].user, **validated_data)
