@@ -33,6 +33,7 @@ export function SiteHeader() {
           <Link href="#services">Services</Link>
           <Link href="#status">Status</Link>
           {user ? <span className="account-name" title={user.email}>{user.name}</span> : <Link href="/login">Sign in</Link>}
+          {user && <Link href="/tickets" className="text-button">My tickets</Link>}
           {user?.is_superuser && <Link href="/admin" className="admin-link">Admin</Link>}
           {user && <button type="button" className="text-button" onClick={signOut}>Sign out</button>}
           <Link href="/tickets/new" className="nav-action">Request support</Link>

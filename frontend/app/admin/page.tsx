@@ -21,6 +21,7 @@ export default function AdminOverview() {
         <article><Boxes aria-hidden="true" /><span>Active software</span><strong>{summary.active_software}</strong><small>{summary.software} total</small></article>
       </section>}
       <section className="admin-actions"><h2>Content management</h2><div><Link href="/admin/guides"><BookOpen aria-hidden="true" /><span><strong>Guides</strong><small>Create, review, publish, or archive help articles.</small></span></Link><Link href="/admin/software"><Boxes aria-hidden="true" /><span><strong>Software catalogue</strong><small>Manage approved downloads, platforms, versions, and linked guides.</small></span></Link></div></section>
+      <section className="admin-actions"><h2>Queue management</h2><div><Link href="/admin/tickets"><CircleDot aria-hidden="true" /><span><strong>Tickets</strong><small>Review and manage all support requests in the queue.</small></span></Link></div></section>
       <section className="admin-actions"><h2>Access management</h2><div><Link href="/admin/users"><Users aria-hidden="true" /><span><strong>Users and permissions</strong><small>Review accounts and manage staff, superuser, or active status.</small></span></Link></div></section>
     </div>
   );

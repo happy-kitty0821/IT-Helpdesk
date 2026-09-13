@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Boxes, Gauge, Home, LayoutGrid, LoaderCircle, ShieldAlert, Users } from "lucide-react";
+import { BookOpen, Boxes, CircleDot, Gauge, Home, LayoutGrid, LoaderCircle, ShieldAlert, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -8,6 +8,7 @@ import type { AuthUser } from "@/lib/auth";
 
 const navigation = [
   { href: "/admin", label: "Overview", icon: Gauge },
+  { href: "/admin/tickets", label: "Tickets", icon: CircleDot },
   { href: "/admin/services", label: "Services", icon: LayoutGrid },
   { href: "/admin/guides", label: "Guides", icon: BookOpen },
   { href: "/admin/software", label: "Software", icon: Boxes },

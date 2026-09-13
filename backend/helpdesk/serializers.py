@@ -147,8 +147,6 @@ class TicketSerializer(serializers.ModelSerializer):
             rep['extra_fields'] = {}
         return rep
 
-    def create(self, validated_data):
-        return Ticket.objects.create(requester=self.context['request'].user, **validated_data)
 
 
 class GuideArticleSerializer(serializers.ModelSerializer):

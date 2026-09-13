@@ -207,7 +207,18 @@ class TicketListCreate(generics.ListCreateAPIView):
     serializer_class = TicketSerializer
 
     def get_queryset(self):
-        return Ticket.objects.filter(requester=self.request.user).select_related('category')
+        from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
+        roles = get_user_roles(self.request.user)
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
+        if roles.intersection(staff_roles):
+            # Staff see all tickets (intern scope filtering restricts by category)
+            qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
+            if user_has_intern_scope_only(self.request.user):
+                qs = qs.filter(category__slug__in=get_intern_scope_slugs())
+            return qs
+        # Regular users see only their own tickets
+        return Ticket.objects.filter(requester=self.request.user).select_related('category', 'assigned_to')
 
     def perform_create(self, serializer):
         category = serializer.validated_data.get('category')

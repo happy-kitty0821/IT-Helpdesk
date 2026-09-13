@@ -512,3 +512,31 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .services-table article { grid-template-columns: minmax(180px, 1.6fr) .55fr .55fr .55fr 40px; }
 .schema-section { border-top: 1px solid #e2e8f0; margin-top: 4px; padding-top: 16px; }
 .schema-section > h3 { font-size: .88rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 10px; }
+
+/* ── My Tickets page ─────────────────────────────────────────────────────── */
+.tickets-page { padding-block: 42px 80px; }
+.tickets-page .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 32px; }
+.tickets-page h1 { font-size: clamp(2.2rem, 4vw, 3.4rem); letter-spacing: -.04em; margin: 6px 0 0; }
+.ticket-list { display: grid; gap: 14px; }
+.ticket-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px; display: grid; gap: 8px; transition: border-color 160ms, box-shadow 160ms; }
+.ticket-card:hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--border)); box-shadow: 0 8px 24px rgba(15,23,42,.07); }
+.ticket-card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ticket-reference { font-family: ui-monospace, monospace; font-size: .8rem; font-weight: 800; color: var(--brand); background: var(--brand-soft); border-radius: 6px; padding: 3px 8px; }
+.ticket-card h2 { font-size: 1.05rem; margin: 0; }
+.ticket-card-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: .83rem; align-items: center; }
+.ticket-status { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 10px; font-size: .76rem; font-weight: 800; }
+.ticket-status-submitted  { color: #92400e; background: #fef3c7; }
+.ticket-status-triaged    { color: #1e40af; background: #dbeafe; }
+.ticket-status-in_progress { color: #3730a3; background: #e0e7ff; }
+.ticket-status-waiting    { color: #9a3412; background: #ffedd5; }
+.ticket-status-resolved   { color: #166534; background: #dcfce7; }
+.ticket-status-closed     { color: #475569; background: #f1f5f9; }
+.ticket-status-cancelled  { color: #991b1b; background: #fee2e2; }
+.ticket-priority-p1 { color: #b91c1c; font-weight: 700; }
+.ticket-priority-p2 { color: #c2410c; font-weight: 700; }
+.ticket-priority-p3 { color: var(--muted); }
+.ticket-priority-p4 { color: var(--muted); }
+.tickets-empty { min-height: 320px; display: grid; place-content: center; justify-items: center; text-align: center; border: 1px dashed var(--control); border-radius: 18px; background: var(--surface); gap: 10px; }
+.tickets-empty svg { width: 40px; height: 40px; color: var(--brand); }
+.tickets-empty h2 { margin: 8px 0 4px; }
+.tickets-empty p { color: var(--muted); margin: 0 0 14px; }
