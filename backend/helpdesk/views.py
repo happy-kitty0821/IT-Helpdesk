@@ -49,7 +49,7 @@ _AUDIENCE_MAP = {
     'it_agent': {'public', 'student', 'staff', 'all'},
     'it_noc_intern': {'public', 'student', 'staff', 'all'},
     'faculty_staff': {'public', 'student', 'staff', 'all'},
-    'student': {'public', 'student'},
+    'student': {'public', 'student', 'all'},
     'visitor': {'public', 'all'},
 }
 
@@ -62,7 +62,7 @@ _ROLE_PRIORITY = [
 def get_permitted_audiences(request) -> set:
     """Return the set of audience values the requesting user may access."""
     if not request.user or not request.user.is_authenticated:
-        return {'public'}
+        return {'public', 'all'}
     from .permissions import get_user_roles
     roles = get_user_roles(request.user)
     for role in _ROLE_PRIORITY:

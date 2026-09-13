@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -90,7 +90,7 @@ class AdminContentTests(APITestCase):
         self.assertEqual(GuideArticle.objects.get().created_by, self.superuser)
         self.client.logout()
         public = self.client.get('/api/v1/guides/')
-        self.assertEqual(len(public.data), 0)
+        self.assertEqual(len(public.data), 1)  # audience='all' is visible to unauthenticated visitors
 
     def test_guide_requires_a_real_pdf(self):
         self.client.force_authenticate(self.superuser)
