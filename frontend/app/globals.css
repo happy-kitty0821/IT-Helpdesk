@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --brand: #234395;
   --brand-hover: #1b3476;
   --brand-soft: #eef2ff;
@@ -341,6 +341,14 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .permission-options span { display: grid; }
 .permission-options small { color: #64748b; font-weight: 400; }
 .account-date { margin: 0; color: #64748b; font-size: .8rem; }
+.permission-options.role-permissions { max-height: 340px; overflow-y: auto; }
+.permission-options legend { display: flex; align-items: center; gap: 8px; }
+.permission-options legend .spin { width: 14px; height: 14px; animation: spin 0.7s linear infinite; color: #234395; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.role-row { cursor: pointer; transition: background 120ms; }
+.role-row:hover { background: #f8fafc; }
+.role-row.active strong { color: #234395; }
+.role-row input:disabled { opacity: .4; cursor: not-allowed; }
 
 @media (max-width: 900px) {
   nav > a:not(.nav-action) { display: none; }
