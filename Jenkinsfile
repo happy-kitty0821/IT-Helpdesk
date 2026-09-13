@@ -160,26 +160,18 @@ pipeline {
         }
 
         stage('Deploy Frontend') {
-            steps {
-                sh '''
-                    set -e
+    steps {
+        sh '''
+            set -e
+            echo "Deploying frontend..."
 
-                    echo "Deploying frontend..."
+            sudo -n -u iicapp \
+                /usr/local/sbin/iic-helpdesk-deploy-frontend
 
-                    rsync -a \
-                        --no-owner \
-                        --no-group \
-                        --no-times \
-                        --no-perms \
-                        --delete \
-                        --exclude='node_modules/' \
-                        frontend/ \
-                        "$FRONTEND_DIR"/
-
-                    echo "Frontend deployment completed."
-                '''
-            }
-        }
+            echo "Frontend deployment completed."
+        '''
+    }
+}
 
         stage('Frontend - Install Production Dependencies') {
             steps {
