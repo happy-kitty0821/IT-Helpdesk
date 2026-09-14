@@ -148,6 +148,34 @@ class TicketSerializer(serializers.ModelSerializer):
         return rep
 
 
+class TicketUpdateSerializer(serializers.ModelSerializer):
+    """
+    Staff-facing partial update serializer.
+    Allows editing subject, description, priority, and status.
+    Status is writable only by staff — validated by the view.
+    """
+    class Meta:
+        model = Ticket
+        fields = ('subject', 'description', 'priority', 'status')
+
+    def validate_subject(self, value):
+        value = value.strip()
+        if len(value) < 5:
+            raise serializers.ValidationError('Use at least 5 characters.')
+        return value
+
+    def validate_description(self, value):
+        value = value.strip()
+        if len(value) < 20:
+            raise serializers.ValidationError('Describe the issue in at least 20 characters.')
+        return value
+
+
+class TicketStatusSerializer(serializers.Serializer):
+    """Used for the POST /tickets/{id}/status/ transition endpoint."""
+    status = serializers.ChoiceField(choices=Ticket.Status.choices)
+    note = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
 
 class GuideArticleSerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()

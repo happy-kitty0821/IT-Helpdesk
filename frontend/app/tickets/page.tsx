@@ -177,27 +177,29 @@ export default function MyTicketsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.22, delay: Math.min(index * 0.05, 0.3) }}
               >
-                <article className="ticket-card">
-                  <div className="ticket-card-top">
-                    <span className="ticket-reference">{ticket.reference}</span>
-                    <span className={STATUS_CSS[ticket.status]}>
-                      {STATUS_LABELS[ticket.status]}
-                    </span>
-                  </div>
-                  <h2>{ticket.subject}</h2>
-                  <div className="ticket-card-meta">
-                    {serviceMap.has(ticket.category) && (
-                      <span>{serviceMap.get(ticket.category)}</span>
-                    )}
-                    <span>{formatDate(ticket.created_at)}</span>
-                    <span className={`ticket-priority-${ticket.priority}`}>
-                      {PRIORITY_LABELS[ticket.priority]}
-                    </span>
-                    {ticket.assignee_name && (
-                      <span>Assigned to {ticket.assignee_name}</span>
-                    )}
-                  </div>
-                </article>
+                <Link href={`/tickets/${ticket.id}`} style={{ display: "block" }}>
+                  <article className="ticket-card">
+                    <div className="ticket-card-top">
+                      <span className="ticket-reference">{ticket.reference}</span>
+                      <span className={STATUS_CSS[ticket.status]}>
+                        {STATUS_LABELS[ticket.status]}
+                      </span>
+                    </div>
+                    <h2>{ticket.subject}</h2>
+                    <div className="ticket-card-meta">
+                      {serviceMap.has(ticket.category) && (
+                        <span>{serviceMap.get(ticket.category)}</span>
+                      )}
+                      <span>{formatDate(ticket.created_at)}</span>
+                      <span className={`ticket-priority-${ticket.priority}`}>
+                        {PRIORITY_LABELS[ticket.priority]}
+                      </span>
+                      {ticket.assignee_name && (
+                        <span>Assigned to {ticket.assignee_name}</span>
+                      )}
+                    </div>
+                  </article>
+                </Link>
               </motion.li>
             ))}
           </ol>

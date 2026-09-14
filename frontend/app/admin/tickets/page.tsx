@@ -1,8 +1,9 @@
 ﻿"use client";
 
-import { motion } from "motion/react";
-import { CircleDot, Clock, Filter, Inbox, TicketCheck } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { CircleDot, Clock, Filter, Inbox, Pencil, TicketCheck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { csrfToken } from "@/lib/auth";
 
 interface AdminTicket {
   id: string;
@@ -10,6 +11,7 @@ interface AdminTicket {
   requester: number;
   category: number;
   subject: string;
+  description: string;
   status: string;
   priority: string;
   created_at: string;
@@ -23,6 +25,17 @@ interface ServiceCategory {
   id: number;
   name: string;
   slug: string;
+}
+
+function messageFrom(data: unknown): string {
+  if (data && typeof data === "object") {
+    const r = data as Record<string, unknown>;
+    if (typeof r.detail === "string") return r.detail;
+    for (const v of Object.values(r)) {
+      if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+    }
+  }
+  return "The change could not be saved.";
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -108,6 +121,16 @@ export default function AdminTicketsPage() {
   const [error, setError]             = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
+  // Editor panel state
+  const [editing, setEditing]         = useState<AdminTicket | null>(null);
+  const [saving, setSaving]           = useState(false);
+  const [panelError, setPanelError]   = useState("");
+  const [panelNotice, setPanelNotice] = useState("");
+  const [draftSubject, setDraftSubject]           = useState("");
+  const [draftDescription, setDraftDescription]   = useState("");
+  const [draftPriority, setDraftPriority]         = useState("");
+  const [draftStatus, setDraftStatus]             = useState("");
+
   useEffect(() => {
     Promise.all([
       fetch("/api/v1/tickets/", { credentials: "include", cache: "no-store" }).then((r) => {
@@ -130,6 +153,48 @@ export default function AdminTicketsPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load tickets."))
       .finally(() => setLoading(false));
   }, []);
+
+  function openEditor(ticket: AdminTicket) {
+    setEditing(ticket);
+    setDraftSubject(ticket.subject);
+    setDraftDescription(ticket.description ?? "");
+    setDraftPriority(ticket.priority);
+    setDraftStatus(ticket.status);
+    setPanelError("");
+    setPanelNotice("");
+  }
+
+  async function saveTicket() {
+    if (!editing) return;
+    setSaving(true);
+    setPanelError("");
+    try {
+      const token = await csrfToken();
+      const res = await fetch(`/api/v1/tickets/${editing.id}/`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify({
+          subject: draftSubject,
+          description: draftDescription,
+          priority: draftPriority,
+          status: draftStatus,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPanelError(messageFrom(data));
+      } else {
+        setTickets(prev => prev.map(t => t.id === editing.id ? { ...t, ...data } : t));
+        setEditing(data as AdminTicket);
+        setPanelNotice("Ticket updated.");
+      }
+    } catch {
+      setPanelError("Could not save changes.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const categoryMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -211,7 +276,8 @@ export default function AdminTicketsPage() {
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(index * 0.03, 0.2) }}
-                  style={{ gridTemplateColumns: ".9fr 1.5fr .8fr .7fr .65fr .7fr .6fr", display: "grid", gap: 14, alignItems: "center", padding: "14px 18px", borderTop: "1px solid #edf1f7", color: "#475569", fontSize: ".85rem" }}
+                  onClick={() => openEditor(ticket)}
+                  style={{ gridTemplateColumns: ".9fr 1.5fr .8fr .7fr .65fr .7fr .6fr", display: "grid", gap: 14, alignItems: "center", padding: "14px 18px", borderTop: "1px solid #edf1f7", color: "#475569", fontSize: ".85rem", cursor: "pointer" }}
                 >
                   <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#234395", fontSize: ".8rem" }}>
                     {ticket.reference}
@@ -234,6 +300,107 @@ export default function AdminTicketsPage() {
           </section>
         </>
       )}
+
+      {/* Ticket editor panel */}
+      <AnimatePresence>
+        {editing && (
+          <motion.aside
+            key="ticket-editor"
+            className="editor-panel guide-editor"
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 40 }}
+            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+            aria-label="Edit ticket"
+          >
+            {/* Panel header */}
+            <div className="editor-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Pencil size={16} aria-hidden="true" />
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#234395", fontSize: ".85rem" }}>
+                  {editing.reference}
+                </span>
+              </div>
+              <button
+                onClick={() => setEditing(null)}
+                aria-label="Close editor"
+                className="secondary-button"
+                style={{ padding: "4px 8px", lineHeight: 1 }}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
+                Subject
+                <input
+                  type="text"
+                  value={draftSubject}
+                  onChange={(e) => setDraftSubject(e.target.value)}
+                  style={{ fontWeight: 400 }}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
+                Description
+                <textarea
+                  value={draftDescription}
+                  onChange={(e) => setDraftDescription(e.target.value)}
+                  rows={6}
+                  style={{ resize: "vertical", fontWeight: 400 }}
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
+                Priority
+                <select value={draftPriority} onChange={(e) => setDraftPriority(e.target.value)}>
+                  <option value="p1">Critical</option>
+                  <option value="p2">High</option>
+                  <option value="p3">Normal</option>
+                  <option value="p4">Low</option>
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
+                Status
+                <select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)}>
+                  <option value="submitted">Submitted</option>
+                  <option value="triaged">Triaged</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="waiting_requester">Waiting</option>
+                  <option value="waiting_approval">Awaiting Approval</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </label>
+
+              {panelNotice && (
+                <p role="status" style={{ color: "#166534", background: "#dcfce7", borderRadius: 8, padding: "8px 12px", fontSize: ".875rem", margin: 0 }}>
+                  {panelNotice}
+                </p>
+              )}
+              {panelError && (
+                <p role="alert" style={{ color: "#991b1b", background: "#fee2e2", borderRadius: 8, padding: "8px 12px", fontSize: ".875rem", margin: 0 }}>
+                  {panelError}
+                </p>
+              )}
+
+              <div className="editor-actions">
+                <button
+                  className="primary-button"
+                  onClick={saveTicket}
+                  disabled={saving}
+                >
+                  {saving ? "Saving…" : "Save changes"}
+                </button>
+              </div>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

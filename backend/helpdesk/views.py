@@ -233,15 +233,111 @@ class TicketListCreate(generics.ListCreateAPIView):
         serializer.save(requester=self.request.user)
 
 
-class TicketDetail(generics.RetrieveAPIView):
+class TicketDetail(generics.RetrieveUpdateAPIView):
     serializer_class = TicketSerializer
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_serializer_class(self):
+        if self.request.method == 'PATCH':
+            from .serializers import TicketUpdateSerializer
+            return TicketUpdateSerializer
+        return TicketSerializer
 
     def get_queryset(self):
-        from .permissions import user_has_intern_scope_only, get_intern_scope_slugs
+        from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
+        roles = get_user_roles(self.request.user)
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
         qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
-        if user_has_intern_scope_only(self.request.user):
-            qs = qs.filter(category__slug__in=get_intern_scope_slugs())
+        if roles.intersection(staff_roles):
+            # Staff can access all tickets (with intern scope restriction)
+            if user_has_intern_scope_only(self.request.user):
+                qs = qs.filter(category__slug__in=get_intern_scope_slugs())
+        else:
+            # Regular users can only access their own tickets
+            qs = qs.filter(requester=self.request.user)
         return qs
+
+    def check_patch_permission(self, ticket):
+        """Staff can patch anything; requesters cannot patch via this endpoint."""
+        from .permissions import get_user_roles
+        roles = get_user_roles(self.request.user)
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
+        if not roles.intersection(staff_roles):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only staff may update ticket details.')
+
+    def partial_update(self, request, *args, **kwargs):
+        ticket = self.get_object()
+        self.check_patch_permission(ticket)
+        # Prevent status changes on closed/cancelled tickets
+        if ticket.status in ('closed', 'cancelled'):
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError('This ticket is closed and cannot be edited.')
+        return super().partial_update(request, *args, **kwargs)
+
+
+class TicketStatusView(APIView):
+    """
+    POST /api/v1/tickets/{pk}/status/
+
+    Rules:
+    - Requester can: cancel (if status is submitted or triaged), close (if status is resolved)
+    - Staff can: transition to any valid status
+
+    Valid transitions:
+    Requester: submitted/triaged -> cancelled, resolved -> closed
+    Staff: any -> any (except from closed/cancelled)
+    """
+
+    def post(self, request, pk):
+        from .serializers import TicketStatusSerializer
+        from .permissions import get_user_roles
+
+        try:
+            ticket = Ticket.objects.select_related('requester').get(pk=pk)
+        except Ticket.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = TicketStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_status = serializer.validated_data['status']
+
+        roles = get_user_roles(request.user)
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
+        is_staff = bool(roles.intersection(staff_roles))
+        is_requester = ticket.requester_id == request.user.pk
+
+        if not is_staff and not is_requester:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        current = ticket.status
+
+        if is_staff:
+            # Staff cannot reopen from closed/cancelled
+            if current in ('closed', 'cancelled'):
+                return Response(
+                    {'detail': 'Closed or cancelled tickets cannot be transitioned.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            # Requester rules
+            allowed = {
+                'submitted': ('cancelled',),
+                'triaged': ('cancelled',),
+                'resolved': ('closed',),
+            }
+            if new_status not in allowed.get(current, ()):
+                return Response(
+                    {'detail': f'You cannot move this ticket from "{current}" to "{new_status}".'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        ticket.status = new_status
+        ticket.save(update_fields=['status', 'updated_at'])
+        return Response(TicketSerializer(ticket).data)
 
 
 class TicketAssignView(APIView):

@@ -540,3 +540,26 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .tickets-empty svg { width: 40px; height: 40px; color: var(--brand); }
 .tickets-empty h2 { margin: 8px 0 4px; }
 .tickets-empty p { color: var(--muted); margin: 0 0 14px; }
+
+/* ── Ticket detail page ──────────────────────────────────────────────────── */
+.ticket-detail-page { padding-block: 42px 80px; }
+.ticket-detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 40px; align-items: start; margin-top: 28px; }
+.ticket-detail-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.ticket-detail-subject { font-size: clamp(1.8rem, 4vw, 2.8rem); letter-spacing: -.04em; margin: 0 0 20px; }
+.ticket-description { white-space: pre-wrap; line-height: 1.7; color: var(--foreground); }
+.ticket-extra-fields { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px; }
+.ticket-extra-fields h2 { font-size: .9rem; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 14px; }
+.ticket-extra-fields dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; }
+.ticket-extra-fields dt { font-weight: 700; color: var(--muted); font-size: .88rem; white-space: nowrap; }
+.ticket-extra-fields dd { margin: 0; font-size: .88rem; }
+.ticket-meta-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; display: grid; gap: 14px; }
+.ticket-meta-row { display: grid; gap: 3px; }
+.ticket-meta-row span:first-child { font-size: .75rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.ticket-meta-row span:last-child { font-size: .9rem; }
+.ticket-actions { margin-top: 16px; display: grid; gap: 8px; }
+.danger-button { min-height: 42px; padding: 0 18px; border: 1px solid #fca5a5; border-radius: 9px; background: #fef2f2; color: #b91c1c; font-weight: 800; cursor: pointer; transition: background 160ms, border-color 160ms; }
+.danger-button:hover { background: #fee2e2; border-color: #f87171; }
+.danger-button:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 900px) {
+  .ticket-detail-layout { grid-template-columns: 1fr; }
+}
