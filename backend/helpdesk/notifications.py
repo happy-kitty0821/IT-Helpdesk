@@ -213,14 +213,101 @@ def send_to_channel(channel, event_type: str, context: dict, ticket=None) -> tup
 
 
 def send_event(event_type: str, context: dict, ticket=None):
-    """Send notifications to all active channels for the given event."""
-    from .models import NotificationChannel  # local import
-    channels = NotificationChannel.objects.filter(is_active=True)
-    for channel in channels:
-        try:
-            send_to_channel(channel, event_type, context, ticket=ticket)
-        except Exception as exc:
-            logger.exception('Unexpected error sending to channel %s: %s', channel.id, exc)
+    """
+    Send notifications to channels that have an active rule for this event.
+    Falls back to all active channels if no rules exist for this event
+    (backward-compatible: behaves like before if no rules are configured).
+    """
+    from .models import NotificationChannel, NotificationRule
+
+    rules = NotificationRule.objects.filter(
+        event_type=event_type, is_active=True
+    ).select_related('channel')
+
+    if rules.exists():
+        # Rules configured — use them
+        for rule in rules:
+            if not rule.channel.is_active:
+                continue
+            # Build recipient list for email channels
+            rule_context = dict(context)
+            if rule.channel.type in ('email_smtp', 'email_mailgun'):
+                recipients = _resolve_recipients(rule, context, ticket)
+                if not recipients:
+                    continue
+                for recipient_email in recipients:
+                    ctx = dict(rule_context)
+                    ctx['to_email'] = recipient_email
+                    try:
+                        send_to_channel(rule.channel, event_type, ctx, ticket=ticket)
+                    except Exception as exc:
+                        logger.exception(
+                            'Error sending to channel %s for rule %s: %s',
+                            rule.channel.id, rule.id, exc
+                        )
+            else:
+                # Webhook channels — send once per rule
+                try:
+                    send_to_channel(rule.channel, event_type, rule_context, ticket=ticket)
+                except Exception as exc:
+                    logger.exception(
+                        'Error sending to channel %s for rule %s: %s',
+                        rule.channel.id, rule.id, exc
+                    )
+    else:
+        # No rules configured — fall back to all active channels (backward compat)
+        channels = NotificationChannel.objects.filter(is_active=True)
+        for channel in channels:
+            try:
+                send_to_channel(channel, event_type, context, ticket=ticket)
+            except Exception as exc:
+                logger.exception('Unexpected error sending to channel %s: %s', channel.id, exc)
+
+
+def _resolve_recipients(rule, context: dict, ticket) -> list:
+    """
+    Resolve the list of email addresses for a rule based on recipient_type.
+    """
+    from django.contrib.auth import get_user_model
+    from .models import RoleGrant
+
+    rtype = rule.recipient_type
+
+    if rtype == 'requester':
+        email = context.get('requester_email') or context.get('to_email', '')
+        return [email] if email else []
+
+    elif rtype == 'assignee':
+        if ticket and ticket.assigned_to:
+            email = ticket.assigned_to.email
+            return [email] if email else []
+        return []
+
+    elif rtype == 'all_staff':
+        # All active users with a staff role
+        User = get_user_model()
+        from django.utils import timezone as tz
+        from django.db.models import Q
+        now = tz.now()
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
+        staff_ids = RoleGrant.objects.filter(
+            role__in=staff_roles,
+        ).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+        ).values_list('user_id', flat=True).distinct()
+        emails = list(
+            User.objects.filter(pk__in=staff_ids, is_active=True)
+            .exclude(email='')
+            .values_list('email', flat=True)
+        )
+        return emails
+
+    elif rtype == 'custom':
+        raw = rule.custom_emails or ''
+        return [e.strip() for e in raw.split(',') if e.strip()]
+
+    return []
 
 
 def build_webhook_text(event_type: str, context: dict) -> str:

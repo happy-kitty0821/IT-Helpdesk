@@ -352,3 +352,46 @@ class NotificationLog(models.Model):
 
     def __str__(self):
         return f'{self.event_type} via {self.channel} — {self.status}'
+
+
+class NotificationRule(models.Model):
+    """
+    Controls which channels receive which events and who the recipients are.
+    One rule = one (event_type, channel) pair.
+    """
+
+    class RecipientType(models.TextChoices):
+        REQUESTER = 'requester', 'Ticket requester'
+        ASSIGNEE = 'assignee', 'Assigned staff member'
+        ALL_STAFF = 'all_staff', 'All active staff via email'
+        CUSTOM = 'custom', 'Custom email list'
+
+    event_type = models.CharField(
+        max_length=30,
+        choices=EmailTemplate.EventType.choices,
+    )
+    channel = models.ForeignKey(
+        NotificationChannel,
+        on_delete=models.CASCADE,
+        related_name='rules',
+    )
+    is_active = models.BooleanField(default=True)
+    recipient_type = models.CharField(
+        max_length=20,
+        choices=RecipientType.choices,
+        default=RecipientType.REQUESTER,
+    )
+    custom_emails = models.TextField(
+        blank=True,
+        default='',
+        help_text='Comma-separated list of email addresses (only used when recipient_type=custom).',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('event_type', 'channel')
+        ordering = ('event_type', 'channel__name')
+
+    def __str__(self):
+        return f'{self.event_type} → {self.channel.name} ({self.recipient_type})'

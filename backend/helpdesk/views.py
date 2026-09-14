@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, ServiceCategory, SoftwareResource, Ticket
+from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, ServiceCategory, SoftwareResource, Ticket
 from .permissions import IsAdministrator, IsContentEditor, IsServiceLead
 from .serializers import (
     AdminServiceCategorySerializer,
@@ -24,6 +24,7 @@ from .serializers import (
     LoginSerializer,
     NotificationChannelSerializer,
     NotificationLogSerializer,
+    NotificationRuleSerializer,
     RegistrationSerializer,
     RoleGrantSerializer,
     ServiceCategorySerializer,
@@ -732,3 +733,19 @@ class NotificationLogListView(generics.ListAPIView):
         if status_filter:
             qs = qs.filter(status=status_filter)
         return qs
+
+
+class NotificationRuleListCreate(generics.ListCreateAPIView):
+    permission_classes = (IsAdministrator,)
+    serializer_class = NotificationRuleSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return NotificationRule.objects.select_related('channel')
+
+
+class NotificationRuleDetail(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsAdministrator,)
+    serializer_class = NotificationRuleSerializer
+    queryset = NotificationRule.objects.select_related('channel')
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']

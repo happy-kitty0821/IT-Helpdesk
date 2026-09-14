@@ -22,6 +22,8 @@ from .views import (
     NotificationChannelListCreate,
     NotificationChannelTestView,
     NotificationLogListView,
+    NotificationRuleDetail,
+    NotificationRuleListCreate,
     RegisterView,
     PublicGuideList,
     PublicSoftwareList,
@@ -71,4 +73,6 @@ urlpatterns = [
     re_path(r'^admin/notifications/templates/?$', EmailTemplateListCreate.as_view(), name='notification-template-list'),
     re_path(r'^admin/notifications/templates/(?P<pk>[0-9]+)/?$', EmailTemplateDetail.as_view(), name='notification-template-detail'),
     re_path(r'^admin/notifications/logs/?$', NotificationLogListView.as_view(), name='notification-log-list'),
+    re_path(r'^admin/notifications/rules/?$', NotificationRuleListCreate.as_view(), name='notification-rule-list'),
+    re_path(r'^admin/notifications/rules/(?P<pk>[0-9]+)/?$', NotificationRuleDetail.as_view(), name='notification-rule-detail'),
 ]

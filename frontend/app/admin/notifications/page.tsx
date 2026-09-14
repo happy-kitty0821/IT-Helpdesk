@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Pencil,
   Plus,
+  Route,
   Send,
   Settings,
   Trash2,
@@ -54,6 +55,22 @@ interface EmailTemplate {
   updated_at: string;
 }
 
+type RecipientType = 'requester' | 'assignee' | 'all_staff' | 'custom';
+
+interface NotificationRule {
+  id: number;
+  event_type: EventType;
+  channel: number;
+  channel_name: string;
+  channel_type: string;
+  channel_emoji: string;
+  is_active: boolean;
+  recipient_type: RecipientType;
+  custom_emails: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface ConfigField {
   key: string;
   label: string;
@@ -61,6 +78,13 @@ interface ConfigField {
 }
 
 // ─── Metadata ─────────────────────────────────────────────────────────────────
+
+const RECIPIENT_LABELS: Record<RecipientType, string> = {
+  requester: 'Ticket requester',
+  assignee: 'Assigned staff member',
+  all_staff: 'All active staff (email)',
+  custom: 'Custom email list',
+};
 
 const CHANNEL_META: Record<
   ChannelType,
@@ -169,10 +193,45 @@ function messageFrom(data: unknown): string {
   return typeof first === "string" ? first : "An error occurred.";
 }
 
+// ─── CustomEmailInput ─────────────────────────────────────────────────────────
+
+function CustomEmailInput({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: string;
+  disabled: boolean;
+  onSave: (v: string) => void;
+}) {
+  const [local, setLocal] = useState(value);
+  return (
+    <div style={{ marginTop: 4, display: "flex", gap: 4 }}>
+      <input
+        type="text"
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        placeholder="a@b.com, c@d.com"
+        disabled={disabled}
+        style={{ fontSize: ".72rem", border: "1px solid #dbe2ee", borderRadius: 6, padding: "2px 6px", flex: 1, background: "#fff" }}
+        aria-label="Custom email addresses"
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onSave(local)}
+        style={{ fontSize: ".72rem", padding: "2px 7px", border: "1px solid #234395", borderRadius: 6, background: "#234395", color: "#fff", cursor: "pointer" }}
+      >
+        Save
+      </button>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NotificationsPage() {
-  const [activeTab, setActiveTab] = useState<"channels" | "templates">("channels");
+  const [activeTab, setActiveTab] = useState<"channels" | "templates" | "routing">("channels");
 
   // List state
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
@@ -215,6 +274,11 @@ export default function NotificationsPage() {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [lastFocusedField, setLastFocusedField] = useState<"subject" | "body">("body");
 
+  const [rules, setRules] = useState<NotificationRule[]>([]);
+  const [savingRule, setSavingRule] = useState<number | string | null>(null);
+  const [ruleNotice, setRuleNotice] = useState('');
+  const [ruleError, setRuleError] = useState('');
+
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -231,10 +295,15 @@ export default function NotificationsPage() {
         credentials: "include",
         cache: "no-store",
       }).then((r) => (r.ok ? (r.json() as Promise<EmailTemplate[]>) : [])),
+      fetch("/api/v1/admin/notifications/rules/", {
+        credentials: "include",
+        cache: "no-store",
+      }).then((r) => (r.ok ? (r.json() as Promise<NotificationRule[]>) : [])),
     ])
-      .then(([ch, tmpl]) => {
+      .then(([ch, tmpl, ruleData]) => {
         setChannels(Array.isArray(ch) ? ch : []);
         setTemplates(Array.isArray(tmpl) ? tmpl : []);
+        setRules(Array.isArray(ruleData) ? ruleData : []);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load data."))
       .finally(() => setLoading(false));
@@ -499,6 +568,81 @@ export default function NotificationsPage() {
 
   // ─── Derived values ──────────────────────────────────────────────────────────
 
+  /** Find the rule for a given (event_type, channel_id) combination. */
+  function findRule(eventType: EventType, channelId: number): NotificationRule | undefined {
+    return rules.find((r) => r.event_type === eventType && r.channel === channelId);
+  }
+
+  async function toggleRule(eventType: EventType, channelId: number, currentRule: NotificationRule | undefined) {
+    const key = `${eventType}-${channelId}`;
+    setSavingRule(key);
+    setRuleError('');
+    setRuleNotice('');
+    try {
+      const token = await csrfToken();
+      if (currentRule) {
+        // Toggle is_active
+        const res = await fetch(`/api/v1/admin/notifications/rules/${currentRule.id}/`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token },
+          body: JSON.stringify({ is_active: !currentRule.is_active }),
+        });
+        const data = await res.json().catch(() => ({})) as NotificationRule;
+        if (res.ok) {
+          setRules((prev) => prev.map((r) => r.id === currentRule.id ? { ...r, ...data } : r));
+        } else {
+          setRuleError(messageFrom(data));
+        }
+      } else {
+        // Create new rule
+        const res = await fetch('/api/v1/admin/notifications/rules/', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token },
+          body: JSON.stringify({ event_type: eventType, channel: channelId, is_active: true, recipient_type: 'requester' }),
+        });
+        const data = await res.json().catch(() => ({})) as NotificationRule;
+        if (res.ok) {
+          setRules((prev) => [...prev, data]);
+        } else {
+          setRuleError(messageFrom(data));
+        }
+      }
+    } catch {
+      setRuleError('A network error occurred.');
+    } finally {
+      setSavingRule(null);
+    }
+  }
+
+  async function updateRuleRecipient(ruleId: number, recipientType: RecipientType, customEmails?: string) {
+    setSavingRule(ruleId);
+    setRuleError('');
+    try {
+      const token = await csrfToken();
+      const body: Record<string, unknown> = { recipient_type: recipientType };
+      if (customEmails !== undefined) body.custom_emails = customEmails;
+      const res = await fetch(`/api/v1/admin/notifications/rules/${ruleId}/`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': token },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({})) as NotificationRule;
+      if (res.ok) {
+        setRules((prev) => prev.map((r) => r.id === ruleId ? { ...r, ...data } : r));
+        setRuleNotice('Rule updated.');
+      } else {
+        setRuleError(messageFrom(data));
+      }
+    } catch {
+      setRuleError('A network error occurred.');
+    } finally {
+      setSavingRule(null);
+    }
+  }
+
   const channelEditorOpen = editingChannel !== null || creatingChannel;
   const activeChannels = channels.filter((c) => c.is_active).length;
   const activeTemplates = templates.filter((t) => t.is_active).length;
@@ -565,6 +709,15 @@ export default function NotificationsPage() {
         >
           <Mail aria-hidden="true" size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
           Templates
+        </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === "routing"}
+          className={`notif-tab${activeTab === "routing" ? " active" : ""}`}
+          onClick={() => setActiveTab("routing")}
+        >
+          <Route aria-hidden="true" size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+          Routing
         </button>
       </div>
 
@@ -769,6 +922,126 @@ export default function NotificationsPage() {
                   );
                 })}
               </div>
+            </motion.div>
+          )}
+
+          {/* ── Routing tab ── */}
+          {activeTab === "routing" && (
+            <motion.div
+              key="routing"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18 }}
+            >
+              <div style={{ marginBottom: 16 }}>
+                <h2 style={{ margin: 0, fontSize: "1.05rem", color: "#1e293b" }}>Routing rules</h2>
+                <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: ".88rem" }}>
+                  Choose which channels receive each event and who the recipients are.
+                  Tick a cell to enable delivery — the rule is created immediately.
+                  If no rules are configured for an event, all active channels receive it.
+                </p>
+              </div>
+
+              {ruleNotice && (
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="admin-notice" style={{ marginBottom: 16 }} role="status">
+                  {ruleNotice}
+                </motion.p>
+              )}
+              {ruleError && (
+                <p className="admin-error" style={{ marginBottom: 16 }} role="alert">{ruleError}</p>
+              )}
+
+              {channels.length === 0 ? (
+                <div className="admin-loading" style={{ textAlign: "center", color: "#64748b" }}>
+                  Configure at least one channel before setting up routing rules.
+                </div>
+              ) : (
+                <div className="notif-routing-wrap">
+                  {/* Matrix header */}
+                  <div className="notif-routing-table">
+                    <div className="notif-routing-head">
+                      <div className="notif-routing-cell notif-routing-event-col">
+                        <span style={{ color: "#64748b", fontSize: ".75rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".07em" }}>
+                          Event
+                        </span>
+                      </div>
+                      {channels.map((ch) => (
+                        <div key={ch.id} className="notif-routing-cell notif-routing-channel-col" title={ch.name}>
+                          <span className="notif-channel-icon" style={{ width: 32, height: 32, fontSize: ".9rem", margin: "0 auto 4px", display: "grid", placeItems: "center", borderRadius: 9, background: "#eef2ff", color: "#234395" }}>
+                            {CHANNEL_META[ch.type]?.emoji ?? "📢"}
+                          </span>
+                          <span style={{ fontSize: ".72rem", fontWeight: 700, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80, display: "block", textAlign: "center" }}>
+                            {ch.name}
+                          </span>
+                          <span className={`status-chip ${ch.is_active ? "active" : "archived"}`} style={{ margin: "3px auto 0", fontSize: ".68rem" }}>
+                            {ch.is_active ? "Active" : "Off"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Matrix rows — one per event type */}
+                    {(Object.entries(EVENT_META) as [EventType, typeof EVENT_META[EventType]][]).map(([eventType, meta]) => (
+                      <div key={eventType} className="notif-routing-row">
+                        <div className="notif-routing-cell notif-routing-event-col">
+                          <span className="notif-event-badge" style={{ fontSize: ".75rem" }}>{meta.label}</span>
+                        </div>
+                        {channels.map((ch) => {
+                          const rule = findRule(eventType, ch.id);
+                          const key = `${eventType}-${ch.id}`;
+                          const isSaving = savingRule === key || savingRule === rule?.id;
+                          const isEnabled = rule?.is_active === true;
+                          return (
+                            <div key={ch.id} className="notif-routing-cell notif-routing-channel-col">
+                              <label className="notif-routing-toggle" title={isEnabled ? "Disable this route" : "Enable this route"}>
+                                <input
+                                  type="checkbox"
+                                  checked={isEnabled}
+                                  disabled={isSaving || !ch.is_active}
+                                  onChange={() => toggleRule(eventType, ch.id, rule)}
+                                  aria-label={`${isEnabled ? "Disable" : "Enable"} ${meta.label} notifications via ${ch.name}`}
+                                />
+                                <span className="notif-routing-check" />
+                              </label>
+                              {/* Recipient selector — only shown when rule is enabled */}
+                              {rule && rule.is_active && (
+                                <div style={{ marginTop: 6 }}>
+                                  <select
+                                    value={rule.recipient_type}
+                                    onChange={(e) => updateRuleRecipient(rule.id, e.target.value as RecipientType)}
+                                    disabled={savingRule === rule.id}
+                                    style={{ fontSize: ".72rem", border: "1px solid #dbe2ee", borderRadius: 6, padding: "2px 5px", width: "100%", background: "#f8fafc", cursor: "pointer", color: "#334155" }}
+                                    aria-label={`Recipient for ${meta.label} via ${ch.name}`}
+                                  >
+                                    {(Object.entries(RECIPIENT_LABELS) as [RecipientType, string][]).map(([v, l]) => (
+                                      <option key={v} value={v}>{l}</option>
+                                    ))}
+                                  </select>
+                                  {rule.recipient_type === 'custom' && (
+                                    <CustomEmailInput
+                                      value={rule.custom_emails}
+                                      disabled={savingRule === rule.id}
+                                      onSave={(emails) => updateRuleRecipient(rule.id, 'custom', emails)}
+                                    />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Legend */}
+                  <div style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap", color: "#64748b", fontSize: ".8rem" }}>
+                    <span>☑ Enabled — notification sent via that channel for this event</span>
+                    <span>◻ Disabled — channel not used for this event</span>
+                    <span style={{ color: "#94a3b8" }}>Grey channels are inactive globally</span>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
         </>

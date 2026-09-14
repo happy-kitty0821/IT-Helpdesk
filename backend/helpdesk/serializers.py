@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, RoleGrant, ServiceCategory, SoftwareResource, Ticket
+from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleGrant, ServiceCategory, SoftwareResource, Ticket
 
 
 def email_domain_allowed(email):
@@ -439,3 +439,28 @@ class NotificationLogSerializer(serializers.ModelSerializer):
         fields = ('id', 'channel', 'channel_name', 'event_type', 'ticket', 'status',
                   'error_message', 'sent_at')
         read_only_fields = fields
+
+
+class NotificationRuleSerializer(serializers.ModelSerializer):
+    channel_name = serializers.CharField(source='channel.name', read_only=True)
+    channel_type = serializers.CharField(source='channel.type', read_only=True)
+    channel_emoji = serializers.SerializerMethodField()
+
+    class Meta:
+        model = NotificationRule
+        fields = (
+            'id', 'event_type', 'channel', 'channel_name', 'channel_type',
+            'channel_emoji', 'is_active', 'recipient_type', 'custom_emails',
+            'created_at', 'updated_at',
+        )
+
+    def get_channel_emoji(self, obj) -> str:
+        emoji_map = {
+            'discord': '🎮',
+            'google_workspace': '📊',
+            'teams': '🔵',
+            'slack': '💬',
+            'email_smtp': '📧',
+            'email_mailgun': '📨',
+        }
+        return emoji_map.get(obj.channel.type, '📢')
