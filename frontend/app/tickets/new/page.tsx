@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, Info } from "lucide-react";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
@@ -23,7 +23,7 @@ interface PendingTicket {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export default function NewTicketPage() {
+function NewTicketForm() {
   // Core form state
   const [categories, setCategories] = useState<Service[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<Service | null>(null);
@@ -39,8 +39,6 @@ export default function NewTicketPage() {
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ reference: string } | null>(null);
-
-  const searchParams = useSearchParams();
 
   // ── Mount: fetch categories then restore sessionStorage ────────────────
 
@@ -342,6 +340,17 @@ export default function NewTicketPage() {
         </div>
       </main>
     </>
+  );
+}
+
+// ── Default export with Suspense boundary ────────────────────────────────────
+// useSearchParams (used inside NewTicketForm via window.location.search) requires
+// the component to be wrapped in Suspense per Next.js App Router rules.
+export default function NewTicketPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewTicketForm />
+    </Suspense>
   );
 }
 
