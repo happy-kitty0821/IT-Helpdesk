@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Info } from "lucide-react";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
@@ -39,6 +40,8 @@ export default function NewTicketPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ reference: string } | null>(null);
 
+  const searchParams = useSearchParams();
+
   // ── Mount: fetch categories then restore sessionStorage ────────────────
 
   useEffect(() => {
@@ -59,6 +62,13 @@ export default function NewTicketPage() {
 
       if (!mounted) return;
       setCategories(liveCategories);
+
+      // 2a. Pre-select category from ?service=slug URL parameter (before checking sessionStorage)
+      const serviceSlug = new URLSearchParams(window.location.search).get("service");
+      if (serviceSlug) {
+        const match = liveCategories.find((c) => c.slug === serviceSlug) ?? null;
+        if (match) setSelectedCategory(match);
+      }
 
       // 2. Restore pending_ticket from sessionStorage
       try {

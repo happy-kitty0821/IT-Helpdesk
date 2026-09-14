@@ -4,12 +4,16 @@ import { motion } from "motion/react";
 import { CalendarDays, ExternalLink, FileText, Tag } from "lucide-react";
 import type { Guide } from "@/lib/admin-api";
 
-const DJANGO_ORIGIN = process.env.NEXT_PUBLIC_DJANGO_URL ?? "http://127.0.0.1:8000";
-
 function absolutePdfUrl(url: string | null): string | null {
   if (!url) return null;
+  // Already an absolute URL - use as-is
   if (url.startsWith("http")) return url;
-  return `${DJANGO_ORIGIN}${url}`;
+  // Relative path like /media/guides/... 
+  // In local dev the Next.js proxy handles /media/* -> Django, so keep relative.
+  // In production NEXT_PUBLIC_DJANGO_URL provides the origin (e.g. https://domain.com).
+  const origin = process.env.NEXT_PUBLIC_DJANGO_URL ?? "";
+  if (!origin || origin.includes("localhost") || origin.includes("127.0.0.1")) return url;
+  return `${origin}${url}`;
 }
 
 export function PdfGuideLibrary({ guides }: { guides: Guide[] }) {

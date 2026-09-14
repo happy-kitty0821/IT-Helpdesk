@@ -272,14 +272,8 @@ class GuideArticleSerializer(serializers.ModelSerializer):
         return instance
 
     def get_pdf_url(self, obj):
-        if not obj.pdf_file:
-            return None
-        url = obj.pdf_file.url
-        request = self.context.get("request")
-        if request is not None:
-            return request.build_absolute_uri(url)
-        return url
-
+        """Return the raw relative path; frontend resolves it via NEXT_PUBLIC_DJANGO_URL."""
+        return obj.pdf_file.url if obj.pdf_file else None
     def get_pdf_name(self, obj):
         return obj.pdf_file.name.rsplit('/', 1)[-1] if obj.pdf_file else None
 
