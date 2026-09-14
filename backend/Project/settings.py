@@ -191,3 +191,5 @@ HELPDESK_INTERN_SCOPE_SLUGS = [
     'general-it-support',
 ]
 
+
+HELPDESK_URL = os.environ.get('HELPDESK_URL', 'http://localhost:3000')

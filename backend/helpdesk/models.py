@@ -281,3 +281,74 @@ class InternCategoryScope(models.Model):
 
     def __str__(self):
         return self.slug
+
+
+class NotificationChannel(models.Model):
+    class ChannelType(models.TextChoices):
+        DISCORD = 'discord', 'Discord'
+        GOOGLE_WORKSPACE = 'google_workspace', 'Google Workspace'
+        TEAMS = 'teams', 'Microsoft Teams'
+        SLACK = 'slack', 'Slack'
+        EMAIL_SMTP = 'email_smtp', 'Email (SMTP)'
+        EMAIL_MAILGUN = 'email_mailgun', 'Email (Mailgun)'
+
+    type = models.CharField(max_length=20, choices=ChannelType.choices)
+    name = models.CharField(max_length=200, unique=True)
+    is_active = models.BooleanField(default=True)
+    config = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('name',)
+
+    def __str__(self):
+        return f'{self.name} ({self.type})'
+
+
+class EmailTemplate(models.Model):
+    class EventType(models.TextChoices):
+        TICKET_SUBMITTED = 'ticket_submitted', 'Ticket Submitted'
+        TICKET_RESOLVED = 'ticket_resolved', 'Ticket Resolved'
+        TICKET_ASSIGNED = 'ticket_assigned', 'Ticket Assigned'
+        STATUS_CHANGED = 'status_changed', 'Status Changed'
+        ACCOUNT_RECOVERY = 'account_recovery', 'Account Recovery'
+
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    name = models.CharField(max_length=200)
+    subject_template = models.CharField(max_length=500)
+    body_html_template = models.TextField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('event_type', 'name')
+
+    def __str__(self):
+        return f'{self.name} ({self.event_type})'
+
+
+class NotificationLog(models.Model):
+    class Status(models.TextChoices):
+        SENT = 'sent', 'Sent'
+        FAILED = 'failed', 'Failed'
+
+    channel = models.ForeignKey(
+        NotificationChannel, on_delete=models.SET_NULL,
+        null=True, related_name='logs'
+    )
+    event_type = models.CharField(max_length=30)
+    ticket = models.ForeignKey(
+        'Ticket', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='notification_logs'
+    )
+    status = models.CharField(max_length=10, choices=Status.choices)
+    error_message = models.TextField(blank=True, default='')
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-sent_at',)
+
+    def __str__(self):
+        return f'{self.event_type} via {self.channel} — {self.status}'

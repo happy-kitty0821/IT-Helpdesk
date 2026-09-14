@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import GuideArticle, RoleGrant, ServiceCategory, SoftwareResource, Ticket
+from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, RoleGrant, ServiceCategory, SoftwareResource, Ticket
 
 
 def email_domain_allowed(email):
@@ -383,3 +383,59 @@ class RoleGrantSerializer(serializers.ModelSerializer):
         if obj.granted_by:
             return obj.granted_by.get_full_name() or obj.granted_by.username
         return None
+
+
+class NotificationChannelSerializer(serializers.ModelSerializer):
+    config_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = NotificationChannel
+        fields = ('id', 'type', 'name', 'is_active', 'config', 'config_display', 'created_at', 'updated_at')
+        extra_kwargs = {'config': {'write_only': True}}
+
+    def get_config_display(self, obj):
+        from .notifications import mask_config
+        return mask_config(obj.type, obj.config)
+
+    def validate(self, attrs):
+        channel_type = attrs.get('type') or (self.instance.type if self.instance else None)
+        config = attrs.get('config', {})
+
+        # For updates, merge with stored config (handles masked secrets)
+        if self.instance and 'config' in attrs:
+            from .notifications import merge_config
+            config = merge_config(channel_type, self.instance.config, config)
+            attrs['config'] = config
+
+        required = {
+            'discord': ['webhook_url'],
+            'google_workspace': ['webhook_url'],
+            'teams': ['webhook_url'],
+            'slack': ['webhook_url'],
+            'email_smtp': ['host', 'port', 'username', 'password', 'from_email'],
+            'email_mailgun': ['api_url', 'api_key', 'from_email', 'domain'],
+        }
+        if channel_type and 'config' in attrs:
+            for field in required.get(channel_type, []):
+                if not config.get(field):
+                    raise serializers.ValidationError({
+                        'config': f'Field "{field}" is required for {channel_type} channels.'
+                    })
+        return attrs
+
+
+class EmailTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmailTemplate
+        fields = ('id', 'event_type', 'name', 'subject_template', 'body_html_template',
+                  'is_active', 'created_at', 'updated_at')
+
+
+class NotificationLogSerializer(serializers.ModelSerializer):
+    channel_name = serializers.CharField(source='channel.name', read_only=True, default='')
+
+    class Meta:
+        model = NotificationLog
+        fields = ('id', 'channel', 'channel_name', 'event_type', 'ticket', 'status',
+                  'error_message', 'sent_at')
+        read_only_fields = fields

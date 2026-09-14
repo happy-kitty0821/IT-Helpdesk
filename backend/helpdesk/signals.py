@@ -194,3 +194,112 @@ def sync_superuser_flag(sender, instance, **kwargs):
                 user.get_username(),
                 user.pk,
             )
+
+
+# ---------------------------------------------------------------------------
+# Notification triggers — ticket lifecycle events
+# ---------------------------------------------------------------------------
+
+from django.conf import settings as django_settings
+from django.db.models.signals import pre_save
+
+
+def get_helpdesk_url() -> str:
+    """Return the configured helpdesk URL, falling back to localhost."""
+    return getattr(django_settings, 'HELPDESK_URL', 'http://localhost:3000')
+
+
+def _ticket_context(ticket, extra: dict | None = None) -> dict:
+    """Build the base notification context for a ticket."""
+    requester = ticket.requester
+    requester_name = requester.get_full_name() or requester.username
+    requester_email = requester.email or ''
+
+    ctx = {
+        'ticket_reference': ticket.reference,
+        'ticket_subject': ticket.subject,
+        'requester_name': requester_name,
+        'requester_email': requester_email,
+        'to_email': requester_email,
+        'category_name': ticket.category.name if ticket.category_id else '',
+        'helpdesk_url': get_helpdesk_url(),
+        'resolution_note': ticket.status_reason or '',
+    }
+    if extra:
+        ctx.update(extra)
+    return ctx
+
+
+@receiver(pre_save, sender='helpdesk.Ticket')
+def capture_ticket_old_values(sender, instance, **kwargs):
+    """
+    Pre-save receiver for Ticket.
+    Captures old status and old assigned_to before the update
+    so post_save can detect changes.
+    """
+    if instance.pk:
+        try:
+            from helpdesk.models import Ticket  # noqa: PLC0415
+            old = Ticket.objects.get(pk=instance.pk)
+            instance._old_status = old.status
+            instance._old_assigned_to = old.assigned_to_id
+        except Exception:
+            instance._old_status = None
+            instance._old_assigned_to = None
+    else:
+        instance._old_status = None
+        instance._old_assigned_to = None
+
+
+@receiver(post_save, sender='helpdesk.Ticket')
+def ticket_notification_dispatch(sender, instance, created, **kwargs):
+    """
+    Post-save receiver for Ticket.
+    Fires the appropriate notification events based on what changed.
+    All notification sends are wrapped so they never break the save.
+    """
+    from helpdesk.notifications import send_event  # noqa: PLC0415
+
+    try:
+        if created:
+            ctx = _ticket_context(instance)
+            send_event('ticket_submitted', ctx, ticket=instance)
+            return
+
+        # ── Changed fields ────────────────────────────────────────────────
+        old_status = getattr(instance, '_old_status', None)
+        old_assigned_to = getattr(instance, '_old_assigned_to', None)
+        new_status = instance.status
+        new_assigned_to = instance.assigned_to_id
+
+        # Resolved event
+        if old_status != 'resolved' and new_status == 'resolved':
+            ctx = _ticket_context(instance, {'resolution_note': instance.status_reason or ''})
+            try:
+                send_event('ticket_resolved', ctx, ticket=instance)
+            except Exception as exc:
+                logger.exception('Error sending ticket_resolved notification: %s', exc)
+
+        # Assigned event (newly assigned from unassigned)
+        if old_assigned_to is None and new_assigned_to is not None:
+            assignee = instance.assigned_to
+            assignee_name = assignee.get_full_name() or assignee.username if assignee else ''
+            ctx = _ticket_context(instance, {'assignee_name': assignee_name})
+            try:
+                send_event('ticket_assigned', ctx, ticket=instance)
+            except Exception as exc:
+                logger.exception('Error sending ticket_assigned notification: %s', exc)
+
+        # Status changed event (any status change)
+        if old_status is not None and old_status != new_status:
+            ctx = _ticket_context(instance, {
+                'old_status': old_status,
+                'new_status': new_status,
+            })
+            try:
+                send_event('status_changed', ctx, ticket=instance)
+            except Exception as exc:
+                logger.exception('Error sending status_changed notification: %s', exc)
+
+    except Exception as exc:
+        logger.exception('Unexpected error in ticket_notification_dispatch: %s', exc)

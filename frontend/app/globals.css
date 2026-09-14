@@ -639,3 +639,31 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .atq-notice { color: #166534; background: #dcfce7; border-radius: 8px; padding: 8px 12px; font-size: .85rem; margin: 0; }
 .atq-error { color: #991b1b; background: #fee2e2; border-radius: 8px; padding: 8px 12px; font-size: .85rem; margin: 0; }
 .atq-panel-actions { padding-top: 6px; }
+
+/* ── Notifications admin page ────────────────────────────────────────────── */
+.notif-tabs { display: flex; gap: 4px; margin-bottom: 24px; background: #f1f5f9; border-radius: 12px; padding: 4px; width: fit-content; }
+.notif-tab { padding: 8px 18px; border-radius: 9px; border: 0; background: transparent; color: #64748b; font-weight: 700; cursor: pointer; font-size: .9rem; transition: background 150ms, color 150ms; }
+.notif-tab.active { background: #fff; color: #0f172a; box-shadow: 0 1px 4px rgba(15,23,42,.1); }
+.notif-channels { display: grid; gap: 12px; }
+.notif-channel-row { background: #fff; border: 1px solid #dbe2ee; border-radius: 14px; padding: 16px 20px; display: flex; align-items: center; gap: 14px; transition: border-color 150ms; }
+.notif-channel-row:hover { border-color: #94a3b8; }
+.notif-channel-icon { width: 42px; height: 42px; border-radius: 12px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; font-size: 1.1rem; flex-shrink: 0; }
+.notif-channel-info { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.notif-channel-info strong { color: #1e293b; }
+.notif-channel-info small { color: #64748b; font-size: .8rem; }
+.notif-channel-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+.notif-test-result { font-size: .78rem; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+.notif-test-ok { color: #166534; background: #dcfce7; }
+.notif-test-fail { color: #991b1b; background: #fee2e2; }
+.notif-templates { display: grid; gap: 12px; }
+.notif-template-row { background: #fff; border: 1px solid #dbe2ee; border-radius: 14px; padding: 16px 20px; display: flex; align-items: center; gap: 14px; }
+.notif-event-badge { border-radius: 8px; padding: 4px 10px; font-size: .75rem; font-weight: 800; background: var(--brand-soft); color: var(--brand); white-space: nowrap; }
+.notif-var-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.notif-var-chip { font-family: ui-monospace, monospace; font-size: .75rem; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #334155; border: 1px solid #dbe2ee; cursor: pointer; transition: background 120ms; }
+.notif-var-chip:hover { background: var(--brand-soft); color: var(--brand); border-color: #93c5fd; }
+.notif-preview { margin-top: 12px; border: 1px solid #dbe2ee; border-radius: 10px; padding: 16px; background: #f8fafc; font-size: .88rem; line-height: 1.6; max-height: 320px; overflow-y: auto; }
+.notif-form-group { display: flex; flex-direction: column; gap: 6px; font-size: .875rem; font-weight: 700; color: #374151; }
+.notif-form-group input, .notif-form-group select, .notif-form-group textarea { border: 1px solid #94a3b8; border-radius: 8px; padding: 9px 11px; font-size: .88rem; font-weight: 400; background: #fff; color: #0f172a; }
+.notif-form-group textarea { resize: vertical; font-family: ui-monospace, monospace; }
+.notif-checkbox-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 700; font-size: .875rem; }
+.notif-checkbox-row input { width: 16px; height: 16px; }

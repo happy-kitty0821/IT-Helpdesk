@@ -15,12 +15,15 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import GuideArticle, ServiceCategory, SoftwareResource, Ticket
+from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, ServiceCategory, SoftwareResource, Ticket
 from .permissions import IsAdministrator, IsContentEditor, IsServiceLead
 from .serializers import (
     AdminServiceCategorySerializer,
+    EmailTemplateSerializer,
     GoogleCredentialSerializer,
     LoginSerializer,
+    NotificationChannelSerializer,
+    NotificationLogSerializer,
     RegistrationSerializer,
     RoleGrantSerializer,
     ServiceCategorySerializer,
@@ -659,3 +662,73 @@ class AdminServiceCategoryReorder(APIView):
             for item in data:
                 ServiceCategory.objects.filter(pk=item['id']).update(sort_order=item['sort_order'])
         return Response({'detail': 'Sort order updated.'}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Notification Channels, Templates, and Logs
+# ---------------------------------------------------------------------------
+
+class NotificationChannelListCreate(generics.ListCreateAPIView):
+    permission_classes = (IsAdministrator,)
+    serializer_class = NotificationChannelSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return NotificationChannel.objects.all()
+
+
+class NotificationChannelDetail(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsAdministrator,)
+    serializer_class = NotificationChannelSerializer
+    queryset = NotificationChannel.objects.all()
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+
+class NotificationChannelTestView(APIView):
+    permission_classes = (IsAdministrator,)
+
+    def post(self, request):
+        from .notifications import test_channel, merge_config, mask_config
+        from .models import NotificationChannel as NC
+
+        channel_id = request.data.get('id')
+        if channel_id:
+            try:
+                channel = NC.objects.get(pk=channel_id)
+                success, message = test_channel(channel.type, channel.config)
+            except NC.DoesNotExist:
+                return Response({'detail': 'Channel not found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            channel_type = request.data.get('type')
+            config = request.data.get('config', {})
+            if not channel_type:
+                return Response({'detail': 'Provide either id or type+config.'}, status=status.HTTP_400_BAD_REQUEST)
+            success, message = test_channel(channel_type, config)
+
+        return Response({'success': success, 'message': message})
+
+
+class EmailTemplateListCreate(generics.ListCreateAPIView):
+    permission_classes = (IsAdministrator,)
+    serializer_class = EmailTemplateSerializer
+    pagination_class = None
+    queryset = EmailTemplate.objects.all()
+
+
+class EmailTemplateDetail(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = (IsAdministrator,)
+    serializer_class = EmailTemplateSerializer
+    queryset = EmailTemplate.objects.all()
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+
+class NotificationLogListView(generics.ListAPIView):
+    permission_classes = (IsAdministrator,)
+    serializer_class = NotificationLogSerializer
+
+    def get_queryset(self):
+        qs = NotificationLog.objects.select_related('channel', 'ticket')
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs

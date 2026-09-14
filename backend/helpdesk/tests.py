@@ -136,3 +136,93 @@ class AdminContentTests(APITestCase):
         response = self.client.get('/api/v1/software/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item['slug'] for item in response.data], ['active-tool'])
+
+
+
+class NotificationTests(APITestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.admin = User.objects.create_superuser('notif_admin', 'notif@iic.edu.np', 'Admin-Test-Pass-2026!')
+        RoleGrant.objects.create(user=self.admin, role='administrator')
+
+    def test_create_discord_channel(self):
+        self.client.force_authenticate(self.admin)
+        r = self.client.post('/api/v1/admin/notifications/channels/', {
+            'type': 'discord', 'name': 'Test Discord',
+            'config': {'webhook_url': 'https://discord.com/api/webhooks/test/test'},
+            'is_active': True,
+        }, format='json')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r.data['name'], 'Test Discord')
+
+    def test_get_channel_masks_secrets(self):
+        from helpdesk.models import NotificationChannel
+        self.client.force_authenticate(self.admin)
+        ch = NotificationChannel.objects.create(
+            type='discord', name='Secret Discord',
+            config={'webhook_url': 'https://real-webhook-url.com/secret'}
+        )
+        r = self.client.get(f'/api/v1/admin/notifications/channels/{ch.id}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data['config_display']['webhook_url'], '••••••••')
+
+    def test_patch_with_mask_preserves_secret(self):
+        from helpdesk.models import NotificationChannel
+        self.client.force_authenticate(self.admin)
+        ch = NotificationChannel.objects.create(
+            type='discord', name='Preserve Discord',
+            config={'webhook_url': 'https://real-url.com/secret'}
+        )
+        r = self.client.patch(f'/api/v1/admin/notifications/channels/{ch.id}/', {
+            'config': {'webhook_url': '••••••••'},
+        }, format='json')
+        self.assertEqual(r.status_code, 200)
+        ch.refresh_from_db()
+        self.assertEqual(ch.config['webhook_url'], 'https://real-url.com/secret')
+
+    def test_email_templates_seeded(self):
+        from helpdesk.models import EmailTemplate
+        self.client.force_authenticate(self.admin)
+        r = self.client.get('/api/v1/admin/notifications/templates/')
+        self.assertEqual(r.status_code, 200)
+        event_types = [t['event_type'] for t in r.data]
+        self.assertIn('ticket_submitted', event_types)
+        self.assertIn('account_recovery', event_types)
+
+    def test_non_admin_cannot_access_channels(self):
+        User = get_user_model()
+        student = User.objects.create_user('student_notif', 'st@iic.edu.np', 'Pass-2026!')
+        # Signal already creates a student grant — use get_or_create to be safe
+        RoleGrant.objects.get_or_create(user=student, role='student')
+        self.client.force_authenticate(student)
+        r = self.client.get('/api/v1/admin/notifications/channels/')
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_notification_log_created_on_ticket_creation(self):
+        from helpdesk.models import NotificationChannel, NotificationLog, ServiceCategory
+        # Create a discord channel
+        NotificationChannel.objects.create(
+            type='discord', name='Log Test Discord', is_active=True,
+            config={'webhook_url': 'https://invalid-url-for-test.local/webhook'}
+        )
+        # Use a category with no required form fields to avoid validation errors
+        cat, _ = ServiceCategory.objects.get_or_create(
+            slug='test-notif-cat',
+            defaults={
+                'name': 'Test Notification Category',
+                'summary': 'Used by notification tests',
+                'audience': 'all',
+                'form_schema': [],
+            }
+        )
+        self.client.force_authenticate(self.admin)
+        r = self.client.post('/api/v1/tickets/', {
+            'category': cat.id,
+            'subject': 'Notification log test ticket',
+            'description': 'Testing that notification log is created on ticket save.',
+            'priority': 'p3',
+            'extra_fields': {},
+        }, format='json')
+        self.assertEqual(r.status_code, 201)
+        # A log entry should exist (status=failed is fine since URL is fake)
+        self.assertTrue(NotificationLog.objects.filter(event_type='ticket_submitted').exists())
