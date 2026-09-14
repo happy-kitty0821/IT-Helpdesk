@@ -79,6 +79,7 @@ class Ticket(models.Model):
     )
     team = models.CharField(max_length=100, blank=True, default='')
     extra_fields = models.JSONField(default=dict, blank=True)
+    status_reason = models.TextField(max_length=1000, blank=True, default='')
 
     class Meta:
         ordering = ('-created_at',)

@@ -17,8 +17,20 @@ interface AdminTicket {
   created_at: string;
   updated_at: string;
   assignee_name: string | null;
+  assigned_to: number | null;
   team: string;
   extra_fields: Record<string, unknown>;
+  requester_name: string | null;
+  requester_email: string | null;
+  category_name: string | null;
+  elapsed: string;
+  status_reason: string;
+}
+
+interface StaffUser {
+  id: number;
+  name: string;
+  username: string;
 }
 
 interface ServiceCategory {
@@ -117,6 +129,7 @@ const STATUS_FILTER_OPTIONS = [
 export default function AdminTicketsPage() {
   const [tickets, setTickets]         = useState<AdminTicket[]>([]);
   const [categories, setCategories]   = useState<ServiceCategory[]>([]);
+  const [staffUsers, setStaffUsers]   = useState<StaffUser[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -130,6 +143,9 @@ export default function AdminTicketsPage() {
   const [draftDescription, setDraftDescription]   = useState("");
   const [draftPriority, setDraftPriority]         = useState("");
   const [draftStatus, setDraftStatus]             = useState("");
+  const [draftAssignedTo, setDraftAssignedTo]     = useState<number | "">("");
+  const [draftTeam, setDraftTeam]                 = useState("");
+  const [draftReason, setDraftReason]             = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -145,10 +161,14 @@ export default function AdminTicketsPage() {
           (d && typeof d === "object" && "results" in d ? d.results : d) as ServiceCategory[]
         );
       }),
+      fetch("/api/v1/tickets/assignable-staff/", { credentials: "include" }).then((r) =>
+        r.ok ? (r.json() as Promise<StaffUser[]>) : []
+      ).catch(() => []),
     ])
-      .then(([ticketData, categoryData]) => {
+      .then(([ticketData, categoryData, staffData]) => {
         setTickets(Array.isArray(ticketData) ? ticketData : []);
         setCategories(Array.isArray(categoryData) ? categoryData : []);
+        setStaffUsers(Array.isArray(staffData) ? staffData : []);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load tickets."))
       .finally(() => setLoading(false));
@@ -160,6 +180,9 @@ export default function AdminTicketsPage() {
     setDraftDescription(ticket.description ?? "");
     setDraftPriority(ticket.priority);
     setDraftStatus(ticket.status);
+    setDraftAssignedTo(ticket.assigned_to ?? "");
+    setDraftTeam(ticket.team ?? "");
+    setDraftReason("");
     setPanelError("");
     setPanelNotice("");
   }
@@ -179,6 +202,8 @@ export default function AdminTicketsPage() {
           description: draftDescription,
           priority: draftPriority,
           status: draftStatus,
+          team: draftTeam,
+          assigned_to: draftAssignedTo !== "" ? draftAssignedTo : null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -253,9 +278,10 @@ export default function AdminTicketsPage() {
           <section className="user-table" aria-label="Support tickets" style={{ borderRadius: "0 0 16px 16px", borderTop: 0 }}>
             <div
               className="user-table-head"
-              style={{ gridTemplateColumns: ".9fr 1.5fr .8fr .7fr .65fr .7fr .6fr" }}
+              style={{ gridTemplateColumns: ".85fr 1.2fr .75fr .7fr .65fr .6fr .65fr .5fr" }}
             >
               <span>Reference</span>
+              <span>Requester</span>
               <span>Subject</span>
               <span>Category</span>
               <span>Status</span>

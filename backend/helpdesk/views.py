@@ -340,6 +340,30 @@ class TicketStatusView(APIView):
         return Response(TicketSerializer(ticket).data)
 
 
+class AssignableStaffView(APIView):
+    """GET /api/v1/tickets/assignable-staff/ — users who can be assigned tickets."""
+    permission_classes = (IsServiceLead,)
+
+    def get(self, request):
+        from django.contrib.auth import get_user_model
+        from django.db.models import Q
+        from django.utils import timezone as tz
+        from .models import RoleGrant
+        User = get_user_model()
+        now = tz.now()
+        assignable_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern'}
+        staff_ids = RoleGrant.objects.filter(
+            role__in=assignable_roles,
+        ).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+        ).values_list('user_id', flat=True).distinct()
+        users = User.objects.filter(pk__in=staff_ids, is_active=True).order_by('first_name', 'username')
+        data = [
+            {'id': u.pk, 'name': u.get_full_name() or u.username, 'username': u.username}
+            for u in users
+        ]
+        return Response(data)
+
 class TicketAssignView(APIView):
     permission_classes = (IsServiceLead,)
 

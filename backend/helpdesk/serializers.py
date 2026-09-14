@@ -102,24 +102,64 @@ class AdminServiceCategorySerializer(serializers.ModelSerializer):
 class TicketSerializer(serializers.ModelSerializer):
     reference = serializers.CharField(read_only=True)
     requester = serializers.PrimaryKeyRelatedField(read_only=True)
+    requester_name = serializers.SerializerMethodField()
+    requester_email = serializers.SerializerMethodField()
     status = serializers.CharField(read_only=True)
     assigned_to = serializers.PrimaryKeyRelatedField(read_only=True)
     team = serializers.CharField(read_only=True)
     assignee_name = serializers.SerializerMethodField()
+    category_name = serializers.SerializerMethodField()
     extra_fields = serializers.JSONField(default=dict)
+    elapsed = serializers.SerializerMethodField()
+    status_reason = serializers.CharField(read_only=True)
 
     class Meta:
         model = Ticket
         fields = (
-            'id', 'reference', 'requester', 'category', 'subject', 'description',
-            'status', 'priority', 'assigned_to', 'team', 'assignee_name',
-            'extra_fields', 'created_at', 'updated_at',
+            'id', 'reference', 'requester', 'requester_name', 'requester_email',
+            'category', 'category_name', 'subject', 'description',
+            'status', 'status_reason', 'priority',
+            'assigned_to', 'team', 'assignee_name',
+            'extra_fields', 'elapsed', 'created_at', 'updated_at',
         )
+
+    def get_requester_name(self, obj):
+        if obj.requester:
+            return obj.requester.get_full_name() or obj.requester.username
+        return None
+
+    def get_requester_email(self, obj):
+        return obj.requester.email if obj.requester else None
 
     def get_assignee_name(self, obj):
         if obj.assigned_to:
             return obj.assigned_to.get_full_name() or obj.assigned_to.username
         return None
+
+    def get_category_name(self, obj):
+        return obj.category.name if obj.category else None
+
+    def get_elapsed(self, obj):
+        """Return a human-readable elapsed time string since ticket was created."""
+        from django.utils import timezone
+        delta = timezone.now() - obj.created_at
+        seconds = int(delta.total_seconds())
+        if seconds < 60:
+            return 'just now'
+        minutes = seconds // 60
+        if minutes < 60:
+            return f'{minutes} minute{"s" if minutes != 1 else ""} ago'
+        hours = minutes // 60
+        if hours < 24:
+            return f'{hours} hour{"s" if hours != 1 else ""} ago'
+        days = hours // 24
+        if days < 30:
+            return f'{days} day{"s" if days != 1 else ""} ago'
+        months = days // 30
+        if months < 12:
+            return f'{months} month{"s" if months != 1 else ""} ago'
+        years = months // 12
+        return f'{years} year{"s" if years != 1 else ""} ago'
 
     def validate_subject(self, value):
         value = value.strip()
@@ -149,14 +189,16 @@ class TicketSerializer(serializers.ModelSerializer):
 
 
 class TicketUpdateSerializer(serializers.ModelSerializer):
-    """
-    Staff-facing partial update serializer.
-    Allows editing subject, description, priority, and status.
-    Status is writable only by staff — validated by the view.
-    """
+    """Staff-facing partial update: subject, description, priority, status, assigned_to."""
+    assigned_to = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.filter(is_active=True),
+        allow_null=True,
+        required=False,
+    )
+
     class Meta:
         model = Ticket
-        fields = ('subject', 'description', 'priority', 'status')
+        fields = ('subject', 'description', 'priority', 'status', 'team', 'assigned_to')
 
     def validate_subject(self, value):
         value = value.strip()
@@ -174,7 +216,7 @@ class TicketUpdateSerializer(serializers.ModelSerializer):
 class TicketStatusSerializer(serializers.Serializer):
     """Used for the POST /tickets/{id}/status/ transition endpoint."""
     status = serializers.ChoiceField(choices=Ticket.Status.choices)
-    note = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    reason = serializers.CharField(max_length=1000, required=False, allow_blank=True)
 
 
 class GuideArticleSerializer(serializers.ModelSerializer):

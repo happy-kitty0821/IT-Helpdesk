@@ -1,4 +1,4 @@
-from django.urls import path, re_path
+﻿from django.urls import path, re_path
 
 from .views import (
     CsrfView,
@@ -23,6 +23,7 @@ from .views import (
     TicketAssignView,
     TicketDetail,
     TicketListCreate,
+    AssignableStaffView,
     TicketStatusView,
     UserRoleDetail,
     UserRoleListCreate,
@@ -39,6 +40,7 @@ urlpatterns = [
     re_path(r'^auth/logout/?$', LogoutView.as_view(), name='auth-logout'),
     path('services/', ServiceCategoryList.as_view(), name='service-list'),
     path('tickets/', TicketListCreate.as_view(), name='ticket-list-create'),
+    re_path(r'^tickets/assignable-staff/?$', AssignableStaffView.as_view(), name='assignable-staff'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/status/?$', TicketStatusView.as_view(), name='ticket-status'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/?$', TicketDetail.as_view(), name='ticket-detail'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/assign/?$', TicketAssignView.as_view(), name='ticket-assign'),
