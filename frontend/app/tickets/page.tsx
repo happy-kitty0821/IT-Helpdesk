@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { motion } from "motion/react";
 import { InboxIcon } from "lucide-react";
@@ -7,8 +7,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/site-header";
 import type { AuthUser } from "@/lib/auth";
-
-// ── Types ────────────────────────────────────────────────────────────────────
 
 type TicketStatus =
   | "submitted"
@@ -42,8 +40,6 @@ interface Service {
   slug: string;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 const STATUS_LABELS: Record<TicketStatus, string> = {
   submitted: "Submitted",
   triaged: "Triaged",
@@ -67,10 +63,10 @@ const STATUS_CSS: Record<TicketStatus, string> = {
 };
 
 const PRIORITY_LABELS: Record<TicketPriority, string> = {
-  p1: "P1 · Critical",
-  p2: "P2 · High",
-  p3: "P3 · Normal",
-  p4: "P4 · Low",
+  p1: "P1 \u00b7 Critical",
+  p2: "P2 \u00b7 High",
+  p3: "P3 \u00b7 Normal",
+  p4: "P4 \u00b7 Low",
 };
 
 function formatDate(iso: string): string {
@@ -81,25 +77,21 @@ function formatDate(iso: string): string {
   });
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
-
 export default function MyTicketsPage() {
   const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null | undefined>(undefined); // undefined = loading
+  const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Auth check on mount
   useEffect(() => {
-    // Auth check
     fetch("/api/v1/auth/me/", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: AuthUser | null) => {
         const authenticated = data?.id ? data : null;
         setUser(authenticated);
-        if (!authenticated) {
-          router.replace("/login");
-        }
+        if (!authenticated) router.replace("/login");
       })
       .catch(() => {
         setUser(null);
@@ -107,12 +99,16 @@ export default function MyTicketsPage() {
       });
   }, [router]);
 
+  // Fetch tickets once authenticated
   useEffect(() => {
     if (!user) return;
-
     Promise.all([
       fetch("/api/v1/tickets/", { credentials: "include" }).then((r) =>
-        r.ok ? (r.json() as Promise<Ticket[]>) : []
+        r.ok
+          ? r.json().then((d: { results?: Ticket[] } | Ticket[]) =>
+              Array.isArray(d) ? d : (d.results ?? [])
+            )
+          : []
       ),
       fetch("/api/v1/services/", { credentials: "include" }).then((r) =>
         r.ok ? (r.json() as Promise<Service[]>) : []
@@ -126,12 +122,7 @@ export default function MyTicketsPage() {
       .finally(() => setLoading(false));
   }, [user]);
 
-  // Build a quick lookup map: category id → name
-  const serviceMap = new Map<number, string>(
-    services.map((s) => [s.id, s.name])
-  );
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const serviceMap = new Map<number, string>(services.map((s) => [s.id, s.name]));
 
   return (
     <>
@@ -147,44 +138,36 @@ export default function MyTicketsPage() {
           </Link>
         </div>
 
-        {/* Not authenticated */}
         {user === null && (
           <div className="tickets-empty">
             <InboxIcon aria-hidden="true" />
             <h2>Sign in to see your tickets</h2>
             <p>You need to be signed in to view your support requests.</p>
-            <Link href="/login" className="primary-button">
-              Sign in
-            </Link>
+            <Link href="/login" className="primary-button">Sign in</Link>
           </div>
         )}
 
-        {/* Loading */}
         {user !== null && loading && (
           <div className="tickets-empty" aria-live="polite" aria-busy="true">
             <span
               className="spin"
               role="status"
-              aria-label="Loading tickets…"
+              aria-label="Loading tickets"
               style={{ display: "block", width: 36, height: 36, borderRadius: "50%", border: "3px solid var(--brand-soft)", borderTopColor: "var(--brand)" }}
             />
-            <p style={{ color: "var(--muted)" }}>Loading your tickets…</p>
+            <p style={{ color: "var(--muted)" }}>Loading your tickets...</p>
           </div>
         )}
 
-        {/* Empty state */}
         {!loading && user && tickets.length === 0 && (
           <div className="tickets-empty">
             <InboxIcon aria-hidden="true" />
             <h2>No requests yet</h2>
             <p>When you raise a support request it will appear here.</p>
-            <Link href="/tickets/new" className="primary-button">
-              Raise a request
-            </Link>
+            <Link href="/tickets/new" className="primary-button">Raise a request</Link>
           </div>
         )}
 
-        {/* Ticket list */}
         {!loading && tickets.length > 0 && (
           <ol className="ticket-list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {tickets.map((ticket, index) => (
@@ -201,9 +184,7 @@ export default function MyTicketsPage() {
                       {STATUS_LABELS[ticket.status]}
                     </span>
                   </div>
-
                   <h2>{ticket.subject}</h2>
-
                   <div className="ticket-card-meta">
                     {serviceMap.has(ticket.category) && (
                       <span>{serviceMap.get(ticket.category)}</span>

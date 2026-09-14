@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { motion } from "motion/react";
 import { CircleDot, Clock, Filter, Inbox, TicketCheck } from "lucide-react";
@@ -26,25 +26,25 @@ interface ServiceCategory {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  submitted:        "Submitted",
-  triaged:          "Triaged",
-  in_progress:      "In Progress",
-  waiting_requester:"Waiting",
-  waiting_approval: "Awaiting Approval",
-  resolved:         "Resolved",
-  closed:           "Closed",
-  cancelled:        "Cancelled",
+  submitted:         "Submitted",
+  triaged:           "Triaged",
+  in_progress:       "In Progress",
+  waiting_requester: "Waiting",
+  waiting_approval:  "Awaiting Approval",
+  resolved:          "Resolved",
+  closed:            "Closed",
+  cancelled:         "Cancelled",
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  submitted:        "#1e40af|#dbeafe",
-  triaged:          "#5b21b6|#ede9fe",
-  in_progress:      "#92400e|#fef3c7",
-  waiting_requester:"#9a3412|#ffedd5",
-  waiting_approval: "#6b21a8|#f3e8ff",
-  resolved:         "#166534|#dcfce7",
-  closed:           "#475569|#e2e8f0",
-  cancelled:        "#991b1b|#fee2e2",
+  submitted:         "#1e40af|#dbeafe",
+  triaged:           "#5b21b6|#ede9fe",
+  in_progress:       "#92400e|#fef3c7",
+  waiting_requester: "#9a3412|#ffedd5",
+  waiting_approval:  "#6b21a8|#f3e8ff",
+  resolved:          "#166534|#dcfce7",
+  closed:            "#475569|#e2e8f0",
+  cancelled:         "#991b1b|#fee2e2",
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
@@ -102,21 +102,25 @@ const STATUS_FILTER_OPTIONS = [
 ];
 
 export default function AdminTicketsPage() {
-  const [tickets, setTickets]     = useState<AdminTicket[]>([]);
-  const [categories, setCategories] = useState<ServiceCategory[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState("");
+  const [tickets, setTickets]         = useState<AdminTicket[]>([]);
+  const [categories, setCategories]   = useState<ServiceCategory[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
   useEffect(() => {
     Promise.all([
       fetch("/api/v1/tickets/", { credentials: "include", cache: "no-store" }).then((r) => {
         if (!r.ok) throw new Error("Could not load tickets.");
-        return r.json() as Promise<AdminTicket[]>;
+        return r.json().then((d: { results?: AdminTicket[] } | AdminTicket[]) =>
+          Array.isArray(d) ? d : (d.results ?? [])
+        );
       }),
       fetch("/api/v1/admin/services/", { credentials: "include", cache: "no-store" }).then((r) => {
         if (!r.ok) return [];
-        return r.json().then((d) => (d && typeof d === "object" && "results" in d ? d.results : d) as ServiceCategory[]);
+        return r.json().then((d) =>
+          (d && typeof d === "object" && "results" in d ? d.results : d) as ServiceCategory[]
+        );
       }),
     ])
       .then(([ticketData, categoryData]) => {
@@ -138,8 +142,8 @@ export default function AdminTicketsPage() {
     return tickets.filter((t) => t.status === statusFilter);
   }, [tickets, statusFilter]);
 
-  const openCount       = tickets.filter((t) => !["resolved", "closed", "cancelled"].includes(t.status)).length;
-  const submittedCount  = tickets.filter((t) => t.status === "submitted").length;
+  const openCount      = tickets.filter((t) => !["resolved", "closed", "cancelled"].includes(t.status)).length;
+  const submittedCount = tickets.filter((t) => t.status === "submitted").length;
 
   return (
     <div className="admin-content">
@@ -161,7 +165,7 @@ export default function AdminTicketsPage() {
       )}
 
       {loading ? (
-        <div className="admin-loading">Loading tickets…</div>
+        <div className="admin-loading">Loading tickets...</div>
       ) : (
         <>
           {/* Filter bar */}
