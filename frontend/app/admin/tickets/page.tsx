@@ -1,7 +1,10 @@
 ﻿"use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { CircleDot, Clock, Filter, Inbox, Pencil, TicketCheck, X } from "lucide-react";
+import {
+  Calendar, CircleDot, Clock, Inbox,
+  Search, TicketCheck, User, X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { csrfToken } from "@/lib/auth";
 
@@ -9,22 +12,22 @@ interface AdminTicket {
   id: string;
   reference: string;
   requester: number;
+  requester_name: string | null;
+  requester_email: string | null;
   category: number;
+  category_name: string | null;
   subject: string;
   description: string;
   status: string;
+  status_reason: string;
   priority: string;
-  created_at: string;
-  updated_at: string;
-  assignee_name: string | null;
   assigned_to: number | null;
+  assignee_name: string | null;
   team: string;
   extra_fields: Record<string, unknown>;
-  requester_name: string | null;
-  requester_email: string | null;
-  category_name: string | null;
   elapsed: string;
-  status_reason: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface StaffUser {
@@ -33,10 +36,59 @@ interface StaffUser {
   username: string;
 }
 
-interface ServiceCategory {
-  id: number;
-  name: string;
-  slug: string;
+const STATUS_LABELS: Record<string, string> = {
+  submitted: "Submitted", triaged: "Triaged", in_progress: "In Progress",
+  waiting_requester: "Waiting", waiting_approval: "Awaiting Approval",
+  resolved: "Resolved", closed: "Closed", cancelled: "Cancelled",
+};
+
+const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
+  submitted:         { text: "#1e40af", bg: "#dbeafe" },
+  triaged:           { text: "#5b21b6", bg: "#ede9fe" },
+  in_progress:       { text: "#92400e", bg: "#fef3c7" },
+  waiting_requester: { text: "#9a3412", bg: "#ffedd5" },
+  waiting_approval:  { text: "#6b21a8", bg: "#f3e8ff" },
+  resolved:          { text: "#166534", bg: "#dcfce7" },
+  closed:            { text: "#475569", bg: "#e2e8f0" },
+  cancelled:         { text: "#991b1b", bg: "#fee2e2" },
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  p1: "Critical", p2: "High", p3: "Normal", p4: "Low",
+};
+
+const PRIORITY_COLORS: Record<string, { text: string; bg: string }> = {
+  p1: { text: "#991b1b", bg: "#fee2e2" },
+  p2: { text: "#92400e", bg: "#fef3c7" },
+  p3: { text: "#475569", bg: "#e2e8f0" },
+  p4: { text: "#166534", bg: "#dcfce7" },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const { text, bg } = STATUS_COLORS[status] ?? { text: "#475569", bg: "#e2e8f0" };
+  return (
+    <span style={{ color: text, background: bg, borderRadius: 999, padding: "3px 10px", fontSize: ".74rem", fontWeight: 800, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <CircleDot size={10} aria-hidden="true" />
+      {STATUS_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+function PriorityBadge({ priority }: { priority: string }) {
+  const { text, bg } = PRIORITY_COLORS[priority] ?? { text: "#475569", bg: "#e2e8f0" };
+  return (
+    <span style={{ color: text, background: bg, borderRadius: 999, padding: "3px 9px", fontSize: ".74rem", fontWeight: 800 }}>
+      {PRIORITY_LABELS[priority] ?? priority}
+    </span>
+  );
+}
+
+function formatDate(iso: string) {
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+}
+
+function formatKey(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function messageFrom(data: unknown): string {
@@ -50,150 +102,69 @@ function messageFrom(data: unknown): string {
   return "The change could not be saved.";
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  submitted:         "Submitted",
-  triaged:           "Triaged",
-  in_progress:       "In Progress",
-  waiting_requester: "Waiting",
-  waiting_approval:  "Awaiting Approval",
-  resolved:          "Resolved",
-  closed:            "Closed",
-  cancelled:         "Cancelled",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  submitted:         "#1e40af|#dbeafe",
-  triaged:           "#5b21b6|#ede9fe",
-  in_progress:       "#92400e|#fef3c7",
-  waiting_requester: "#9a3412|#ffedd5",
-  waiting_approval:  "#6b21a8|#f3e8ff",
-  resolved:          "#166534|#dcfce7",
-  closed:            "#475569|#e2e8f0",
-  cancelled:         "#991b1b|#fee2e2",
-};
-
-const PRIORITY_LABELS: Record<string, string> = {
-  p1: "Critical",
-  p2: "High",
-  p3: "Normal",
-  p4: "Low",
-};
-
-const PRIORITY_COLORS: Record<string, string> = {
-  p1: "#991b1b|#fee2e2",
-  p2: "#92400e|#fef3c7",
-  p3: "#475569|#e2e8f0",
-  p4: "#166534|#dcfce7",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const colors = STATUS_COLORS[status] ?? "#475569|#e2e8f0";
-  const [color, bg] = colors.split("|");
-  return (
-    <span
-      style={{ color, background: bg, borderRadius: 999, padding: "3px 9px", fontSize: ".75rem", fontWeight: 800, whiteSpace: "nowrap" }}
-    >
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
-
-function PriorityBadge({ priority }: { priority: string }) {
-  const colors = PRIORITY_COLORS[priority] ?? "#475569|#e2e8f0";
-  const [color, bg] = colors.split("|");
-  return (
-    <span
-      style={{ color, background: bg, borderRadius: 999, padding: "3px 9px", fontSize: ".75rem", fontWeight: 800 }}
-    >
-      {PRIORITY_LABELS[priority] ?? priority}
-    </span>
-  );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(new Date(value));
-}
-
-const STATUS_FILTER_OPTIONS = [
-  { value: "", label: "All statuses" },
-  { value: "submitted", label: "Submitted" },
-  { value: "triaged", label: "Triaged" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "waiting_requester", label: "Waiting" },
-  { value: "waiting_approval", label: "Awaiting Approval" },
-  { value: "resolved", label: "Resolved" },
-  { value: "closed", label: "Closed" },
-  { value: "cancelled", label: "Cancelled" },
-];
-
 export default function AdminTicketsPage() {
-  const [tickets, setTickets]         = useState<AdminTicket[]>([]);
-  const [categories, setCategories]   = useState<ServiceCategory[]>([]);
-  const [staffUsers, setStaffUsers]   = useState<StaffUser[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [tickets, setTickets] = useState<AdminTicket[]>([]);
+  const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // Editor panel state
-  const [editing, setEditing]         = useState<AdminTicket | null>(null);
-  const [saving, setSaving]           = useState(false);
-  const [panelError, setPanelError]   = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+
+  const [selected, setSelected] = useState<AdminTicket | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [panelError, setPanelError] = useState("");
   const [panelNotice, setPanelNotice] = useState("");
-  const [draftSubject, setDraftSubject]           = useState("");
-  const [draftDescription, setDraftDescription]   = useState("");
-  const [draftPriority, setDraftPriority]         = useState("");
-  const [draftStatus, setDraftStatus]             = useState("");
-  const [draftAssignedTo, setDraftAssignedTo]     = useState<number | "">("");
-  const [draftTeam, setDraftTeam]                 = useState("");
-  const [draftReason, setDraftReason]             = useState("");
+
+  const [draftStatus, setDraftStatus] = useState("");
+  const [draftPriority, setDraftPriority] = useState("");
+  const [draftAssignedTo, setDraftAssignedTo] = useState<number | "">("");
+  const [draftTeam, setDraftTeam] = useState("");
+  const [draftSubject, setDraftSubject] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/v1/tickets/", { credentials: "include", cache: "no-store" }).then((r) => {
-        if (!r.ok) throw new Error("Could not load tickets.");
-        return r.json().then((d: { results?: AdminTicket[] } | AdminTicket[]) =>
-          Array.isArray(d) ? d : (d.results ?? [])
-        );
-      }),
-      fetch("/api/v1/admin/services/", { credentials: "include", cache: "no-store" }).then((r) => {
-        if (!r.ok) return [];
-        return r.json().then((d) =>
-          (d && typeof d === "object" && "results" in d ? d.results : d) as ServiceCategory[]
-        );
-      }),
-      fetch("/api/v1/tickets/assignable-staff/", { credentials: "include" }).then((r) =>
-        r.ok ? (r.json() as Promise<StaffUser[]>) : []
-      ).catch(() => []),
+      fetch("/api/v1/tickets/", { credentials: "include", cache: "no-store" })
+        .then((r) => {
+          if (!r.ok) throw new Error("Could not load tickets.");
+          return r.json().then((d: { results?: AdminTicket[] } | AdminTicket[]) =>
+            Array.isArray(d) ? d : (d.results ?? [])
+          );
+        }),
+      fetch("/api/v1/tickets/assignable-staff/", { credentials: "include" })
+        .then((r) => (r.ok ? (r.json() as Promise<StaffUser[]>) : []))
+        .catch(() => [] as StaffUser[]),
     ])
-      .then(([ticketData, categoryData, staffData]) => {
+      .then(([ticketData, staffData]) => {
         setTickets(Array.isArray(ticketData) ? ticketData : []);
-        setCategories(Array.isArray(categoryData) ? categoryData : []);
         setStaffUsers(Array.isArray(staffData) ? staffData : []);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load tickets."))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load data."))
       .finally(() => setLoading(false));
   }, []);
 
-  function openEditor(ticket: AdminTicket) {
-    setEditing(ticket);
-    setDraftSubject(ticket.subject);
-    setDraftDescription(ticket.description ?? "");
-    setDraftPriority(ticket.priority);
+  function openPanel(ticket: AdminTicket) {
+    setSelected(ticket);
     setDraftStatus(ticket.status);
+    setDraftPriority(ticket.priority);
     setDraftAssignedTo(ticket.assigned_to ?? "");
     setDraftTeam(ticket.team ?? "");
-    setDraftReason("");
+    setDraftSubject(ticket.subject);
+    setDraftDescription(ticket.description ?? "");
     setPanelError("");
     setPanelNotice("");
   }
 
   async function saveTicket() {
-    if (!editing) return;
+    if (!selected) return;
     setSaving(true);
     setPanelError("");
     try {
       const token = await csrfToken();
-      const res = await fetch(`/api/v1/tickets/${editing.id}/`, {
+      const res = await fetch(`/api/v1/tickets/${selected.id}/`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json", "X-CSRFToken": token },
@@ -206,221 +177,271 @@ export default function AdminTicketsPage() {
           assigned_to: draftAssignedTo !== "" ? draftAssignedTo : null,
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({})) as AdminTicket;
       if (!res.ok) {
         setPanelError(messageFrom(data));
       } else {
-        setTickets(prev => prev.map(t => t.id === editing.id ? { ...t, ...data } : t));
-        setEditing(data as AdminTicket);
-        setPanelNotice("Ticket updated.");
+        setTickets((prev) => prev.map((t) => (t.id === selected.id ? { ...t, ...data } : t)));
+        setSelected({ ...selected, ...data });
+        setPanelNotice("Ticket saved.");
       }
     } catch {
-      setPanelError("Could not save changes.");
+      setPanelError("A network error occurred.");
     } finally {
       setSaving(false);
     }
   }
 
-  const categoryMap = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const cat of categories) map.set(cat.id, cat.name);
-    return map;
-  }, [categories]);
-
   const visibleTickets = useMemo(() => {
-    if (!statusFilter) return tickets;
-    return tickets.filter((t) => t.status === statusFilter);
-  }, [tickets, statusFilter]);
+    return tickets.filter((t) => {
+      if (statusFilter && t.status !== statusFilter) return false;
+      if (priorityFilter && t.priority !== priorityFilter) return false;
+      if (assigneeFilter === "unassigned" && t.assigned_to !== null) return false;
+      if (assigneeFilter && assigneeFilter !== "unassigned" && String(t.assigned_to) !== assigneeFilter) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return (
+          t.reference.toLowerCase().includes(q) ||
+          t.subject.toLowerCase().includes(q) ||
+          (t.requester_name ?? "").toLowerCase().includes(q) ||
+          (t.requester_email ?? "").toLowerCase().includes(q) ||
+          (t.category_name ?? "").toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [tickets, statusFilter, priorityFilter, assigneeFilter, searchQuery]);
 
-  const openCount      = tickets.filter((t) => !["resolved", "closed", "cancelled"].includes(t.status)).length;
-  const submittedCount = tickets.filter((t) => t.status === "submitted").length;
+  const openCount = tickets.filter((t) => !["resolved", "closed", "cancelled"].includes(t.status)).length;
+  const pendingCount = tickets.filter((t) => t.status === "submitted").length;
+  const unassignedCount = tickets.filter((t) => !t.assigned_to && !["closed", "cancelled"].includes(t.status)).length;
 
   return (
-    <div className="admin-content">
+    <div className="admin-content" style={{ paddingRight: selected ? 540 : undefined, transition: "padding-right 280ms ease" }}>
+
       <header className="admin-heading">
         <div>
           <p className="eyebrow">Support queue</p>
           <h1>Tickets</h1>
-          <p>Review and manage all support requests submitted to the helpdesk.</p>
+          <p>View, assign, and manage all support requests.</p>
         </div>
         <div className="user-summary">
           <span><TicketCheck aria-hidden="true" /><strong>{tickets.length}</strong> total</span>
           <span><CircleDot aria-hidden="true" /><strong>{openCount}</strong> open</span>
-          <span><Clock aria-hidden="true" /><strong>{submittedCount}</strong> pending</span>
+          <span><Clock aria-hidden="true" /><strong>{pendingCount}</strong> pending</span>
+          {unassignedCount > 0 && (
+            <span style={{ color: "#92400e", background: "#fef3c7" }}>
+              <User aria-hidden="true" /><strong>{unassignedCount}</strong> unassigned
+            </span>
+          )}
         </div>
       </header>
 
-      {error && (
-        <p className="admin-error" role="alert">{error}</p>
-      )}
+      {error && <p className="admin-error" role="alert">{error}</p>}
 
       {loading ? (
         <div className="admin-loading">Loading tickets...</div>
       ) : (
         <>
-          {/* Filter bar */}
-          <div className="user-toolbar" style={{ marginBottom: 0, borderRadius: "16px 16px 0 0" }}>
-            <Filter aria-hidden="true" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="Filter by status"
-              style={{ border: 0, outline: 0, background: "transparent", color: "#0f172a", fontSize: ".95rem", cursor: "pointer" }}
-            >
-              {STATUS_FILTER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
+          <div className="atq-filters">
+            <div className="atq-search">
+              <Search size={15} aria-hidden="true" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search reference, subject, requester..."
+                aria-label="Search tickets"
+              />
+            </div>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
+              <option value="">All statuses</option>
+              {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <span>{visibleTickets.length} result{visibleTickets.length !== 1 ? "s" : ""}</span>
+            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} aria-label="Filter by priority">
+              <option value="">All priorities</option>
+              {Object.entries(PRIORITY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} aria-label="Filter by assignee">
+              <option value="">All assignees</option>
+              <option value="unassigned">Unassigned</option>
+              {staffUsers.map((u) => <option key={u.id} value={String(u.id)}>{u.name}</option>)}
+            </select>
+            <span className="atq-count">{visibleTickets.length} result{visibleTickets.length !== 1 ? "s" : ""}</span>
           </div>
 
-          {/* Ticket table */}
-          <section className="user-table" aria-label="Support tickets" style={{ borderRadius: "0 0 16px 16px", borderTop: 0 }}>
-            <div
-              className="user-table-head"
-              style={{ gridTemplateColumns: ".85fr 1.2fr .75fr .7fr .65fr .6fr .65fr .5fr" }}
-            >
+          <div className="atq-table-wrap">
+            <div className="atq-head">
               <span>Reference</span>
               <span>Requester</span>
               <span>Subject</span>
               <span>Category</span>
               <span>Status</span>
               <span>Priority</span>
-              <span>Created</span>
+              <span>Elapsed</span>
               <span>Assignee</span>
             </div>
 
             {visibleTickets.length === 0 ? (
-              <div className="guide-empty" style={{ padding: "60px 24px" }}>
-                <Inbox aria-hidden="true" />
-                <p>{statusFilter ? "No tickets match this filter." : "No tickets in the queue."}</p>
+              <div className="atq-empty">
+                <Inbox size={32} aria-hidden="true" />
+                <p>{searchQuery || statusFilter || priorityFilter || assigneeFilter
+                  ? "No tickets match the current filters."
+                  : "No tickets in the queue yet."}</p>
               </div>
             ) : (
-              visibleTickets.map((ticket, index) => (
-                <motion.article
+              visibleTickets.map((ticket, i) => (
+                <motion.div
                   key={ticket.id}
-                  initial={{ opacity: 0, y: 8 }}
+                  className={`atq-row${selected?.id === ticket.id ? " atq-row--active" : ""}`}
+                  initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(index * 0.03, 0.2) }}
-                  onClick={() => openEditor(ticket)}
-                  style={{ gridTemplateColumns: ".9fr 1.5fr .8fr .7fr .65fr .7fr .6fr", display: "grid", gap: 14, alignItems: "center", padding: "14px 18px", borderTop: "1px solid #edf1f7", color: "#475569", fontSize: ".85rem", cursor: "pointer" }}
+                  transition={{ delay: Math.min(i * 0.02, 0.15) }}
+                  onClick={() => openPanel(ticket)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View ticket ${ticket.reference}`}
+                  onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && openPanel(ticket)}
                 >
-                  <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#234395", fontSize: ".8rem" }}>
-                    {ticket.reference}
+                  <span className="atq-reference">{ticket.reference}</span>
+                  <span className="atq-requester">
+                    <strong>{ticket.requester_name ?? `#${ticket.requester}`}</strong>
+                    {ticket.requester_email && <small>{ticket.requester_email}</small>}
                   </span>
-                  <span style={{ color: "#1e293b", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ticket.subject}>
-                    {ticket.subject}
-                  </span>
-                  <span style={{ color: "#64748b", fontSize: ".82rem" }}>
-                    {categoryMap.get(ticket.category) ?? `#${ticket.category}`}
-                  </span>
+                  <span className="atq-subject" title={ticket.subject}>{ticket.subject}</span>
+                  <span className="atq-meta">{ticket.category_name ?? `#${ticket.category}`}</span>
                   <span><StatusBadge status={ticket.status} /></span>
                   <span><PriorityBadge priority={ticket.priority} /></span>
-                  <span>{formatDate(ticket.created_at)}</span>
-                  <span style={{ color: ticket.assignee_name ? "#334155" : "#94a3b8", fontStyle: ticket.assignee_name ? "normal" : "italic" }}>
+                  <span className="atq-meta" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <Calendar size={12} aria-hidden="true" />{ticket.elapsed}
+                  </span>
+                  <span className={ticket.assignee_name ? "atq-assignee" : "atq-unassigned"}>
                     {ticket.assignee_name ?? "Unassigned"}
                   </span>
-                </motion.article>
+                </motion.div>
               ))
             )}
-          </section>
+          </div>
         </>
       )}
 
-      {/* Ticket editor panel */}
       <AnimatePresence>
-        {editing && (
+        {selected && (
           <motion.aside
-            key="ticket-editor"
-            className="editor-panel guide-editor"
+            key={selected.id}
+            className="atq-panel"
             initial={{ opacity: 0, x: 40 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 40 }}
-            transition={{ type: "spring", stiffness: 320, damping: 30 }}
-            aria-label="Edit ticket"
+            transition={{ type: "spring", stiffness: 320, damping: 32 }}
+            aria-label="Ticket detail"
           >
-            {/* Panel header */}
-            <div className="editor-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Pencil size={16} aria-hidden="true" />
-                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#234395", fontSize: ".85rem" }}>
-                  {editing.reference}
-                </span>
+            <div className="atq-panel-header">
+              <div className="atq-panel-title">
+                <span className="atq-panel-ref">{selected.reference}</span>
+                <StatusBadge status={selected.status} />
               </div>
-              <button
-                onClick={() => setEditing(null)}
-                aria-label="Close editor"
-                className="secondary-button"
-                style={{ padding: "4px 8px", lineHeight: 1 }}
-              >
-                <X size={16} aria-hidden="true" />
+              <button className="atq-close" onClick={() => setSelected(null)} aria-label="Close panel">
+                <X size={18} />
               </button>
             </div>
 
-            {/* Form */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
-                Subject
-                <input
-                  type="text"
-                  value={draftSubject}
-                  onChange={(e) => setDraftSubject(e.target.value)}
-                  style={{ fontWeight: 400 }}
-                />
-              </label>
+            <div className="atq-panel-body">
+              <h2 className="atq-panel-subject">{selected.subject}</h2>
 
-              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
-                Description
-                <textarea
-                  value={draftDescription}
-                  onChange={(e) => setDraftDescription(e.target.value)}
-                  rows={6}
-                  style={{ resize: "vertical", fontWeight: 400 }}
-                />
-              </label>
-
-              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
-                Priority
-                <select value={draftPriority} onChange={(e) => setDraftPriority(e.target.value)}>
-                  <option value="p1">Critical</option>
-                  <option value="p2">High</option>
-                  <option value="p3">Normal</option>
-                  <option value="p4">Low</option>
-                </select>
-              </label>
-
-              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: ".875rem", fontWeight: 600, color: "#334155" }}>
-                Status
-                <select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)}>
-                  <option value="submitted">Submitted</option>
-                  <option value="triaged">Triaged</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="waiting_requester">Waiting</option>
-                  <option value="waiting_approval">Awaiting Approval</option>
-                  <option value="resolved">Resolved</option>
-                  <option value="closed">Closed</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </label>
-
-              {panelNotice && (
-                <p role="status" style={{ color: "#166534", background: "#dcfce7", borderRadius: 8, padding: "8px 12px", fontSize: ".875rem", margin: 0 }}>
-                  {panelNotice}
-                </p>
-              )}
-              {panelError && (
-                <p role="alert" style={{ color: "#991b1b", background: "#fee2e2", borderRadius: 8, padding: "8px 12px", fontSize: ".875rem", margin: 0 }}>
-                  {panelError}
-                </p>
+              <div className="atq-info-row">
+                <User size={14} aria-hidden="true" />
+                <span>
+                  <strong>{selected.requester_name ?? `User #${selected.requester}`}</strong>
+                  {selected.requester_email && <> &mdash; <small>{selected.requester_email}</small></>}
+                </span>
+              </div>
+              <div className="atq-info-row">
+                <Clock size={14} aria-hidden="true" />
+                <span>{selected.elapsed} &nbsp;&middot;&nbsp; {formatDate(selected.created_at)}</span>
+              </div>
+              {selected.category_name && (
+                <div className="atq-info-row">
+                  <CircleDot size={14} aria-hidden="true" />
+                  <span>{selected.category_name}</span>
+                </div>
               )}
 
-              <div className="editor-actions">
-                <button
-                  className="primary-button"
-                  onClick={saveTicket}
-                  disabled={saving}
-                >
-                  {saving ? "Saving…" : "Save changes"}
+              <hr className="atq-divider" />
+
+              <p className="atq-description">{selected.description}</p>
+
+              {Object.keys(selected.extra_fields ?? {}).length > 0 && (
+                <div className="atq-extras">
+                  <h3>Additional details</h3>
+                  <dl className="atq-dl">
+                    {Object.entries(selected.extra_fields).map(([k, v]) => (
+                      <div key={k} className="atq-dl-row">
+                        <dt>{formatKey(k)}</dt>
+                        <dd>{String(v ?? "")}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
+
+              {selected.status_reason && (
+                <div className="atq-reason">
+                  <h3>{selected.status === "cancelled" ? "Cancellation reason" : "Closure note"}</h3>
+                  <p>{selected.status_reason}</p>
+                </div>
+              )}
+
+              <hr className="atq-divider" />
+              <h3 className="atq-edit-heading">Update ticket</h3>
+
+              <div className="atq-form">
+                <label>
+                  Status
+                  <select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)}>
+                    {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Priority
+                  <select value={draftPriority} onChange={(e) => setDraftPriority(e.target.value)}>
+                    <option value="p1">Critical</option>
+                    <option value="p2">High</option>
+                    <option value="p3">Normal</option>
+                    <option value="p4">Low</option>
+                  </select>
+                </label>
+                <label className="atq-full">
+                  Assign to
+                  <select
+                    value={draftAssignedTo}
+                    onChange={(e) => setDraftAssignedTo(e.target.value === "" ? "" : Number(e.target.value))}
+                  >
+                    <option value="">— Unassigned —</option>
+                    {staffUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name} (@{u.username})</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="atq-full">
+                  Team
+                  <input type="text" value={draftTeam} onChange={(e) => setDraftTeam(e.target.value)} placeholder="e.g. IT Support, NOC Team" />
+                </label>
+                <label className="atq-full">
+                  Subject
+                  <input type="text" value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} />
+                </label>
+                <label className="atq-full">
+                  Description
+                  <textarea rows={5} value={draftDescription} onChange={(e) => setDraftDescription(e.target.value)} />
+                </label>
+              </div>
+
+              {panelNotice && <p className="atq-notice" role="status">{panelNotice}</p>}
+              {panelError && <p className="atq-error" role="alert">{panelError}</p>}
+
+              <div className="atq-panel-actions">
+                <button className="primary-button" onClick={saveTicket} disabled={saving} style={{ width: "100%", justifyContent: "center" }}>
+                  {saving ? "Saving..." : "Save changes"}
                 </button>
               </div>
             </div>
