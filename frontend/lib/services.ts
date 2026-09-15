@@ -34,7 +34,7 @@ export const fallbackServices: Service[] = [
   { id: 3, name: 'ID card replacement', slug: 'id-card-replacement', summary: 'Report a lost or damaged college ID card.', audience: 'all', icon: 'badge', form_schema: [], stages: [] },
   { id: 4, name: 'Wi-Fi issue', slug: 'wifi-issue', summary: 'Report weak signal, connection failures, or campus Wi-Fi problems.', audience: 'all', icon: 'wifi', form_schema: [], stages: [] },
   { id: 5, name: 'CCTV review request', slug: 'cctv-review', summary: 'Request an authorized review for a campus incident.', audience: 'staff', icon: 'camera', form_schema: [], stages: [] },
-  { id: 6, name: 'General IT support', slug: 'general-support', summary: 'Ask for help with classroom equipment, printing, or software.', audience: 'all', icon: 'life-buoy', form_schema: [], stages: [] },
+  { id: 6, name: 'General IT support', slug: 'general-support', summary: 'Ask for help with classroom equipment, or software.', audience: 'all', icon: 'life-buoy', form_schema: [], stages: [] },
 ];
 
 // ── Server-side fetcher ────────────────────────────────────────────────────

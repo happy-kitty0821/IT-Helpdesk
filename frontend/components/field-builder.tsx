@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CharCount } from "@/components/char-count";
 import type { FieldDefinition, FieldType } from "@/lib/services";
 
 interface FieldBuilderProps {
@@ -228,6 +229,7 @@ export function FieldBuilder({ schema, onChange }: FieldBuilderProps) {
                         placeholder="Human-readable label shown to the user"
                         onChange={(e) => updateField(index, { label: e.target.value })}
                       />
+                      <CharCount current={field.label.length} max={255} />
                     </label>
 
                     {/* Key */}
@@ -240,6 +242,7 @@ export function FieldBuilder({ schema, onChange }: FieldBuilderProps) {
                         placeholder="e.g. college_id"
                         onChange={(e) => updateField(index, { key: e.target.value })}
                       />
+                      <CharCount current={field.key.length} max={64} hint="Lowercase letters, numbers, underscores" />
                     </label>
 
                     {/* Type */}
@@ -276,6 +279,7 @@ export function FieldBuilder({ schema, onChange }: FieldBuilderProps) {
                           placeholder="Hint shown inside the input"
                           onChange={(e) => updateField(index, { placeholder: e.target.value || undefined })}
                         />
+                        <CharCount current={(field.placeholder ?? "").length} max={255} />
                       </label>
                     )}
 
@@ -289,6 +293,7 @@ export function FieldBuilder({ schema, onChange }: FieldBuilderProps) {
                         placeholder="Guidance shown beneath the input"
                         onChange={(e) => updateField(index, { help_text: e.target.value || undefined })}
                       />
+                      <CharCount current={(field.help_text ?? "").length} max={1000} />
                     </label>
 
                     {/* ── Dropdown options ── */}
@@ -322,9 +327,13 @@ export function FieldBuilder({ schema, onChange }: FieldBuilderProps) {
                             Add at least one option — the schema cannot be saved with an empty dropdown.
                           </p>
                         )}
-                        <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: ".76rem" }}>
-                          {field.options?.length ?? 0} option{(field.options?.length ?? 0) !== 1 ? "s" : ""} defined
-                        </p>
+                        <div className="field-footer">
+                          <span style={{ fontSize: ".74rem", color: "#94a3b8" }}>
+                            {(field.options?.length ?? 0) === 0
+                              ? "At least 1 option required · max 50"
+                              : `${field.options!.length} of 50 options defined`}
+                          </span>
+                        </div>
                       </div>
                     )}
 

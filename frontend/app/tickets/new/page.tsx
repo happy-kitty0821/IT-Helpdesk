@@ -6,8 +6,15 @@ import { ArrowLeft, CheckCircle2, Info } from "lucide-react";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { DynamicField } from "@/components/dynamic-field";
+import { CharCount } from "@/components/char-count";
 import { type FieldDefinition, type Service, fallbackServices } from "@/lib/services";
 import { csrfToken } from "@/lib/auth";
+
+// ── Constants ──────────────────────────────────────────────────────────────
+
+const SUBJECT_MAX = 150;
+const DESCRIPTION_MAX = 5000;
+const DESCRIPTION_MIN = 20;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -236,15 +243,17 @@ function NewTicketForm() {
               </label>
 
               {/* Subject */}
-              <label>
-                Subject
+              <div>
+                <label htmlFor="new-subject">Subject</label>
                 <input
+                  id="new-subject"
                   name="subject" value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  minLength={5} maxLength={150} required
+                  minLength={5} maxLength={SUBJECT_MAX} required
                   placeholder="A short summary of the issue"
                 />
-              </label>
+                <CharCount current={subject.length} max={SUBJECT_MAX} hint="Minimum 5 characters" />
+              </div>
 
               {/* Dynamic fields */}
               {sortedFields.map((field) => (
@@ -258,15 +267,21 @@ function NewTicketForm() {
               ))}
 
               {/* Description */}
-              <label>
-                Description
+              <div>
+                <label htmlFor="new-description">Description</label>
                 <textarea
+                  id="new-description"
                   name="description" value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  minLength={20} maxLength={5000} required rows={7}
+                  minLength={DESCRIPTION_MIN} maxLength={DESCRIPTION_MAX} required rows={7}
                   placeholder="What were you trying to do, and what happened instead?"
                 />
-              </label>
+                <CharCount
+                  current={description.length}
+                  max={DESCRIPTION_MAX}
+                  hint={description.length < DESCRIPTION_MIN ? `Minimum ${DESCRIPTION_MIN} characters` : undefined}
+                />
+              </div>
 
               {/* Priority */}
               <label>

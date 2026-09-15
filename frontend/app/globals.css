@@ -511,6 +511,16 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 /* ── Services admin page ─────────────────────────────────────────────────── */
 .services-table .table-head,
 .services-table article { grid-template-columns: minmax(180px, 1.6fr) .55fr .55fr .55fr .6fr 40px; }
+
+/* ── Software admin page ─────────────────────────────────────────────────── */
+.sw-table .table-head,
+.sw-table article { grid-template-columns: minmax(180px, 1.6fr) .5fr .7fr .8fr .55fr 40px; }
+
+/* ── Character counters ──────────────────────────────────────────────────── */
+.field-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 3px; gap: 8px; }
+.char-count { font-size: .74rem; color: #94a3b8; font-variant-numeric: tabular-nums; transition: color 150ms ease; }
+.char-count--warn { color: #f59e0b; }
+.char-count--over { color: #b91c1c; font-weight: 700; }
 .schema-section { border-top: 1px solid #e2e8f0; margin-top: 4px; padding-top: 16px; }
 .schema-section > h3 { font-size: .88rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 10px; }
 
