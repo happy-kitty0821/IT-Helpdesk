@@ -428,6 +428,42 @@ class TicketMessage(models.Model):
         return f'Message on {self.ticket.reference} by {self.sender}'
 
 
+class TicketAttachment(models.Model):
+    """
+    A file (PDF or image) attached by the requester when submitting a ticket.
+    Stored at tickets/<ticket_id>/<filename>.
+    """
+    ALLOWED_CONTENT_TYPES = {
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+    }
+    MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB per file
+
+    ticket = models.ForeignKey(
+        'Ticket', on_delete=models.CASCADE, related_name='attachments'
+    )
+    field_key = models.CharField(max_length=64, blank=True, default='',
+                                  help_text='The form-schema key this file was submitted for.')
+    file = models.FileField(upload_to='ticket_attachments/%Y/%m/')
+    original_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=100)
+    file_size = models.PositiveIntegerField()
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, related_name='ticket_attachments'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at',)
+
+    def __str__(self):
+        return f'{self.original_name} → {self.ticket.reference}'
+
+
 class AccountRecoveryToken(models.Model):
     """
     8-digit backup code generated for account recovery requests.

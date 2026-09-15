@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketMessage
+from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketMessage
 
 
 def email_domain_allowed(email):
@@ -180,7 +180,9 @@ class TicketSerializer(serializers.ModelSerializer):
         extra_fields = attrs.get('extra_fields', {})
         if category and hasattr(category, 'form_schema'):
             from .validators import validate_extra_fields
-            validate_extra_fields(extra_fields, category.form_schema)
+            # file_keys are passed via serializer context from the view
+            file_keys = set(self.context.get('file_keys', []))
+            validate_extra_fields(extra_fields, category.form_schema, file_keys=file_keys)
         return attrs
 
     def to_representation(self, instance):
@@ -495,3 +497,19 @@ class AccountRecoveryTokenSerializer(serializers.ModelSerializer):
         model = AccountRecoveryToken
         fields = ('id', 'ticket', 'backup_code', 'is_used', 'created_at')
         read_only_fields = ('id', 'ticket', 'backup_code', 'is_used', 'created_at')
+
+
+class TicketAttachmentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketAttachment
+        fields = ('id', 'ticket', 'field_key', 'original_name', 'content_type',
+                  'file_size', 'file_url', 'created_at')
+        read_only_fields = fields
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url if obj.file else None

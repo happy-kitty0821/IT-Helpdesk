@@ -488,6 +488,7 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .badge-email    { color: #92400e; background: #fef3c7; }
 .badge-phone    { color: #9a3412; background: #ffedd5; }
 .badge-checkbox { color: #1e293b; background: #f1f5f9; }
+.badge-file     { color: #0f766e; background: #ccfbf1; }
 
 .field-row-body { border-top: 1px solid #e2e8f0; padding: 14px; background: #f8fafc; }
 

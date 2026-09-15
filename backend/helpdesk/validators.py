@@ -11,7 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-VALID_TYPES = {"text", "textarea", "select", "email", "phone", "checkbox"}
+VALID_TYPES = {"text", "textarea", "select", "email", "phone", "checkbox", "file"}
 
 _EMAIL_RE = re.compile(r"^[^@]+@[^@]+\.[^@]+$")
 _PHONE_RE = re.compile(r"^[\d\s\+\-\(\)]+$")
@@ -126,14 +126,19 @@ def validate_form_schema(value):
 
 # ── validate_extra_fields ────────────────────────────────────────────────────
 
-def validate_extra_fields(extra_fields, form_schema):
+def validate_extra_fields(extra_fields, form_schema, file_keys=None):
     """
     Validate extra_fields dict against the category's form_schema.
+
+    file_keys: set of field keys that were uploaded as multipart files.
+               Required for validating required `file` type fields.
 
     Raises rest_framework.exceptions.ValidationError when any rule is violated.
     Collects ALL per-key errors before raising.
     """
     errors = {}  # key → error message
+    if file_keys is None:
+        file_keys = set()
 
     if not isinstance(extra_fields, dict):
         raise ValidationError({"extra_fields": ["extra_fields must be a JSON object."]})
@@ -141,9 +146,10 @@ def validate_extra_fields(extra_fields, form_schema):
     # Build a lookup dict for fast access
     schema_by_key = {field["key"]: field for field in form_schema if isinstance(field, dict) and "key" in field}
 
-    # 1. Reject unknown keys
+    # 1. Reject unknown keys (ignore file type fields — they're not in extra_fields)
+    non_file_keys = {k: v for k, v in schema_by_key.items() if v.get("type") != "file"}
     for key in extra_fields:
-        if key not in schema_by_key:
+        if key not in non_file_keys:
             errors[key] = f"Unrecognised field '{key}'."
 
     # 2. Per-field validation
@@ -158,17 +164,21 @@ def validate_extra_fields(extra_fields, form_schema):
         is_required = field.get("required", False)
         value = extra_fields.get(key)
 
+        # File fields: only check required presence via file_keys
+        if field_type == "file":
+            if is_required and key not in file_keys:
+                errors[key] = "A file is required for this field."
+            continue
+
         # Required field checks
         if is_required:
             if field_type == "checkbox":
-                # checkbox: key must be present; False is acceptable
                 if key not in extra_fields:
                     errors[key] = "This field is required."
             else:
-                # All other types: must be present and non-empty string
                 if key not in extra_fields or value == "" or value is None:
                     errors[key] = "This field is required."
-                    continue  # Skip further type checks if value is missing
+                    continue
 
         # Type-specific validation (only when a value was actually submitted)
         if key in extra_fields and value is not None and value != "":
@@ -187,7 +197,7 @@ def validate_extra_fields(extra_fields, form_schema):
                         "Enter a valid phone number (digits, spaces, +, -, (, ) only; 1–20 characters)."
                     )
 
-        # Value length limit (applies to all types)
+        # Value length limit (applies to all non-file types)
         if key in extra_fields and value is not None:
             if len(str(value)) > 2000:
                 errors[key] = "Value must be at most 2000 characters."
