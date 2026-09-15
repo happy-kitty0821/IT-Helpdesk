@@ -30,8 +30,8 @@ export function SiteHeader() {
           <span><strong>IT & NOC</strong><small>Helpdesk</small></span>
         </Link>
         <nav aria-label="Primary navigation">
-          <Link href="#services">Services</Link>
-          <Link href="#status">Status</Link>
+          <Link href="/#services">Services</Link>
+          <Link href="/#status">Status</Link>
           {user ? <span className="account-name" title={user.email}>{user.name}</span> : <Link href="/login">Sign in</Link>}
           {user && <Link href="/tickets" className="text-button">My tickets</Link>}
           {user?.is_superuser && <Link href="/admin" className="admin-link">Admin</Link>}
