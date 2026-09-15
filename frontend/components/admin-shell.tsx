@@ -5,7 +5,7 @@ import {
   Home, LayoutGrid, LoaderCircle, ShieldAlert, Users,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   hasStaffRole, highestRole, ROLE_LABELS,
@@ -18,7 +18,7 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
-  /** Roles that can see this item. Empty = all staff. */
+  /** Roles that may visit this page. Undefined = all staff. */
   allowedRoles?: RoleValue[];
 }
 
@@ -37,17 +37,31 @@ const ALL_NAV: NavItem[] = [
     allowedRoles: ["administrator"] },
 ];
 
-/** Filter nav items to those the given user may see. */
+/** Nav items visible to the given user. */
 function visibleNav(user: AuthUser): NavItem[] {
-  if (user.is_superuser) return ALL_NAV; // superusers see everything
-
-  return ALL_NAV.filter(({ allowedRoles }) => {
-    if (!allowedRoles || allowedRoles.length === 0) return true; // open to all staff
-    return user.roles.some((r) => allowedRoles.includes(r));
-  });
+  if (user.is_superuser) return ALL_NAV;
+  return ALL_NAV.filter(({ allowedRoles }) =>
+    !allowedRoles?.length || user.roles.some((r) => allowedRoles.includes(r))
+  );
 }
 
-// ── Role badge colour ─────────────────────────────────────────────────────────
+/** True if the user may visit the given pathname. */
+function canVisit(user: AuthUser, path: string): boolean {
+  if (user.is_superuser) return true;
+  // Find the most-specific nav item that covers this path (longest prefix first)
+  const sorted = [...ALL_NAV].sort((a, b) => b.href.length - a.href.length);
+  const match = sorted.find((n) => path === n.href || path.startsWith(n.href + "/"));
+  if (!match) return true; // no rule → open
+  if (!match.allowedRoles?.length) return true; // open to all staff
+  return user.roles.some((r) => match.allowedRoles!.includes(r));
+}
+
+/** First page the user is allowed to visit. */
+function fallbackPage(user: AuthUser): string {
+  return visibleNav(user)[0]?.href ?? "/";
+}
+
+// ── Role badge colours ────────────────────────────────────────────────────────
 
 const ROLE_BADGE: Record<string, { text: string; bg: string }> = {
   administrator:       { text: "#991b1b", bg: "#fee2e2" },
@@ -62,17 +76,28 @@ const ROLE_BADGE: Record<string, { text: string; bg: string }> = {
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router   = useRouter();
   const [state, setState] = useState<{ loading: boolean; user: AuthUser | null }>({
     loading: true,
     user: null,
   });
 
+  // Fetch current user once on mount
   useEffect(() => {
     fetch("/api/v1/auth/me/", { credentials: "include", cache: "no-store" })
       .then(async (r) => (r.ok ? r.json() : null))
       .then((user) => setState({ loading: false, user }))
       .catch(() => setState({ loading: false, user: null }));
   }, []);
+
+  // Client-side route enforcement — second layer after middleware
+  useEffect(() => {
+    if (state.loading || !state.user) return;
+    if (!hasStaffRole(state.user)) return; // "no staff role" gate renders instead
+    if (!canVisit(state.user, pathname)) {
+      router.replace(fallbackPage(state.user));
+    }
+  }, [state, pathname, router]);
 
   // ── Loading ──────────────────────────────────────────────────────────────
 
@@ -98,7 +123,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ── Signed in but no staff role ──────────────────────────────────────────
+  // ── No staff role ────────────────────────────────────────────────────────
 
   if (!hasStaffRole(state.user)) {
     return (
@@ -106,21 +131,32 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <ShieldAlert aria-hidden="true" />
         <h1>Staff access required</h1>
         <p>
-          Your account (<strong>{state.user.email}</strong>) does not have a staff role.
-          Contact an administrator to request access.
+          Your account (<strong>{state.user.email}</strong>) does not have a
+          staff role. Contact an administrator to request access.
         </p>
         <Link href="/" className="primary-button">Return to helpdesk</Link>
       </main>
     );
   }
 
-  // ── Authorised — render shell ─────────────────────────────────────────────
+  // ── Out-of-scope page — show spinner while redirect fires ────────────────
 
-  const user = state.user;
-  const role = highestRole(user);
+  if (!canVisit(state.user, pathname)) {
+    return (
+      <main className="admin-gate">
+        <LoaderCircle className="spin" aria-hidden="true" />
+        <p>Redirecting…</p>
+      </main>
+    );
+  }
+
+  // ── Authorised — render full shell ───────────────────────────────────────
+
+  const user      = state.user;
+  const role      = highestRole(user);
   const roleLabel = user.is_superuser ? "Superuser" : (ROLE_LABELS[role] ?? role);
-  const badge = ROLE_BADGE[role] ?? { text: "#475569", bg: "#f1f5f9" };
-  const nav = visibleNav(user);
+  const badge     = ROLE_BADGE[role] ?? { text: "#475569", bg: "#f1f5f9" };
+  const nav       = visibleNav(user);
 
   return (
     <div className="admin-frame">
@@ -135,11 +171,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
         <nav aria-label="Staff portal navigation">
           {nav.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={pathname === href ? "active" : ""}
-            >
+            <Link key={href} href={href} className={pathname === href ? "active" : ""}>
               <Icon aria-hidden="true" />
               {label}
             </Link>
@@ -148,37 +180,26 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
         <div className="admin-user">
           <strong>{user.name}</strong>
-          {/* Role badge */}
           <span
             style={{
-              display: "inline-block",
-              borderRadius: 999,
-              padding: "2px 9px",
-              fontSize: ".72rem",
-              fontWeight: 800,
-              color: badge.text,
-              background: badge.bg,
-              marginTop: 2,
+              display: "inline-block", borderRadius: 999,
+              padding: "2px 9px", fontSize: ".72rem", fontWeight: 800,
+              color: badge.text, background: badge.bg, marginTop: 2,
             }}
           >
             {roleLabel}
           </span>
-          {/* Scope notice for interns */}
           {user.category_scope && (
             <span
               style={{
-                fontSize: ".7rem",
-                color: "rgba(255,255,255,.55)",
-                marginTop: 3,
-                lineHeight: 1.4,
+                fontSize: ".7rem", color: "rgba(255,255,255,.55)",
+                marginTop: 3, lineHeight: 1.4,
               }}
             >
-              Scoped to: {user.category_scope.join(", ")}
+              Scoped: {user.category_scope.join(", ")}
             </span>
           )}
-          <Link href="/">
-            <Home aria-hidden="true" /> Public helpdesk
-          </Link>
+          <Link href="/"><Home aria-hidden="true" /> Public helpdesk</Link>
         </div>
       </aside>
 
