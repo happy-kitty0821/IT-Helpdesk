@@ -236,7 +236,11 @@ class TicketListCreate(generics.ListCreateAPIView):
                     detail='Your role is not eligible for this service category.',
                     code='audience_not_eligible',
                 )
-        serializer.save(requester=self.request.user)
+        # Auto-set current_stage to the first stage key if the category has stages defined.
+        first_stage = ''
+        if category and isinstance(category.stages, list) and category.stages:
+            first_stage = category.stages[0].get('key', '')
+        serializer.save(requester=self.request.user, current_stage=first_stage)
 
 
 class TicketDetail(generics.RetrieveUpdateAPIView):
