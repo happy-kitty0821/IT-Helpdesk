@@ -222,21 +222,26 @@ class TicketListCreate(generics.ListCreateAPIView):
         """
         When the request is multipart (files present), extra_fields arrives as
         a JSON string in the form-data body. Parse it before passing to the serializer.
+        Only applied when `data` is explicitly passed (i.e. on POST/create, not on GET/list).
         """
         import json as _json
         from django.http import QueryDict
-        data = kwargs.pop('data', self.request.data)
 
-        if isinstance(data, QueryDict):
-            # Multipart/form-data: mutable copy so we can replace extra_fields
-            data = data.dict()
-            if 'extra_fields' in data and isinstance(data['extra_fields'], str):
-                try:
-                    data['extra_fields'] = _json.loads(data['extra_fields'])
-                except (ValueError, TypeError):
-                    data['extra_fields'] = {}
+        # Only intervene when the caller actually passes `data` (create path).
+        # On the list path, `data` is never in kwargs — leave it alone.
+        if 'data' in kwargs:
+            data = kwargs['data']
+            if isinstance(data, QueryDict):
+                # Multipart/form-data: convert to plain dict and parse
+                # extra_fields from its JSON string representation.
+                data = data.dict()
+                if 'extra_fields' in data and isinstance(data['extra_fields'], str):
+                    try:
+                        data['extra_fields'] = _json.loads(data['extra_fields'])
+                    except (ValueError, TypeError):
+                        data['extra_fields'] = {}
+                kwargs['data'] = data
 
-        kwargs['data'] = data
         return super().get_serializer(*args, **kwargs)
 
     def get_queryset(self):
