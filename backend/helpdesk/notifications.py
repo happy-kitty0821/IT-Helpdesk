@@ -343,9 +343,17 @@ def build_webhook_text(event_type: str, context: dict) -> str:
             f'{url}'
         )
     elif event_type == 'account_recovery':
+        code = context.get('backup_code', '')
         return (
-            f'🔐 Account recovery request from {requester}\n'
+            f'🔐 Account recovery for {requester}\n'
             f'Email: {context.get("college_email", "")}\n'
+            f'Backup code: {code if code else "(see email)"}\n'
+            f'{url}'
+        )
+    elif event_type == 'ticket_reply':
+        return (
+            f'💬 Reply on ticket {ref}: {subject}\n'
+            f'From: {context.get("staff_name", "Staff")}\n'
             f'{url}'
         )
     else:

@@ -1,6 +1,7 @@
 ﻿from django.urls import path, re_path
 
 from .views import (
+    AccountRecoveryCodeView,
     CsrfView,
     CurrentUserView,
     AdminGuideDetail,
@@ -31,6 +32,7 @@ from .views import (
     TicketAssignView,
     TicketDetail,
     TicketListCreate,
+    TicketMessageListCreate,
     AssignableStaffView,
     TicketStatusView,
     UserRoleDetail,
@@ -50,6 +52,8 @@ urlpatterns = [
     path('tickets/', TicketListCreate.as_view(), name='ticket-list-create'),
     re_path(r'^tickets/assignable-staff/?$', AssignableStaffView.as_view(), name='assignable-staff'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/status/?$', TicketStatusView.as_view(), name='ticket-status'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/messages/?$', TicketMessageListCreate.as_view(), name='ticket-messages'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/recovery-code/?$', AccountRecoveryCodeView.as_view(), name='ticket-recovery-code'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/?$', TicketDetail.as_view(), name='ticket-detail'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/assign/?$', TicketAssignView.as_view(), name='ticket-assign'),
     re_path(r'^guides/?$', PublicGuideList.as_view(), name='public-guide-list'),

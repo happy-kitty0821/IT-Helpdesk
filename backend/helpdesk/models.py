@@ -35,6 +35,11 @@ class ServiceCategory(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     form_schema = models.JSONField(default=list, blank=True)
+    stages = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='List of stage dicts: [{key, label, description?, icon?}]',
+    )
 
     class Meta:
         ordering = ('sort_order', 'name')
@@ -80,6 +85,7 @@ class Ticket(models.Model):
     team = models.CharField(max_length=100, blank=True, default='')
     extra_fields = models.JSONField(default=dict, blank=True)
     status_reason = models.TextField(max_length=1000, blank=True, default='')
+    current_stage = models.CharField(max_length=80, blank=True, default='')
 
     class Meta:
         ordering = ('-created_at',)
@@ -395,3 +401,50 @@ class NotificationRule(models.Model):
 
     def __str__(self):
         return f'{self.event_type} → {self.channel.name} ({self.recipient_type})'
+
+
+class TicketMessage(models.Model):
+    """
+    A reply or staff note on a ticket.
+    staff_reply=True  → staff sent this; visible to requester
+    staff_reply=False → requester sent this
+    is_internal=True  → internal staff note; NOT visible to requester
+    """
+    ticket = models.ForeignKey(
+        'Ticket', on_delete=models.CASCADE, related_name='messages'
+    )
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True
+    )
+    body = models.TextField(max_length=5000)
+    is_staff_reply = models.BooleanField(default=False)
+    is_internal = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at',)
+
+    def __str__(self):
+        return f'Message on {self.ticket.reference} by {self.sender}'
+
+
+class AccountRecoveryToken(models.Model):
+    """
+    8-digit backup code generated for account recovery requests.
+    Also stores a temporary password that is emailed to the requester.
+
+    Available template context variables:
+      {{backup_code}}    — the 8-digit backup code
+      {{temp_password}}  — the temporary password
+    """
+    ticket = models.OneToOneField(
+        'Ticket', on_delete=models.CASCADE, related_name='recovery_token'
+    )
+    backup_code = models.CharField(max_length=8)
+    temp_password = models.CharField(max_length=100)
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'Recovery token for {self.ticket.reference}'

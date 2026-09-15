@@ -46,6 +46,13 @@ export type ManagedUser = {
   roles: RoleValue[];
 };
 
+export type ServiceStage = {
+  key: string;
+  label: string;
+  description?: string;
+  icon?: string;
+};
+
 export type AdminService = {
   id: number;
   name: string;
@@ -56,6 +63,7 @@ export type AdminService = {
   sort_order: number;
   is_active: boolean;
   form_schema: FieldDefinition[];
+  stages: ServiceStage[];
 };
 
 export type RoleGrant = {

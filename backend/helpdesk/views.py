@@ -15,9 +15,10 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, ServiceCategory, SoftwareResource, Ticket
+from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, ServiceCategory, SoftwareResource, Ticket, TicketMessage
 from .permissions import IsAdministrator, IsContentEditor, IsServiceLead
 from .serializers import (
+    AccountRecoveryTokenSerializer,
     AdminServiceCategorySerializer,
     EmailTemplateSerializer,
     GoogleCredentialSerializer,
@@ -29,6 +30,7 @@ from .serializers import (
     RoleGrantSerializer,
     ServiceCategorySerializer,
     SoftwareResourceSerializer,
+    TicketMessageSerializer,
     TicketSerializer,
     UserSerializer,
     AdminUserSerializer,
@@ -663,6 +665,164 @@ class AdminServiceCategoryReorder(APIView):
             for item in data:
                 ServiceCategory.objects.filter(pk=item['id']).update(sort_order=item['sort_order'])
         return Response({'detail': 'Sort order updated.'}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Ticket messaging
+# ---------------------------------------------------------------------------
+
+class TicketMessageListCreate(APIView):
+    """
+    GET  /api/v1/tickets/{pk}/messages/ — list messages
+    POST /api/v1/tickets/{pk}/messages/ — post a reply or note
+
+    Access rules:
+    - Requester can read public messages (is_internal=False) and post replies
+    - Staff (including IT NOC intern scoped to ticket) can read all + post replies/notes
+    - is_internal messages are never returned to requesters
+    """
+
+    def _get_ticket_and_check_access(self, request, pk):
+        """Returns (ticket, is_staff) or raises 404."""
+        from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
+        roles = get_user_roles(request.user)
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
+        is_staff = bool(roles.intersection(staff_roles))
+
+        try:
+            qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
+            if is_staff:
+                if user_has_intern_scope_only(request.user):
+                    qs = qs.filter(category__slug__in=get_intern_scope_slugs())
+                ticket = qs.get(pk=pk)
+            else:
+                ticket = qs.get(pk=pk, requester=request.user)
+        except Ticket.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+            raise NotFound()
+
+        return ticket, is_staff
+
+    def get(self, request, pk):
+        ticket, is_staff = self._get_ticket_and_check_access(request, pk)
+        qs = ticket.messages.select_related('sender')
+        if not is_staff:
+            qs = qs.filter(is_internal=False)
+        serializer = TicketMessageSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, pk):
+        ticket, is_staff = self._get_ticket_and_check_access(request, pk)
+
+        body = (request.data.get('body') or '').strip()
+        if not body:
+            return Response({'body': ['Message body cannot be empty.']},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if len(body) > 5000:
+            return Response({'body': ['Message must be 5000 characters or fewer.']},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        is_internal = bool(request.data.get('is_internal', False)) and is_staff
+
+        msg = TicketMessage.objects.create(
+            ticket=ticket,
+            sender=request.user,
+            body=body,
+            is_staff_reply=is_staff,
+            is_internal=is_internal,
+        )
+
+        # Send notification for public staff replies
+        if is_staff and not is_internal:
+            try:
+                from .notifications import send_event
+                from .signals import _ticket_context, get_helpdesk_url
+                ctx = _ticket_context(ticket, {
+                    'reply_body': body,
+                    'staff_name': request.user.get_full_name() or request.user.username,
+                })
+                send_event('ticket_reply', ctx, ticket=ticket)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).exception('Error sending reply notification: %s', exc)
+
+        serializer = TicketMessageSerializer(msg)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Account recovery backup code
+# ---------------------------------------------------------------------------
+
+class AccountRecoveryCodeView(APIView):
+    """
+    POST /api/v1/tickets/{pk}/recovery-code/
+    Generates an 8-digit backup code + temp password for an account recovery ticket
+    and sends it via active email channels.
+    Requires IsServiceLead or IsAdministrator.
+    """
+    permission_classes = (IsServiceLead,)
+
+    def post(self, request, pk):
+        import random
+        import string
+        from django.utils import timezone as tz
+        from .notifications import send_event
+        from .signals import get_helpdesk_url
+
+        try:
+            ticket = Ticket.objects.select_related('requester', 'category').get(pk=pk)
+        except Ticket.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if ticket.category.slug != 'account-recovery':
+            return Response(
+                {'detail': 'This endpoint is only for account recovery tickets.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Generate / regenerate the token
+        backup_code = ''.join(random.choices(string.digits, k=8))
+        temp_password = ''.join(
+            random.choices(string.ascii_letters + string.digits + '!@#$', k=12)
+        )
+
+        token, _ = AccountRecoveryToken.objects.update_or_create(
+            ticket=ticket,
+            defaults={
+                'backup_code': backup_code,
+                'temp_password': temp_password,
+                'is_used': False,
+                'used_at': None,
+            },
+        )
+
+        # Send via notification system
+        requester = ticket.requester
+        ctx = {
+            'ticket_reference': ticket.reference,
+            'ticket_subject': ticket.subject,
+            'requester_name': requester.get_full_name() or requester.username,
+            'requester_email': requester.email,
+            'to_email': requester.email,
+            'college_email': requester.email,
+            'support_email': getattr(request, 'META', {}).get('HTTP_HOST', 'support@iic.edu.np'),
+            'backup_code': backup_code,
+            'temp_password': temp_password,
+            'helpdesk_url': get_helpdesk_url(),
+        }
+        try:
+            send_event('account_recovery', ctx, ticket=ticket)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception('Error sending recovery code: %s', exc)
+
+        return Response({
+            'backup_code': backup_code,
+            'temp_password': temp_password,
+            'message': f'Recovery code sent to {requester.email}.',
+        })
 
 
 # ---------------------------------------------------------------------------

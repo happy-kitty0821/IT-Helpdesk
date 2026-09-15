@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleGrant, ServiceCategory, SoftwareResource, Ticket
+from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketMessage
 
 
 def email_domain_allowed(email):
@@ -82,7 +82,7 @@ class GoogleCredentialSerializer(serializers.Serializer):
 class ServiceCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ServiceCategory
-        fields = ('id', 'name', 'slug', 'summary', 'audience', 'icon', 'form_schema')
+        fields = ('id', 'name', 'slug', 'summary', 'audience', 'icon', 'form_schema', 'stages')
 
 
 class AdminServiceCategorySerializer(serializers.ModelSerializer):
@@ -90,7 +90,7 @@ class AdminServiceCategorySerializer(serializers.ModelSerializer):
         model = ServiceCategory
         fields = (
             'id', 'name', 'slug', 'summary', 'audience', 'icon',
-            'sort_order', 'is_active', 'form_schema',
+            'sort_order', 'is_active', 'form_schema', 'stages',
         )
 
     def validate_form_schema(self, value):
@@ -112,6 +112,7 @@ class TicketSerializer(serializers.ModelSerializer):
     extra_fields = serializers.JSONField(default=dict)
     elapsed = serializers.SerializerMethodField()
     status_reason = serializers.CharField(read_only=True)
+    current_stage = serializers.CharField(read_only=True)
 
     class Meta:
         model = Ticket
@@ -121,6 +122,7 @@ class TicketSerializer(serializers.ModelSerializer):
             'status', 'status_reason', 'priority',
             'assigned_to', 'team', 'assignee_name',
             'extra_fields', 'elapsed', 'created_at', 'updated_at',
+            'current_stage',
         )
 
     def get_requester_name(self, obj):
@@ -198,7 +200,7 @@ class TicketUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Ticket
-        fields = ('subject', 'description', 'priority', 'status', 'team', 'assigned_to')
+        fields = ('subject', 'description', 'priority', 'status', 'team', 'assigned_to', 'current_stage')
 
     def validate_subject(self, value):
         value = value.strip()
@@ -464,3 +466,32 @@ class NotificationRuleSerializer(serializers.ModelSerializer):
             'email_mailgun': '📨',
         }
         return emoji_map.get(obj.channel.type, '📢')
+
+
+class TicketMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+    sender_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketMessage
+        fields = (
+            'id', 'ticket', 'sender', 'sender_name', 'sender_email',
+            'body', 'is_staff_reply', 'is_internal', 'created_at',
+        )
+        read_only_fields = ('id', 'ticket', 'sender', 'sender_name', 'sender_email',
+                            'is_staff_reply', 'created_at')
+
+    def get_sender_name(self, obj):
+        if obj.sender:
+            return obj.sender.get_full_name() or obj.sender.username
+        return 'System'
+
+    def get_sender_email(self, obj):
+        return obj.sender.email if obj.sender else None
+
+
+class AccountRecoveryTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AccountRecoveryToken
+        fields = ('id', 'ticket', 'backup_code', 'is_used', 'created_at')
+        read_only_fields = ('id', 'ticket', 'backup_code', 'is_used', 'created_at')

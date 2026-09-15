@@ -509,7 +509,7 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 
 /* ── Services admin page ─────────────────────────────────────────────────── */
 .services-table .table-head,
-.services-table article { grid-template-columns: minmax(180px, 1.6fr) .55fr .55fr .55fr 40px; }
+.services-table article { grid-template-columns: minmax(180px, 1.6fr) .55fr .55fr .55fr .6fr 40px; }
 .schema-section { border-top: 1px solid #e2e8f0; margin-top: 4px; padding-top: 16px; }
 .schema-section > h3 { font-size: .88rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 10px; }
 
