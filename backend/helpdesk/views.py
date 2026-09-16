@@ -15,13 +15,15 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketMessage
+from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
 from .permissions import IsAdministrator, IsContentEditor, IsITAgent, IsServiceLead
 from .serializers import (
     AccountRecoveryTokenSerializer,
     AdminServiceCategorySerializer,
     EmailTemplateSerializer,
     GoogleCredentialSerializer,
+    RoleConfigSerializer,
+    TicketFormSettingsSerializer,
     LoginSerializer,
     NotificationChannelSerializer,
     NotificationLogSerializer,
@@ -1012,3 +1014,148 @@ class NotificationRuleDetail(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = NotificationRuleSerializer
     queryset = NotificationRule.objects.select_related('channel')
     http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+
+# ---------------------------------------------------------------------------
+# Admin settings — Ticket Form
+# ---------------------------------------------------------------------------
+
+class TicketFormSettingsView(APIView):
+    """
+    GET  /api/v1/admin/settings/ticket-form/  — return current settings (public, no auth)
+    PATCH /api/v1/admin/settings/ticket-form/ — update settings (admin only)
+    """
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [permissions.AllowAny()]
+        return [IsAdministrator()]
+
+    def get(self, request):
+        obj = TicketFormSettings.get()
+        return Response(TicketFormSettingsSerializer(obj).data)
+
+    def patch(self, request):
+        obj = TicketFormSettings.get()
+        serializer = TicketFormSettingsSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Admin settings — Roles
+# ---------------------------------------------------------------------------
+
+ROLE_DEFAULTS = {
+    'administrator':       'Full access to the staff portal and all management functions.',
+    'service_lead':        'Triage, assign, escalate tickets and run team reports.',
+    'it_agent':            'Work assigned queues, post replies and internal notes.',
+    'it_noc_intern':       'IT Agent scoped to Laptop, Wi-Fi and General IT tickets.',
+    'designated_approver': 'Review approval tasks for ID replacement and CCTV tickets.',
+    'content_editor':      'Draft, revise and publish guides and software resources.',
+    'faculty_staff':       'Access staff-eligible services and guides.',
+    'student':             'Submit requests and access student resources.',
+    'visitor':             'Public-only access (unauthenticated default).',
+}
+
+
+def _ensure_role_configs():
+    """Create RoleConfig rows for any roles that don't have one yet."""
+    for role, desc in ROLE_DEFAULTS.items():
+        RoleConfig.objects.get_or_create(
+            role=role,
+            defaults={'description': desc, 'is_grantable': True},
+        )
+
+
+class RoleConfigListView(APIView):
+    """
+    GET  /api/v1/admin/settings/roles/  — list all role configs (admin only)
+    """
+    permission_classes = (IsAdministrator,)
+
+    def get(self, request):
+        _ensure_role_configs()
+        configs = RoleConfig.objects.all().order_by('role')
+        serializer = RoleConfigSerializer(configs, many=True)
+        return Response(serializer.data)
+
+
+class RoleConfigDetailView(APIView):
+    """
+    PATCH /api/v1/admin/settings/roles/{role}/  — update a single role config (admin only)
+    """
+    permission_classes = (IsAdministrator,)
+
+    def patch(self, request, role):
+        try:
+            obj = RoleConfig.objects.get(role=role)
+        except RoleConfig.DoesNotExist:
+            _ensure_role_configs()
+            try:
+                obj = RoleConfig.objects.get(role=role)
+            except RoleConfig.DoesNotExist:
+                return Response({'detail': f'Unknown role: {role}'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = RoleConfigSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class InternScopeListView(APIView):
+    """
+    GET   /api/v1/admin/settings/intern-scope/  — list intern category scopes
+    POST  /api/v1/admin/settings/intern-scope/  — add a slug
+    DELETE /api/v1/admin/settings/intern-scope/{slug}/ — remove a slug
+    """
+    permission_classes = (IsAdministrator,)
+
+    def get(self, request):
+        from .models import InternCategoryScope
+        scopes = InternCategoryScope.objects.all().order_by('slug')
+        return Response([
+            {'slug': s.slug, 'description': s.description, 'is_active': s.is_active}
+            for s in scopes
+        ])
+
+    def post(self, request):
+        from .models import InternCategoryScope
+        slug = str(request.data.get('slug', '')).strip()
+        desc = str(request.data.get('description', '')).strip()
+        if not slug:
+            return Response({'detail': 'slug is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        obj, created = InternCategoryScope.objects.get_or_create(
+            slug=slug, defaults={'description': desc, 'is_active': True}
+        )
+        if not created:
+            obj.is_active = True
+            obj.description = desc or obj.description
+            obj.save()
+        return Response(
+            {'slug': obj.slug, 'description': obj.description, 'is_active': obj.is_active},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class InternScopeDetailView(APIView):
+    """PATCH / DELETE a single intern scope slug."""
+    permission_classes = (IsAdministrator,)
+
+    def patch(self, request, slug):
+        from .models import InternCategoryScope
+        try:
+            obj = InternCategoryScope.objects.get(slug=slug)
+        except InternCategoryScope.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if 'is_active' in request.data:
+            obj.is_active = bool(request.data['is_active'])
+        if 'description' in request.data:
+            obj.description = str(request.data['description'])
+        obj.save()
+        return Response({'slug': obj.slug, 'description': obj.description, 'is_active': obj.is_active})
+
+    def delete(self, request, slug):
+        from .models import InternCategoryScope
+        InternCategoryScope.objects.filter(slug=slug).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

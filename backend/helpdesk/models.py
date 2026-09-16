@@ -484,3 +484,75 @@ class AccountRecoveryToken(models.Model):
 
     def __str__(self):
         return f'Recovery token for {self.ticket.reference}'
+
+
+class RoleConfig(models.Model):
+    """
+    Per-role configuration stored in the database.
+    Allows administrators to:
+    - toggle whether a role can be granted to new users (is_grantable)
+    - customise the description shown in the UI
+    """
+    role = models.CharField(
+        max_length=20,
+        choices=RoleChoices.choices,
+        unique=True,
+    )
+    is_grantable = models.BooleanField(
+        default=True,
+        help_text='If False, this role cannot be assigned to new users via the admin panel.',
+    )
+    description = models.CharField(
+        max_length=300,
+        blank=True,
+        default='',
+        help_text='Short description shown in the roles admin page.',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('role',)
+
+    def __str__(self):
+        return f'RoleConfig({self.role})'
+
+
+class TicketFormSettings(models.Model):
+    """
+    Singleton model — at most one row.  Controls which built-in fields
+    are shown on the ticket submission form, whether they are required,
+    and their character limits.
+
+    Built-in fields controlled here:
+        subject, description, impact (priority selector)
+    """
+    # Subject
+    subject_visible  = models.BooleanField(default=True)
+    subject_required = models.BooleanField(default=True)
+    subject_min_len  = models.PositiveSmallIntegerField(default=5)
+    subject_max_len  = models.PositiveSmallIntegerField(default=150)
+
+    # Description
+    description_visible  = models.BooleanField(default=True)
+    description_required = models.BooleanField(default=True)
+    description_min_len  = models.PositiveSmallIntegerField(default=20)
+    description_max_len  = models.PositiveSmallIntegerField(default=5000)
+
+    # Impact / priority selector
+    impact_visible  = models.BooleanField(default=True)
+    impact_required = models.BooleanField(default=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Ticket form settings'
+        verbose_name_plural = 'Ticket form settings'
+
+    def __str__(self):
+        return 'Ticket form settings'
+
+    @classmethod
+    def get(cls) -> 'TicketFormSettings':
+        """Return the singleton row, creating it with defaults if absent."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

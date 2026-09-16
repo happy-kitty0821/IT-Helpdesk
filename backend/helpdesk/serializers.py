@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketMessage
+from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
 
 
 def email_domain_allowed(email):
@@ -517,3 +517,34 @@ class TicketAttachmentSerializer(serializers.ModelSerializer):
         if obj.file and request:
             return request.build_absolute_uri(obj.file.url)
         return obj.file.url if obj.file else None
+
+
+class RoleConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RoleConfig
+        fields = ('role', 'is_grantable', 'description', 'updated_at')
+        read_only_fields = ('role', 'updated_at')
+
+
+class TicketFormSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TicketFormSettings
+        fields = (
+            'subject_visible', 'subject_required', 'subject_min_len', 'subject_max_len',
+            'description_visible', 'description_required', 'description_min_len', 'description_max_len',
+            'impact_visible', 'impact_required',
+            'updated_at',
+        )
+        read_only_fields = ('updated_at',)
+
+    def validate(self, attrs):
+        for field in ('subject', 'description'):
+            min_key = f'{field}_min_len'
+            max_key = f'{field}_max_len'
+            mn = attrs.get(min_key, getattr(self.instance, min_key, 0) if self.instance else 0)
+            mx = attrs.get(max_key, getattr(self.instance, max_key, 1) if self.instance else 1)
+            if mn >= mx:
+                raise serializers.ValidationError(
+                    {max_key: f'{field} max length must be greater than min length.'}
+                )
+        return attrs

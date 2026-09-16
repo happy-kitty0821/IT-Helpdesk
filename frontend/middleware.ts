@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 const ROUTE_ROLES: Array<{ prefix: string; allowed: string[] }> = [
   { prefix: "/admin/users",         allowed: ["administrator", "superuser"] },
+  { prefix: "/admin/roles",         allowed: ["administrator", "superuser"] },
+  { prefix: "/admin/settings",      allowed: ["administrator", "superuser"] },
   { prefix: "/admin/notifications", allowed: ["administrator", "service_lead", "superuser"] },
   { prefix: "/admin/services",      allowed: ["administrator", "service_lead", "content_editor", "superuser"] },
   { prefix: "/admin/guides",        allowed: ["administrator", "service_lead", "content_editor", "superuser"] },

@@ -12,9 +12,34 @@ import { csrfToken } from "@/lib/auth";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const SUBJECT_MAX = 150;
-const DESCRIPTION_MAX = 5000;
-const DESCRIPTION_MIN = 20;
+// Hard limits — overridden at runtime by settings from /api/v1/admin/settings/ticket-form/
+const DEFAULT_SUBJECT_MAX     = 150;
+const DEFAULT_SUBJECT_MIN     = 5;
+const DEFAULT_DESCRIPTION_MAX = 5000;
+const DEFAULT_DESCRIPTION_MIN = 20;
+
+// ── Form settings type ──────────────────────────────────────────────────────
+
+interface FormSettings {
+  subject_visible:      boolean;
+  subject_required:     boolean;
+  subject_min_len:      number;
+  subject_max_len:      number;
+  description_visible:  boolean;
+  description_required: boolean;
+  description_min_len:  number;
+  description_max_len:  number;
+  impact_visible:       boolean;
+  impact_required:      boolean;
+}
+
+const DEFAULT_FORM_SETTINGS: FormSettings = {
+  subject_visible: true,  subject_required: true,
+  subject_min_len: DEFAULT_SUBJECT_MIN, subject_max_len: DEFAULT_SUBJECT_MAX,
+  description_visible: true, description_required: true,
+  description_min_len: DEFAULT_DESCRIPTION_MIN, description_max_len: DEFAULT_DESCRIPTION_MAX,
+  impact_visible: true, impact_required: true,
+};
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -48,6 +73,9 @@ function NewTicketForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ reference: string } | null>(null);
 
+  // Form settings from admin
+  const [fs, setFs] = useState<FormSettings>(DEFAULT_FORM_SETTINGS);
+
   // ── Mount: fetch categories, restore sessionStorage ────────────────────
 
   useEffect(() => {
@@ -65,6 +93,15 @@ function NewTicketForm() {
 
       if (!mounted) return;
       setCategories(liveCategories);
+
+      // Fetch form settings (no auth required — public endpoint)
+      try {
+        const fsRes = await fetch("/api/v1/admin/settings/ticket-form/", { cache: "no-store" });
+        if (fsRes.ok && mounted) {
+          const fsData = await fsRes.json() as Partial<FormSettings>;
+          setFs({ ...DEFAULT_FORM_SETTINGS, ...fsData });
+        }
+      } catch { /* keep defaults */ }
 
       // Pre-select from ?service=slug
       const serviceSlug = new URLSearchParams(window.location.search).get("service");
@@ -136,6 +173,19 @@ function NewTicketForm() {
 
   function validateFields(schema: FieldDefinition[], values: ExtraValues): Record<string, string> {
     const errors: Record<string, string> = {};
+
+    // Built-in field validation driven by settings
+    if (fs.subject_visible && fs.subject_required) {
+      if (!subject.trim()) errors["__subject"] = "Subject is required.";
+      else if (subject.trim().length < fs.subject_min_len)
+        errors["__subject"] = `Subject must be at least ${fs.subject_min_len} characters.`;
+    }
+    if (fs.description_visible && fs.description_required) {
+      if (!description.trim()) errors["__description"] = "Description is required.";
+      else if (description.trim().length < fs.description_min_len)
+        errors["__description"] = `Description must be at least ${fs.description_min_len} characters.`;
+    }
+
     for (const field of schema) {
       if (!field.required) continue;
       const val = values[field.key];
@@ -243,17 +293,31 @@ function NewTicketForm() {
               </label>
 
               {/* Subject */}
-              <div>
-                <label htmlFor="new-subject">Subject</label>
-                <input
-                  id="new-subject"
-                  name="subject" value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  minLength={5} maxLength={SUBJECT_MAX} required
-                  placeholder="A short summary of the issue"
-                />
-                <CharCount current={subject.length} max={SUBJECT_MAX} hint="Minimum 5 characters" />
-              </div>
+              {fs.subject_visible && (
+                <div>
+                  <label htmlFor="new-subject">
+                    Subject
+                    {!fs.subject_required && <span style={{ color: "#94a3b8", fontWeight: 400, fontSize: ".8rem", marginLeft: 6 }}>(optional)</span>}
+                  </label>
+                  <input
+                    id="new-subject"
+                    name="subject" value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    minLength={fs.subject_required ? fs.subject_min_len : undefined}
+                    maxLength={fs.subject_max_len}
+                    required={fs.subject_required}
+                    placeholder="A short summary of the issue"
+                  />
+                  <CharCount
+                    current={subject.length}
+                    max={fs.subject_max_len}
+                    hint={fs.subject_required ? `Minimum ${fs.subject_min_len} characters` : undefined}
+                  />
+                  {fieldErrors["__subject"] && (
+                    <span role="alert" className="field-error">{fieldErrors["__subject"]}</span>
+                  )}
+                </div>
+              )}
 
               {/* Dynamic fields */}
               {sortedFields.map((field) => (
@@ -267,32 +331,48 @@ function NewTicketForm() {
               ))}
 
               {/* Description */}
-              <div>
-                <label htmlFor="new-description">Description</label>
-                <textarea
-                  id="new-description"
-                  name="description" value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  minLength={DESCRIPTION_MIN} maxLength={DESCRIPTION_MAX} required rows={7}
-                  placeholder="What were you trying to do, and what happened instead?"
-                />
-                <CharCount
-                  current={description.length}
-                  max={DESCRIPTION_MAX}
-                  hint={description.length < DESCRIPTION_MIN ? `Minimum ${DESCRIPTION_MIN} characters` : undefined}
-                />
-              </div>
+              {fs.description_visible && (
+                <div>
+                  <label htmlFor="new-description">
+                    Description
+                    {!fs.description_required && <span style={{ color: "#94a3b8", fontWeight: 400, fontSize: ".8rem", marginLeft: 6 }}>(optional)</span>}
+                  </label>
+                  <textarea
+                    id="new-description"
+                    name="description" value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    minLength={fs.description_required ? fs.description_min_len : undefined}
+                    maxLength={fs.description_max_len}
+                    required={fs.description_required}
+                    rows={7}
+                    placeholder="What were you trying to do, and what happened instead?"
+                  />
+                  <CharCount
+                    current={description.length}
+                    max={fs.description_max_len}
+                    hint={fs.description_required && description.length < fs.description_min_len
+                      ? `Minimum ${fs.description_min_len} characters`
+                      : undefined}
+                  />
+                  {fieldErrors["__description"] && (
+                    <span role="alert" className="field-error">{fieldErrors["__description"]}</span>
+                  )}
+                </div>
+              )}
 
               {/* Priority */}
-              <label>
-                Impact
-                <select name="priority" value={priority} onChange={(e) => setPriority(e.target.value)} required>
-                  <option value="p3">Only I am affected</option>
-                  <option value="p2">Several people are affected</option>
-                  <option value="p1">Teaching or a campus service is stopped</option>
-                  <option value="p4">Advice or a planned request</option>
-                </select>
-              </label>
+              {fs.impact_visible && (
+                <label>
+                  Impact
+                  {!fs.impact_required && <span style={{ color: "#94a3b8", fontWeight: 400, fontSize: ".8rem", marginLeft: 6 }}>(optional)</span>}
+                  <select name="priority" value={priority} onChange={(e) => setPriority(e.target.value)} required={fs.impact_required}>
+                    <option value="p3">Only I am affected</option>
+                    <option value="p2">Several people are affected</option>
+                    <option value="p1">Teaching or a campus service is stopped</option>
+                    <option value="p4">Advice or a planned request</option>
+                  </select>
+                </label>
+              )}
 
               <button className="primary-button" type="submit" disabled={submitting}>
                 {submitting ? "Submitting…" : "Submit request"}
