@@ -733,22 +733,12 @@ export default function NotificationsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18 }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 16,
-                }}
-              >
-                <h2 style={{ margin: 0, fontSize: "1.05rem", color: "#1e293b" }}>
-                  Delivery channels
-                </h2>
-                <button
-                  className="primary-button"
-                  style={{ display: "flex", alignItems: "center", gap: 7 }}
-                  onClick={openCreateChannel}
-                >
+              <div className="notif-section-header">
+                <div className="notif-section-header-text">
+                  <h2>Delivery channels</h2>
+                  <p>Configure where automated notifications are sent.</p>
+                </div>
+                <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }} onClick={openCreateChannel}>
                   <Plus aria-hidden="true" size={16} /> Add channel
                 </button>
               </div>
@@ -801,8 +791,7 @@ export default function NotificationsPage() {
                           </span>
                         )}
                         <button
-                          className="secondary-button"
-                          style={{ display: "flex", alignItems: "center", gap: 5, minHeight: 36, padding: "0 12px", fontSize: ".8rem" }}
+                          className="notif-test-btn"
                           onClick={() => testChannelInline(channel.id)}
                           disabled={testingId === channel.id}
                           aria-label={`Test ${channel.name}`}
@@ -811,34 +800,14 @@ export default function NotificationsPage() {
                           {testingId === channel.id ? "Testing…" : "Test"}
                         </button>
                         <button
-                          style={{
-                            width: 36,
-                            height: 36,
-                            border: "1px solid #dbe2ee",
-                            background: "#fff",
-                            color: "#234395",
-                            borderRadius: 9,
-                            display: "grid",
-                            placeItems: "center",
-                            cursor: "pointer",
-                          }}
+                          className="icon-btn-edit"
                           onClick={() => openEditChannel(channel)}
                           aria-label={`Edit ${channel.name}`}
                         >
                           <Pencil size={15} aria-hidden="true" />
                         </button>
                         <button
-                          style={{
-                            width: 36,
-                            height: 36,
-                            border: "1px solid #fecaca",
-                            background: "#fff",
-                            color: "#dc2626",
-                            borderRadius: 9,
-                            display: "grid",
-                            placeItems: "center",
-                            cursor: "pointer",
-                          }}
+                          className="icon-btn-delete"
                           onClick={() => deleteChannel(channel.id)}
                           aria-label={`Delete ${channel.name}`}
                         >
@@ -860,13 +829,11 @@ export default function NotificationsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18 }}
             >
-              <div style={{ marginBottom: 16 }}>
-                <h2 style={{ margin: 0, fontSize: "1.05rem", color: "#1e293b" }}>
-                  Email templates
-                </h2>
-                <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: ".88rem" }}>
-                  Customise the subject and body for each automated notification event.
-                </p>
+              <div className="notif-section-header">
+                <div className="notif-section-header-text">
+                  <h2>Email templates</h2>
+                  <p>Customise the subject and body for each automated notification event.</p>
+                </div>
               </div>
 
               <div className="notif-templates">
@@ -890,28 +857,16 @@ export default function NotificationsPage() {
                       </span>
                       <div className="notif-channel-info" style={{ flex: 1 }}>
                         <strong>{template.name}</strong>
-                        <small style={{ fontFamily: "ui-monospace, monospace" }}>
+                        <small className="notif-template-subject">
                           {template.subject_template}
                         </small>
                       </div>
                       <div className="notif-channel-actions">
-                        <span
-                          className={`status-chip ${template.is_active ? "active" : "archived"}`}
-                        >
+                        <span className={`status-chip ${template.is_active ? "active" : "archived"}`}>
                           {template.is_active ? "Active" : "Inactive"}
                         </span>
                         <button
-                          style={{
-                            width: 36,
-                            height: 36,
-                            border: "1px solid #dbe2ee",
-                            background: "#fff",
-                            color: "#234395",
-                            borderRadius: 9,
-                            display: "grid",
-                            placeItems: "center",
-                            cursor: "pointer",
-                          }}
+                          style={{ width: 36, height: 36, border: "1px solid #dbe2ee", background: "#fff", color: "#234395", borderRadius: 9, display: "grid", placeItems: "center", cursor: "pointer" }}
                           onClick={() => openEditTemplate(template)}
                           aria-label={`Edit ${template.name}`}
                         >
@@ -933,13 +888,14 @@ export default function NotificationsPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18 }}
             >
-              <div style={{ marginBottom: 16 }}>
-                <h2 style={{ margin: 0, fontSize: "1.05rem", color: "#1e293b" }}>Routing rules</h2>
-                <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: ".88rem" }}>
-                  Choose which channels receive each event and who the recipients are.
-                  Tick a cell to enable delivery — the rule is created immediately.
-                  If no rules are configured for an event, all active channels receive it.
-                </p>
+              <div className="notif-section-header" style={{ marginBottom: 16 }}>
+                <div className="notif-section-header-text">
+                  <h2>Routing rules</h2>
+                  <p>
+                    Choose which channels receive each event and who the recipients are.
+                    Tick a cell to enable delivery — the rule is created immediately.
+                  </p>
+                </div>
               </div>
 
               {ruleNotice && (
@@ -958,87 +914,85 @@ export default function NotificationsPage() {
                 </div>
               ) : (
                 <div className="notif-routing-wrap">
-                  {/* Matrix header */}
-                  <div className="notif-routing-table">
-                    <div className="notif-routing-head">
-                      <div className="notif-routing-cell notif-routing-event-col">
-                        <span style={{ color: "#64748b", fontSize: ".75rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".07em" }}>
-                          Event
-                        </span>
-                      </div>
-                      {channels.map((ch) => (
-                        <div key={ch.id} className="notif-routing-cell notif-routing-channel-col" title={ch.name}>
-                          <span className="notif-channel-icon" style={{ width: 32, height: 32, fontSize: ".9rem", margin: "0 auto 4px", display: "grid", placeItems: "center", borderRadius: 9, background: "#eef2ff", color: "#234395" }}>
-                            {CHANNEL_META[ch.type]?.emoji ?? "📢"}
+                  <table className="notif-routing-table" role="grid" aria-label="Routing rules matrix">
+                    <thead>
+                      <tr className="notif-routing-head">
+                        <th className="notif-routing-cell notif-routing-event-col" scope="col">
+                          <span style={{ color: "#64748b", fontSize: ".75rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".07em" }}>
+                            Event
                           </span>
-                          <span style={{ fontSize: ".72rem", fontWeight: 700, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 80, display: "block", textAlign: "center" }}>
-                            {ch.name}
-                          </span>
-                          <span className={`status-chip ${ch.is_active ? "active" : "archived"}`} style={{ margin: "3px auto 0", fontSize: ".68rem" }}>
-                            {ch.is_active ? "Active" : "Off"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Matrix rows — one per event type */}
-                    {(Object.entries(EVENT_META) as [EventType, typeof EVENT_META[EventType]][]).map(([eventType, meta]) => (
-                      <div key={eventType} className="notif-routing-row">
-                        <div className="notif-routing-cell notif-routing-event-col">
-                          <span className="notif-event-badge" style={{ fontSize: ".75rem" }}>{meta.label}</span>
-                        </div>
-                        {channels.map((ch) => {
-                          const rule = findRule(eventType, ch.id);
-                          const key = `${eventType}-${ch.id}`;
-                          const isSaving = savingRule === key || savingRule === rule?.id;
-                          const isEnabled = rule?.is_active === true;
-                          return (
-                            <div key={ch.id} className="notif-routing-cell notif-routing-channel-col">
-                              <label className="notif-routing-toggle" title={isEnabled ? "Disable this route" : "Enable this route"}>
-                                <input
-                                  type="checkbox"
-                                  checked={isEnabled}
-                                  disabled={isSaving || !ch.is_active}
-                                  onChange={() => toggleRule(eventType, ch.id, rule)}
-                                  aria-label={`${isEnabled ? "Disable" : "Enable"} ${meta.label} notifications via ${ch.name}`}
-                                />
-                                <span className="notif-routing-check" />
-                              </label>
-                              {/* Recipient selector — only shown when rule is enabled */}
-                              {rule && rule.is_active && (
-                                <div style={{ marginTop: 6 }}>
-                                  <select
-                                    value={rule.recipient_type}
-                                    onChange={(e) => updateRuleRecipient(rule.id, e.target.value as RecipientType)}
-                                    disabled={savingRule === rule.id}
-                                    style={{ fontSize: ".72rem", border: "1px solid #dbe2ee", borderRadius: 6, padding: "2px 5px", width: "100%", background: "#f8fafc", cursor: "pointer", color: "#334155" }}
-                                    aria-label={`Recipient for ${meta.label} via ${ch.name}`}
-                                  >
-                                    {(Object.entries(RECIPIENT_LABELS) as [RecipientType, string][]).map(([v, l]) => (
-                                      <option key={v} value={v}>{l}</option>
-                                    ))}
-                                  </select>
-                                  {rule.recipient_type === 'custom' && (
-                                    <CustomEmailInput
-                                      value={rule.custom_emails}
-                                      disabled={savingRule === rule.id}
-                                      onSave={(emails) => updateRuleRecipient(rule.id, 'custom', emails)}
-                                    />
-                                  )}
-                                </div>
-                              )}
+                        </th>
+                        {channels.map((ch) => (
+                          <th key={ch.id} className="notif-routing-cell notif-routing-channel-col" scope="col">
+                            <div className="notif-channel-head">
+                              <div className="notif-channel-head-icon">
+                                {CHANNEL_META[ch.type]?.emoji ?? "📢"}
+                              </div>
+                              <span className="notif-channel-head-name" title={ch.name}>{ch.name}</span>
+                              <span className={`status-chip ${ch.is_active ? "active" : "archived"}`} style={{ fontSize: ".68rem", margin: "2px auto 0" }}>
+                                {ch.is_active ? "Active" : "Off"}
+                              </span>
                             </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(Object.entries(EVENT_META) as [EventType, typeof EVENT_META[EventType]][]).map(([eventType, meta]) => (
+                        <tr key={eventType} className="notif-routing-row">
+                          <td className="notif-routing-cell notif-routing-event-col">
+                            <span className="notif-event-badge" style={{ fontSize: ".75rem" }}>{meta.label}</span>
+                          </td>
+                          {channels.map((ch) => {
+                            const rule = findRule(eventType, ch.id);
+                            const key = `${eventType}-${ch.id}`;
+                            const isSaving = savingRule === key || savingRule === rule?.id;
+                            const isEnabled = rule?.is_active === true;
+                            return (
+                              <td key={ch.id} className="notif-routing-cell notif-routing-channel-col">
+                                <label className="notif-routing-toggle" title={isEnabled ? "Disable this route" : "Enable this route"}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isEnabled}
+                                    disabled={isSaving || !ch.is_active}
+                                    onChange={() => toggleRule(eventType, ch.id, rule)}
+                                    aria-label={`${isEnabled ? "Disable" : "Enable"} ${meta.label} via ${ch.name}`}
+                                  />
+                                  <span className="notif-routing-check" />
+                                </label>
+                                {rule && rule.is_active && (
+                                  <div className="notif-routing-recipient">
+                                    <select
+                                      value={rule.recipient_type}
+                                      onChange={(e) => updateRuleRecipient(rule.id, e.target.value as RecipientType)}
+                                      disabled={savingRule === rule.id}
+                                      aria-label={`Recipient for ${meta.label} via ${ch.name}`}
+                                    >
+                                      {(Object.entries(RECIPIENT_LABELS) as [RecipientType, string][]).map(([v, l]) => (
+                                        <option key={v} value={v}>{l}</option>
+                                      ))}
+                                    </select>
+                                    {rule.recipient_type === "custom" && (
+                                      <CustomEmailInput
+                                        value={rule.custom_emails}
+                                        disabled={savingRule === rule.id}
+                                        onSave={(emails) => updateRuleRecipient(rule.id, "custom", emails)}
+                                      />
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
 
-                  {/* Legend */}
-                  <div style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap", color: "#64748b", fontSize: ".8rem" }}>
+                  <div style={{ marginTop: 14, display: "flex", gap: 20, flexWrap: "wrap", color: "#64748b", fontSize: ".78rem" }}>
                     <span>☑ Enabled — notification sent via that channel for this event</span>
-                    <span>◻ Disabled — channel not used for this event</span>
-                    <span style={{ color: "#94a3b8" }}>Grey channels are inactive globally</span>
+                    <span>◻ Disabled — channel skipped for this event</span>
+                    <span style={{ color: "#94a3b8" }}>Grey columns are globally inactive</span>
                   </div>
                 </div>
               )}
