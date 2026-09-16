@@ -16,7 +16,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketMessage
-from .permissions import IsAdministrator, IsContentEditor, IsServiceLead
+from .permissions import IsAdministrator, IsContentEditor, IsITAgent, IsServiceLead
 from .serializers import (
     AccountRecoveryTokenSerializer,
     AdminServiceCategorySerializer,
@@ -414,7 +414,7 @@ class TicketStatusView(APIView):
 
 class AssignableStaffView(APIView):
     """GET /api/v1/tickets/assignable-staff/ — users who can be assigned tickets."""
-    permission_classes = (IsServiceLead,)
+    permission_classes = (IsITAgent,)
 
     def get(self, request):
         from django.contrib.auth import get_user_model

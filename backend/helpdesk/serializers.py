@@ -109,6 +109,7 @@ class TicketSerializer(serializers.ModelSerializer):
     team = serializers.CharField(read_only=True)
     assignee_name = serializers.SerializerMethodField()
     category_name = serializers.SerializerMethodField()
+    category_slug = serializers.SerializerMethodField()
     extra_fields = serializers.JSONField(default=dict)
     elapsed = serializers.SerializerMethodField()
     status_reason = serializers.CharField(read_only=True)
@@ -118,7 +119,7 @@ class TicketSerializer(serializers.ModelSerializer):
         model = Ticket
         fields = (
             'id', 'reference', 'requester', 'requester_name', 'requester_email',
-            'category', 'category_name', 'subject', 'description',
+            'category', 'category_name', 'category_slug', 'subject', 'description',
             'status', 'status_reason', 'priority',
             'assigned_to', 'team', 'assignee_name',
             'extra_fields', 'elapsed', 'created_at', 'updated_at',
@@ -140,6 +141,9 @@ class TicketSerializer(serializers.ModelSerializer):
 
     def get_category_name(self, obj):
         return obj.category.name if obj.category else None
+
+    def get_category_slug(self, obj):
+        return obj.category.slug if obj.category else None
 
     def get_elapsed(self, obj):
         """Return a human-readable elapsed time string since ticket was created."""
