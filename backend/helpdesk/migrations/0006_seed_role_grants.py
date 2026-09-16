@@ -16,9 +16,9 @@ from django.utils import timezone
 # Default intern-scope slugs (matches design doc and Requirement 4.1)
 # ---------------------------------------------------------------------------
 DEFAULT_INTERN_SCOPE_SLUGS = [
-    'laptop-device-support',
+    'device-support',
     'wifi-issue',
-    'general-it-support',
+    'general-support',
 ]
 
 

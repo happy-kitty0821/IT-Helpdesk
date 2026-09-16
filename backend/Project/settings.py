@@ -186,9 +186,9 @@ MAILERS = {
 # Default intern category scope slugs used as a fallback when the
 # InternCategoryScope table is empty (e.g., before the seed migration runs).
 HELPDESK_INTERN_SCOPE_SLUGS = [
-    'laptop-device-support',
+    'device-support',
     'wifi-issue',
-    'general-it-support',
+    'general-support',
 ]
 
 

@@ -246,17 +246,20 @@ class TicketListCreate(generics.ListCreateAPIView):
 
     def get_queryset(self):
         from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
-        roles = get_user_roles(self.request.user)
+        user = self.request.user
+        roles = get_user_roles(user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
                        'content_editor', 'designated_approver'}
-        if roles.intersection(staff_roles):
+        # Superusers always see all tickets even if they have no explicit RoleGrant
+        is_staff = user.is_superuser or bool(roles.intersection(staff_roles))
+        if is_staff:
             # Staff see all tickets (intern scope filtering restricts by category)
             qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
-            if user_has_intern_scope_only(self.request.user):
+            if not user.is_superuser and user_has_intern_scope_only(user):
                 qs = qs.filter(category__slug__in=get_intern_scope_slugs())
             return qs
         # Regular users see only their own tickets
-        return Ticket.objects.filter(requester=self.request.user).select_related('category', 'assigned_to')
+        return Ticket.objects.filter(requester=user).select_related('category', 'assigned_to')
 
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
@@ -312,17 +315,19 @@ class TicketDetail(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
-        roles = get_user_roles(self.request.user)
+        user = self.request.user
+        roles = get_user_roles(user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
                        'content_editor', 'designated_approver'}
         qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
-        if roles.intersection(staff_roles):
-            # Staff can access all tickets (with intern scope restriction)
-            if user_has_intern_scope_only(self.request.user):
+        is_staff = user.is_superuser or bool(roles.intersection(staff_roles))
+        if is_staff:
+            # Staff can access all tickets (superusers unrestricted; interns scoped)
+            if not user.is_superuser and user_has_intern_scope_only(user):
                 qs = qs.filter(category__slug__in=get_intern_scope_slugs())
         else:
             # Regular users can only access their own tickets
-            qs = qs.filter(requester=self.request.user)
+            qs = qs.filter(requester=user)
         return qs
 
     def check_patch_permission(self, ticket):

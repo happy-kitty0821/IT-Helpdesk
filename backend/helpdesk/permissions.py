@@ -165,7 +165,7 @@ def get_intern_scope_slugs() -> list:
             getattr(
                 settings,
                 'HELPDESK_INTERN_SCOPE_SLUGS',
-                ['laptop-device-support', 'wifi-issue', 'general-it-support'],
+                ['device-support', 'wifi-issue', 'general-support'],
             )
         )
     return slugs
