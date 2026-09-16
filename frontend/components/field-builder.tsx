@@ -33,6 +33,86 @@ function withOrder(fields: FieldDefinition[]): FieldDefinition[] {
   return fields.map((f, i) => ({ ...f, order: i }));
 }
 
+// ── OptionsEditor ─────────────────────────────────────────────────────────────
+// Keeps raw textarea text in local state so that pressing Enter to add a new
+// line is never swallowed by the parent re-render cycle.
+// Parses and commits the option array upward only on blur.
+
+interface OptionsEditorProps {
+  index: number;
+  options: string[];
+  onChange: (opts: string[]) => void;
+}
+
+function OptionsEditor({ index, options, onChange }: OptionsEditorProps) {
+  // Raw text is the source of truth while the user is typing
+  const [raw, setRaw] = useState(() => options.join("\n"));
+  // Sync raw text if the parent changes options from outside (e.g. when switching field type)
+  const prevOptions = useRef(options);
+  useEffect(() => {
+    const joined = options.join("\n");
+    const prevJoined = prevOptions.current.join("\n");
+    if (joined !== prevJoined) {
+      setRaw(joined);
+      prevOptions.current = options;
+    }
+  }, [options]);
+
+  function commit(text: string) {
+    const opts = text
+      .split("\n")
+      .map((s) => s.trimEnd())
+      .filter((s) => s.length > 0);
+    prevOptions.current = opts;
+    onChange(opts);
+  }
+
+  // Derive the committed list from raw for display purposes only
+  const committed = raw
+    .split("\n")
+    .map((s) => s.trimEnd())
+    .filter((s) => s.length > 0);
+
+  const isEmpty = committed.length === 0;
+
+  return (
+    <div className="field-row-input-label field-row-full">
+      <label htmlFor={`options-${index}`}>
+        <span>
+          Options{" "}
+          <small style={{ color: "#94a3b8" }}>(one per line, at least one required)</small>
+        </span>
+      </label>
+      <textarea
+        id={`options-${index}`}
+        rows={6}
+        value={raw}
+        placeholder={"Option A\nOption B\nOption C"}
+        style={{
+          border: isEmpty ? "1px solid #fca5a5" : "1px solid #94a3b8",
+          borderRadius: 8,
+          minHeight: 120,
+          resize: "vertical",
+        }}
+        onChange={(e) => setRaw(e.target.value)}
+        onBlur={(e) => commit(e.target.value)}
+      />
+      {isEmpty && (
+        <p style={{ margin: "4px 0 0", color: "#b91c1c", fontSize: ".78rem" }}>
+          Add at least one option — the schema cannot be saved with an empty dropdown.
+        </p>
+      )}
+      <div className="field-footer">
+        <span style={{ fontSize: ".74rem", color: "#94a3b8" }}>
+          {isEmpty
+            ? "At least 1 option required · max 50"
+            : `${committed.length} of 50 options defined`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // Ensure a blank new field for a given type has sensible defaults
 function blankField(type: FieldType, index: number): FieldDefinition {
   const base: FieldDefinition = {
@@ -298,43 +378,11 @@ export function FieldBuilder({ schema, onChange }: FieldBuilderProps) {
 
                     {/* ── Dropdown options ── */}
                     {field.type === "select" && (
-                      <div className="field-row-input-label field-row-full">
-                        <label htmlFor={`options-${index}`}>
-                          <span>
-                            Options{" "}
-                            <small style={{ color: "#94a3b8" }}>(one per line, at least one required)</small>
-                          </span>
-                        </label>
-                        <textarea
-                          id={`options-${index}`}
-                          rows={5}
-                          value={(field.options ?? []).join("\n")}
-                          placeholder={"Option A\nOption B\nOption C"}
-                          style={{
-                            border: (field.options?.length ?? 0) === 0 ? "1px solid #fca5a5" : undefined,
-                            borderRadius: 8,
-                          }}
-                          onChange={(e) => {
-                            const opts = e.target.value
-                              .split("\n")
-                              .map((s) => s.trimEnd())
-                              .filter((s) => s.length > 0);
-                            updateField(index, { options: opts });
-                          }}
-                        />
-                        {(field.options?.length ?? 0) === 0 && (
-                          <p style={{ margin: "4px 0 0", color: "#b91c1c", fontSize: ".78rem" }}>
-                            Add at least one option — the schema cannot be saved with an empty dropdown.
-                          </p>
-                        )}
-                        <div className="field-footer">
-                          <span style={{ fontSize: ".74rem", color: "#94a3b8" }}>
-                            {(field.options?.length ?? 0) === 0
-                              ? "At least 1 option required · max 50"
-                              : `${field.options!.length} of 50 options defined`}
-                          </span>
-                        </div>
-                      </div>
+                      <OptionsEditor
+                        index={index}
+                        options={field.options ?? []}
+                        onChange={(opts) => updateField(index, { options: opts })}
+                      />
                     )}
 
                     {/* ── File upload info ── */}
