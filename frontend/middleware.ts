@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // ── Route permission map ──────────────────────────────────────────────────────
-//
-// Each entry defines which roles may visit that exact path prefix.
-// Checked in order — first match wins.
-// "superuser" is a special sentinel meaning is_superuser=true.
 
 const ROUTE_ROLES: Array<{ prefix: string; allowed: string[] }> = [
   { prefix: "/admin/users",         allowed: ["administrator", "superuser"] },
@@ -12,7 +8,6 @@ const ROUTE_ROLES: Array<{ prefix: string; allowed: string[] }> = [
   { prefix: "/admin/services",      allowed: ["administrator", "service_lead", "content_editor", "superuser"] },
   { prefix: "/admin/guides",        allowed: ["administrator", "service_lead", "content_editor", "superuser"] },
   { prefix: "/admin/software",      allowed: ["administrator", "service_lead", "content_editor", "superuser"] },
-  // /admin, /admin/tickets, /admin/overview — accessible to all staff roles
   { prefix: "/admin",               allowed: [
       "administrator", "service_lead", "it_agent", "it_noc_intern",
       "designated_approver", "content_editor", "superuser",
@@ -20,7 +15,6 @@ const ROUTE_ROLES: Array<{ prefix: string; allowed: string[] }> = [
   },
 ];
 
-// The "home" page each role lands on when redirected away from a forbidden route
 const ROLE_FALLBACK: Record<string, string> = {
   administrator:       "/admin",
   service_lead:        "/admin",
@@ -31,7 +25,6 @@ const ROLE_FALLBACK: Record<string, string> = {
   superuser:           "/admin",
 };
 
-// Non-staff users are sent back to the public helpdesk
 const NON_STAFF_FALLBACK = "/";
 
 // ── Middleware ────────────────────────────────────────────────────────────────
@@ -39,24 +32,19 @@ const NON_STAFF_FALLBACK = "/";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Only guard /admin routes
   if (!pathname.startsWith("/admin")) return NextResponse.next();
 
-  // ── Resolve Django session → user roles ────────────────────────────────
-  // The rewrite rule in next.config.ts maps /api/v1/* → Django, but
-  // middleware runs before rewrites, so we call Django directly.
   const djangoBase = process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000";
 
   let roles: string[] = [];
   let isSuperuser = false;
+  let djangoReachable = false;
 
   try {
-    // Forward the session cookie so Django can identify the caller
     const cookieHeader = request.headers.get("cookie") ?? "";
     const meRes = await fetch(`${djangoBase}/api/v1/auth/me/`, {
       headers: { cookie: cookieHeader },
-      // Short timeout — if Django is down we fall through to the error path
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(4000),
     });
 
     if (meRes.ok) {
@@ -68,42 +56,44 @@ export async function middleware(request: NextRequest) {
       if (me.id) {
         roles = me.roles ?? [];
         isSuperuser = me.is_superuser ?? false;
+        djangoReachable = true;
       }
+    } else if (meRes.status === 401 || meRes.status === 403) {
+      // Definitive "not authenticated" response — Django is up and said no
+      djangoReachable = true;
     }
+    // Any other non-ok status (5xx etc.) → treat as unreachable, allow through
   } catch {
-    // Django unreachable — block access silently; the page will show
-    // the "sign in required" gate instead of a hard error.
+    // Django unreachable (timeout, ECONNREFUSED, etc.) — let the client-side
+    // AdminShell handle auth rather than incorrectly blocking the user.
+    djangoReachable = false;
   }
+
+  // If we couldn't confirm identity, allow through — AdminShell will gate client-side
+  if (!djangoReachable) return NextResponse.next();
 
   const effectiveRoles = isSuperuser ? [...roles, "superuser"] : roles;
 
-  // ── Find the matching route rule ───────────────────────────────────────
+  // Find the most-specific matching rule
   const rule = ROUTE_ROLES.find((r) => pathname.startsWith(r.prefix));
-
-  if (!rule) return NextResponse.next(); // no rule = no restriction
+  if (!rule) return NextResponse.next();
 
   const isAllowed = rule.allowed.some((r) => effectiveRoles.includes(r));
-
   if (isAllowed) return NextResponse.next();
 
-  // ── Redirect to the appropriate fallback ───────────────────────────────
-  // Find the best fallback for this user's highest role
+  // Redirect to the appropriate fallback
   const fallback = effectiveRoles.reduce<string | null>((best, role) => {
     if (best) return best;
     return ROLE_FALLBACK[role] ?? null;
   }, null) ?? NON_STAFF_FALLBACK;
 
-  // Avoid redirect loops: if the fallback IS the current path, go home
   const target = fallback === pathname ? NON_STAFF_FALLBACK : fallback;
-
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.pathname = target;
 
-  // Use 307 (temporary) so browsers don't cache the redirect
   return NextResponse.redirect(redirectUrl, { status: 307 });
 }
 
 export const config = {
-  // Run on all /admin/* routes, including nested paths
   matcher: ["/admin/:path*"],
 };
