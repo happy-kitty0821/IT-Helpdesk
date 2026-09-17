@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import {
   AlertTriangle, ChevronDown, ChevronUp,
+  Download, FileSpreadsheet,
   Layers, Plus, Save, Shield, Ticket, Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -14,6 +15,7 @@ import { ALL_ROLES } from "@/lib/admin-api";
 interface RoleConfig {
   role: string;
   is_grantable: boolean;
+  can_export: boolean;
   description: string;
   updated_at: string;
 }
@@ -158,6 +160,25 @@ export default function RolesPage() {
       if (res.ok) {
         setConfigs(prev => prev.map(c => c.role === role ? { ...c, ...(data as RoleConfig) } : c));
         setNotice(`${role} updated.`);
+      } else { setError(messageFrom(data)); }
+    } catch { setError("Network error."); }
+    finally { setSaving(null); }
+  }
+
+  async function toggleCanExport(role: string, current: boolean) {
+    setSaving(`export-${role}`);
+    setError(""); setNotice("");
+    try {
+      const token = await csrfToken();
+      const res = await fetch(`/api/v1/admin/settings/roles/${role}/`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify({ can_export: !current }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setConfigs(prev => prev.map(c => c.role === role ? { ...c, ...(data as RoleConfig) } : c));
+        setNotice(`Export permission for "${role}" ${!current ? "enabled" : "disabled"}.`);
       } else { setError(messageFrom(data)); }
     } catch { setError("Network error."); }
     finally { setSaving(null); }
@@ -393,6 +414,44 @@ export default function RolesPage() {
                                 {saving === `desc-${role}` ? "Saving…" : <><Save size={13} aria-hidden="true" /> Save</>}
                               </button>
                             </div>
+                          </div>
+
+                          {/* ── Export permission ── */}
+                          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${color.border}` }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                              <div>
+                                <p style={{ margin: 0, fontWeight: 700, fontSize: ".85rem", color: "#374151", display: "flex", alignItems: "center", gap: 6 }}>
+                                  <Download size={13} aria-hidden="true" style={{ color: "#234395" }} />
+                                  Export / Download permission
+                                </p>
+                                <p style={{ margin: "2px 0 0", fontSize: ".76rem", color: "#64748b" }}>
+                                  Allow users with this role to download the Excel ticket report.
+                                  {role === "administrator" || role === "service_lead"
+                                    ? " Enabled by default for this role."
+                                    : ""}
+                                </p>
+                              </div>
+                              <label style={{
+                                display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+                                fontSize: ".83rem", fontWeight: 700, flexShrink: 0,
+                                color: (cfg?.can_export ?? false) ? "#166534" : "#6b7280",
+                              }}>
+                                <input
+                                  type="checkbox"
+                                  checked={cfg?.can_export ?? false}
+                                  disabled={saving === `export-${role}`}
+                                  onChange={() => toggleCanExport(role, cfg?.can_export ?? false)}
+                                  style={{ width: 16, height: 16 }}
+                                />
+                                {(cfg?.can_export ?? false) ? "Allowed" : "Not allowed"}
+                              </label>
+                            </div>
+                            {(cfg?.can_export ?? false) && (
+                              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, background: "#f0fdf4", borderRadius: 7, padding: "6px 10px", fontSize: ".77rem", color: "#166534" }}>
+                                <FileSpreadsheet size={12} aria-hidden="true" />
+                                Users with the <strong>{label}</strong> role can download ticket reports from the Tickets admin page.
+                              </div>
+                            )}
                           </div>
                         </div>
 

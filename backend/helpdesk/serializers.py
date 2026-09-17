@@ -522,7 +522,7 @@ class TicketAttachmentSerializer(serializers.ModelSerializer):
 class RoleConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = RoleConfig
-        fields = ('role', 'is_grantable', 'description', 'updated_at')
+        fields = ('role', 'is_grantable', 'can_export', 'description', 'updated_at')
         read_only_fields = ('role', 'updated_at')
 
 

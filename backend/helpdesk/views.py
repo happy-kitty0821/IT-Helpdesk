@@ -1047,24 +1047,24 @@ class TicketFormSettingsView(APIView):
 # ---------------------------------------------------------------------------
 
 ROLE_DEFAULTS = {
-    'administrator':       'Full access to the staff portal and all management functions.',
-    'service_lead':        'Triage, assign, escalate tickets and run team reports.',
-    'it_agent':            'Work assigned queues, post replies and internal notes.',
-    'it_noc_intern':       'IT Agent scoped to Laptop, Wi-Fi and General IT tickets.',
-    'designated_approver': 'Review approval tasks for ID replacement and CCTV tickets.',
-    'content_editor':      'Draft, revise and publish guides and software resources.',
-    'faculty_staff':       'Access staff-eligible services and guides.',
-    'student':             'Submit requests and access student resources.',
-    'visitor':             'Public-only access (unauthenticated default).',
+    'administrator':       ('Full access to the staff portal and all management functions.',       True),
+    'service_lead':        ('Triage, assign, escalate tickets and run team reports.',              True),
+    'it_agent':            ('Work assigned queues, post replies and internal notes.',              False),
+    'it_noc_intern':       ('IT Agent scoped to Laptop, Wi-Fi and General IT tickets.',            False),
+    'designated_approver': ('Review approval tasks for ID replacement and CCTV tickets.',         False),
+    'content_editor':      ('Draft, revise and publish guides and software resources.',            False),
+    'faculty_staff':       ('Access staff-eligible services and guides.',                          False),
+    'student':             ('Submit requests and access student resources.',                       False),
+    'visitor':             ('Public-only access (unauthenticated default).',                       False),
 }
 
 
 def _ensure_role_configs():
     """Create RoleConfig rows for any roles that don't have one yet."""
-    for role, desc in ROLE_DEFAULTS.items():
+    for role, (desc, can_export) in ROLE_DEFAULTS.items():
         RoleConfig.objects.get_or_create(
             role=role,
-            defaults={'description': desc, 'is_grantable': True},
+            defaults={'description': desc, 'is_grantable': True, 'can_export': can_export},
         )
 
 
@@ -1178,8 +1178,25 @@ class TicketExportView(APIView):
     Returns an Excel workbook with two sheets:
       1. Ticket Register — one row per ticket, all fields, audit-safe timestamps
       2. Analytics Summary — KPIs, status/priority/category breakdowns, SLA buckets
+
+    Access: any role whose RoleConfig.can_export is True, plus superusers.
     """
-    permission_classes = (IsServiceLead,)
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def _check_export_permission(self, request):
+        """Return True if the caller has export permission via RoleConfig or is superuser."""
+        if request.user.is_superuser:
+            return True
+        from .permissions import get_user_roles
+        roles = get_user_roles(request.user)
+        if not roles:
+            return False
+        _ensure_role_configs()
+        allowed = set(
+            RoleConfig.objects.filter(role__in=roles, can_export=True)
+            .values_list('role', flat=True)
+        )
+        return bool(allowed)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1620,6 +1637,13 @@ class TicketExportView(APIView):
         import io
         from django.http import HttpResponse
         from django.utils import timezone as tz
+
+        # ── Permission check ──────────────────────────────────────────────
+        if not self._check_export_permission(request):
+            return Response(
+                {'detail': 'Your role does not have permission to export ticket reports.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # ── Build queryset with optional filters ──────────────────────────
         qs = Ticket.objects.select_related(

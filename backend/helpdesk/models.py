@@ -502,6 +502,10 @@ class RoleConfig(models.Model):
         default=True,
         help_text='If False, this role cannot be assigned to new users via the admin panel.',
     )
+    can_export = models.BooleanField(
+        default=False,
+        help_text='If True, users with this role may download ticket export reports.',
+    )
     description = models.CharField(
         max_length=300,
         blank=True,
