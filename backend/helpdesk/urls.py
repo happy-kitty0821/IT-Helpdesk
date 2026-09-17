@@ -37,6 +37,7 @@ from .views import (
     TicketDetail,
     TicketFormSettingsView,
     TicketListCreate,
+    TicketExportView,
     TicketMessageListCreate,
     TicketAttachmentListView,
     AssignableStaffView,
@@ -58,6 +59,7 @@ urlpatterns = [
     path('services/', ServiceCategoryList.as_view(), name='service-list'),
 
     path('tickets/', TicketListCreate.as_view(), name='ticket-list-create'),
+    re_path(r'^tickets/export/?$', TicketExportView.as_view(), name='ticket-export'),
     re_path(r'^tickets/assignable-staff/?$',                          AssignableStaffView.as_view(),     name='assignable-staff'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/status/?$',                 TicketStatusView.as_view(),        name='ticket-status'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/messages/?$',               TicketMessageListCreate.as_view(), name='ticket-messages'),

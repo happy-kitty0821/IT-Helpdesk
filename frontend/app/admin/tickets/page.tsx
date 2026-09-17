@@ -1,9 +1,11 @@
 ﻿"use client";
+"use client";
 
 import { AnimatePresence, motion } from "motion/react";
 import {
   Calendar, CheckCircle2, ChevronRight, CircleDot, Clock,
-  Inbox, KeyRound, MessageSquare, Search, TicketCheck, User, X,
+  Download, FileSpreadsheet, Inbox, KeyRound, MessageSquare,
+  Search, TicketCheck, User, X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { csrfToken } from "@/lib/auth";
@@ -440,6 +442,55 @@ export default function AdminTicketsPage() {
     ? ACCOUNT_RECOVERY_SLUGS.has(selected.category_slug ?? "")
     : false;
 
+  // ── Export ────────────────────────────────────────────────────────────────
+
+  const [showExportPanel, setShowExportPanel] = useState(false);
+  const [exportFilters, setExportFilters] = useState({ status: "", priority: "", category: "", from: "", to: "" });
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+
+  async function runExport() {
+    setExporting(true);
+    setExportError("");
+    try {
+      const params = new URLSearchParams();
+      if (exportFilters.status)   params.set("status",   exportFilters.status);
+      if (exportFilters.priority) params.set("priority", exportFilters.priority);
+      if (exportFilters.category) params.set("category", exportFilters.category);
+      if (exportFilters.from)     params.set("from",     exportFilters.from);
+      if (exportFilters.to)       params.set("to",       exportFilters.to);
+
+      const url = `/api/v1/tickets/export/${params.toString() ? "?" + params.toString() : ""}`;
+      const res = await fetch(url, { credentials: "include" });
+
+      if (res.status === 204) {
+        setExportError("No tickets match the selected filters.");
+        return;
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { detail?: string };
+        setExportError(d.detail ?? "Export failed.");
+        return;
+      }
+
+      // Trigger browser download
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const fileMatch   = disposition.match(/filename="([^"]+)"/);
+      const filename    = fileMatch?.[1] ?? "IIC_Helpdesk_Report.xlsx";
+      const link        = document.createElement("a");
+      link.href         = URL.createObjectURL(blob);
+      link.download     = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setShowExportPanel(false);
+    } catch {
+      setExportError("A network error occurred.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -451,17 +502,107 @@ export default function AdminTicketsPage() {
           <h1>Tickets</h1>
           <p>View, assign, and manage all support requests.</p>
         </div>
-        <div className="user-summary">
-          <span><TicketCheck aria-hidden="true" /><strong>{tickets.length}</strong> total</span>
-          <span><CircleDot aria-hidden="true" /><strong>{openCount}</strong> open</span>
-          <span><Clock aria-hidden="true" /><strong>{pendingCount}</strong> pending</span>
-          {unassignedCount > 0 && (
-            <span style={{ color: "#92400e", background: "#fef3c7" }}>
-              <User aria-hidden="true" /><strong>{unassignedCount}</strong> unassigned
-            </span>
-          )}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+          <div className="user-summary">
+            <span><TicketCheck aria-hidden="true" /><strong>{tickets.length}</strong> total</span>
+            <span><CircleDot aria-hidden="true" /><strong>{openCount}</strong> open</span>
+            <span><Clock aria-hidden="true" /><strong>{pendingCount}</strong> pending</span>
+            {unassignedCount > 0 && (
+              <span style={{ color: "#92400e", background: "#fef3c7" }}>
+                <User aria-hidden="true" /><strong>{unassignedCount}</strong> unassigned
+              </span>
+            )}
+          </div>
+          <button
+            className="primary-button"
+            style={{ display: "flex", alignItems: "center", gap: 7, background: "#166534", fontSize: ".85rem", padding: "9px 16px" }}
+            onClick={() => { setShowExportPanel((v) => !v); setExportError(""); }}
+          >
+            <FileSpreadsheet size={15} aria-hidden="true" />
+            {showExportPanel ? "Hide export" : "Export report"}
+          </button>
         </div>
       </header>
+
+      {/* ── Export panel ── */}
+      <AnimatePresence>
+        {showExportPanel && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            style={{
+              background: "#fff", border: "1px solid #bbf7d0", borderRadius: 14,
+              padding: "20px 22px", marginBottom: 20,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 800, fontSize: ".95rem", color: "#166534", display: "flex", alignItems: "center", gap: 7 }}>
+                  <FileSpreadsheet size={16} aria-hidden="true" /> Export Ticket Report
+                </p>
+                <p style={{ margin: "2px 0 0", fontSize: ".78rem", color: "#64748b" }}>
+                  Generates an audit-grade Excel workbook with a Ticket Register sheet and Analytics Summary sheet.
+                </p>
+              </div>
+              <button onClick={() => setShowExportPanel(false)} aria-label="Close export panel"
+                style={{ border: 0, background: "transparent", cursor: "pointer", color: "#94a3b8" }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 14 }}>
+              <label style={{ display: "grid", gap: 4, fontSize: ".82rem", fontWeight: 700, color: "#374151" }}>
+                Status filter
+                <select value={exportFilters.status} onChange={(e) => setExportFilters((p) => ({ ...p, status: e.target.value }))}
+                  style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "7px 9px", fontSize: ".85rem" }}>
+                  <option value="">All statuses</option>
+                  {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 4, fontSize: ".82rem", fontWeight: 700, color: "#374151" }}>
+                Priority filter
+                <select value={exportFilters.priority} onChange={(e) => setExportFilters((p) => ({ ...p, priority: e.target.value }))}
+                  style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "7px 9px", fontSize: ".85rem" }}>
+                  <option value="">All priorities</option>
+                  {Object.entries(PRIORITY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 4, fontSize: ".82rem", fontWeight: 700, color: "#374151" }}>
+                From date
+                <input type="date" value={exportFilters.from}
+                  onChange={(e) => setExportFilters((p) => ({ ...p, from: e.target.value }))}
+                  style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "7px 9px", fontSize: ".85rem" }} />
+              </label>
+              <label style={{ display: "grid", gap: 4, fontSize: ".82rem", fontWeight: 700, color: "#374151" }}>
+                To date
+                <input type="date" value={exportFilters.to}
+                  onChange={(e) => setExportFilters((p) => ({ ...p, to: e.target.value }))}
+                  style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "7px 9px", fontSize: ".85rem" }} />
+              </label>
+            </div>
+
+            {exportError && (
+              <p style={{ margin: "0 0 10px", color: "#991b1b", fontSize: ".83rem" }} role="alert">{exportError}</p>
+            )}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                className="primary-button"
+                style={{ display: "flex", alignItems: "center", gap: 7, background: "#166534", padding: "10px 20px" }}
+                onClick={runExport}
+                disabled={exporting}
+              >
+                <Download size={15} aria-hidden="true" />
+                {exporting ? "Generating…" : "Download Excel (.xlsx)"}
+              </button>
+              <span style={{ fontSize: ".75rem", color: "#64748b" }}>
+                Leave filters blank to export all tickets.
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {error && <p className="admin-error" role="alert">{error}</p>}
 
