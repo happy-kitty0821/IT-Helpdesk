@@ -426,6 +426,14 @@ export default function UserManagement() {
               style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 1000 }}
               onClick={() => !addSaving && setShowAddModal(false)}
             />
+            {/* Centering wrapper — separate from motion so transform is not clobbered */}
+            <div
+              style={{
+                position: "fixed", inset: 0, zIndex: 1001,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
             {/* Modal */}
             <motion.div
               key="add-modal"
@@ -437,12 +445,11 @@ export default function UserManagement() {
               exit={{ opacity: 0, scale: .96, y: 10 }}
               transition={{ type: "spring", stiffness: 380, damping: 32 }}
               style={{
-                position: "fixed", top: "50%", left: "50%",
-                transform: "translate(-50%, -50%)",
-                zIndex: 1001, background: "#fff",
+                background: "#fff",
                 borderRadius: 18, boxShadow: "0 24px 64px rgba(15,23,42,.22)",
                 width: "min(92vw, 540px)", maxHeight: "88vh",
                 display: "flex", flexDirection: "column", overflow: "hidden",
+                pointerEvents: "all",
               }}
             >
               {/* Modal header */}
@@ -471,8 +478,8 @@ export default function UserManagement() {
               </div>
 
               {/* Modal body */}
-              <form id="add-user-form" onSubmit={submitAdd} style={{ overflowY: "auto", flex: 1 }}>
-                <div style={{ padding: "20px 24px", display: "grid", gap: 16 }}>
+              <form id="add-user-form" onSubmit={submitAdd} style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+                <div style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
 
                   {addErrors._ && (
                     <p style={{ margin: 0, color: "#991b1b", background: "#fee2e2", borderRadius: 8, padding: "9px 12px", fontSize: ".85rem" }} role="alert">
@@ -482,92 +489,132 @@ export default function UserManagement() {
 
                   {/* Email + Username row */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <label style={{ display: "grid", gap: 5, fontSize: ".83rem", fontWeight: 700, color: "#374151" }}>
-                      Email address <span style={{ color: "#ef4444" }}>*</span>
+                    {/* Email */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <label htmlFor="add-email" style={{ fontSize: ".8rem", fontWeight: 700, color: "#374151", display: "flex", alignItems: "center", gap: 4 }}>
+                        Email address <span style={{ color: "#ef4444" }} aria-hidden="true">*</span>
+                      </label>
                       <input
+                        id="add-email"
                         type="email" required
                         value={addForm.email}
                         onChange={(e) => setAddForm((p) => ({ ...p, email: e.target.value }))}
                         placeholder="user@iic.edu.np"
                         style={{
-                          border: `1px solid ${addErrors.email ? "#f87171" : "#cbd5e1"}`,
-                          borderRadius: 8, padding: "8px 10px", fontSize: ".85rem", fontWeight: 400,
+                          border: `1.5px solid ${addErrors.email ? "#f87171" : "#cbd5e1"}`,
+                          borderRadius: 8, padding: "9px 11px", fontSize: ".88rem",
+                          width: "100%", boxSizing: "border-box",
+                          outline: "none", transition: "border-color 150ms",
                         }}
                       />
-                      {addErrors.email && <span style={{ color: "#dc2626", fontSize: ".75rem" }}>{addErrors.email}</span>}
-                    </label>
-                    <label style={{ display: "grid", gap: 5, fontSize: ".83rem", fontWeight: 700, color: "#374151" }}>
-                      Username <span style={{ color: "#ef4444" }}>*</span>
+                      {addErrors.email && <span style={{ color: "#dc2626", fontSize: ".75rem", marginTop: 1 }}>{addErrors.email}</span>}
+                    </div>
+                    {/* Username */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <label htmlFor="add-username" style={{ fontSize: ".8rem", fontWeight: 700, color: "#374151", display: "flex", alignItems: "center", gap: 4 }}>
+                        Username <span style={{ color: "#ef4444" }} aria-hidden="true">*</span>
+                      </label>
                       <input
+                        id="add-username"
                         type="text" required
                         value={addForm.username}
                         onChange={(e) => setAddForm((p) => ({ ...p, username: e.target.value }))}
                         placeholder="john.doe"
                         autoComplete="off"
                         style={{
-                          border: `1px solid ${addErrors.username ? "#f87171" : "#cbd5e1"}`,
-                          borderRadius: 8, padding: "8px 10px", fontSize: ".85rem", fontWeight: 400,
+                          border: `1.5px solid ${addErrors.username ? "#f87171" : "#cbd5e1"}`,
+                          borderRadius: 8, padding: "9px 11px", fontSize: ".88rem",
+                          width: "100%", boxSizing: "border-box",
+                          outline: "none", transition: "border-color 150ms",
                         }}
                       />
-                      {addErrors.username && <span style={{ color: "#dc2626", fontSize: ".75rem" }}>{addErrors.username}</span>}
-                    </label>
+                      {addErrors.username && <span style={{ color: "#dc2626", fontSize: ".75rem", marginTop: 1 }}>{addErrors.username}</span>}
+                    </div>
                   </div>
 
                   {/* Name row */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <label style={{ display: "grid", gap: 5, fontSize: ".83rem", fontWeight: 700, color: "#374151" }}>
-                      First name
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <label htmlFor="add-first" style={{ fontSize: ".8rem", fontWeight: 700, color: "#374151" }}>
+                        First name
+                      </label>
                       <input
+                        id="add-first"
                         type="text"
                         value={addForm.first_name}
                         onChange={(e) => setAddForm((p) => ({ ...p, first_name: e.target.value }))}
                         placeholder="John"
-                        style={{ border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 10px", fontSize: ".85rem", fontWeight: 400 }}
+                        style={{
+                          border: "1.5px solid #cbd5e1", borderRadius: 8,
+                          padding: "9px 11px", fontSize: ".88rem",
+                          width: "100%", boxSizing: "border-box",
+                          outline: "none",
+                        }}
                       />
-                    </label>
-                    <label style={{ display: "grid", gap: 5, fontSize: ".83rem", fontWeight: 700, color: "#374151" }}>
-                      Last name
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <label htmlFor="add-last" style={{ fontSize: ".8rem", fontWeight: 700, color: "#374151" }}>
+                        Last name
+                      </label>
                       <input
+                        id="add-last"
                         type="text"
                         value={addForm.last_name}
                         onChange={(e) => setAddForm((p) => ({ ...p, last_name: e.target.value }))}
                         placeholder="Doe"
-                        style={{ border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 10px", fontSize: ".85rem", fontWeight: 400 }}
+                        style={{
+                          border: "1.5px solid #cbd5e1", borderRadius: 8,
+                          padding: "9px 11px", fontSize: ".88rem",
+                          width: "100%", boxSizing: "border-box",
+                          outline: "none",
+                        }}
                       />
-                    </label>
+                    </div>
                   </div>
 
                   {/* Initial roles */}
-                  <fieldset style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 14px", margin: 0 }}>
-                    <legend style={{ fontSize: ".82rem", fontWeight: 800, color: "#234395", padding: "0 6px" }}>
-                      Initial roles <span style={{ fontWeight: 400, color: "#64748b" }}>(optional)</span>
-                    </legend>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 4 }}>
-                      {ALL_ROLES.map((role) => (
-                        <label key={role.value} style={{
-                          display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer",
-                          padding: "7px 9px", borderRadius: 8,
-                          background: addRoles.has(role.value) ? "#eef2ff" : "transparent",
-                          border: `1px solid ${addRoles.has(role.value) ? "#c7d2fe" : "transparent"}`,
-                          transition: "all 150ms",
-                        }}>
+                  <div>
+                    <p style={{ margin: "0 0 8px", fontSize: ".8rem", fontWeight: 700, color: "#374151" }}>
+                      Initial roles <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span>
+                    </p>
+                    <div style={{
+                      border: "1.5px solid #e2e8f0", borderRadius: 10,
+                      display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0,
+                      overflow: "hidden",
+                    }}>
+                      {ALL_ROLES.map((role, i) => (
+                        <label
+                          key={role.value}
+                          style={{
+                            display: "flex", alignItems: "flex-start", gap: 10,
+                            cursor: "pointer", padding: "10px 12px",
+                            background: addRoles.has(role.value) ? "#eef2ff" : "#fff",
+                            borderBottom: i < ALL_ROLES.length - 2 ? "1px solid #f1f5f9" : "none",
+                            borderRight: i % 2 === 0 ? "1px solid #f1f5f9" : "none",
+                            transition: "background 120ms",
+                          }}
+                        >
                           <input
                             type="checkbox"
                             checked={addRoles.has(role.value)}
                             onChange={() => toggleAddRole(role.value)}
-                            style={{ marginTop: 2, flexShrink: 0 }}
+                            style={{ marginTop: 3, flexShrink: 0, accentColor: "#234395" }}
                           />
-                          <span>
-                            <span style={{ display: "block", fontSize: ".82rem", fontWeight: 700, color: "#1e293b" }}>{role.label}</span>
-                            <span style={{ display: "block", fontSize: ".72rem", color: "#64748b", lineHeight: 1.4 }}>{role.description}</span>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: ".82rem", fontWeight: 700, color: addRoles.has(role.value) ? "#234395" : "#1e293b", lineHeight: 1.3 }}>
+                              {role.label}
+                            </span>
+                            <span style={{ display: "block", fontSize: ".71rem", color: "#94a3b8", lineHeight: 1.4, marginTop: 1 }}>
+                              {role.description}
+                            </span>
                           </span>
                         </label>
                       ))}
                     </div>
-                  </fieldset>
+                  </div>
 
-                  <p style={{ margin: 0, fontSize: ".76rem", color: "#94a3b8", background: "#f8fafc", borderRadius: 8, padding: "8px 12px" }}>
-                    No password is set. The user must sign in via Google SSO or request a password reset.
+                  <p style={{ margin: 0, fontSize: ".75rem", color: "#94a3b8", background: "#f8fafc", borderRadius: 8, padding: "8px 12px", lineHeight: 1.5 }}>
+                    No password is set. The user must sign in via Google SSO or contact an administrator to reset their password.
                   </p>
                 </div>
               </form>
@@ -597,6 +644,7 @@ export default function UserManagement() {
                 </button>
               </div>
             </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>
