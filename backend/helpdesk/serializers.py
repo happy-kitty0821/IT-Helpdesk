@@ -343,10 +343,21 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
 class AdminUserCreateSerializer(serializers.Serializer):
     """Validates manual user creation from the admin panel."""
-    email      = serializers.EmailField()
-    username   = serializers.CharField(max_length=150)
-    first_name = serializers.CharField(max_length=150, allow_blank=True, default='')
-    last_name  = serializers.CharField(max_length=150, allow_blank=True, default='')
+    email            = serializers.EmailField()
+    username         = serializers.CharField(max_length=150)
+    first_name       = serializers.CharField(max_length=150, allow_blank=True, default='')
+    last_name        = serializers.CharField(max_length=150, allow_blank=True, default='')
+    password         = serializers.CharField(
+        min_length=8, max_length=128,
+        allow_blank=True, default='',
+        write_only=True,
+        help_text='Leave blank to create an account without a password (SSO only).',
+    )
+    confirm_password = serializers.CharField(
+        min_length=8, max_length=128,
+        allow_blank=True, default='',
+        write_only=True,
+    )
 
     def validate_email(self, value):
         User = get_user_model()
@@ -361,11 +372,31 @@ class AdminUserCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError('A user with this username already exists.')
         import re
         if not re.match(r'^[\w.@+-]+$', value):
-            raise serializers.ValidationError('Enter a valid username. Only letters, digits and @/./+/-/_ are allowed.')
+            raise serializers.ValidationError(
+                'Enter a valid username. Only letters, digits and @/./+/-/_ are allowed.'
+            )
         return value
+
+    def validate(self, attrs):
+        password = attrs.get('password', '').strip()
+        confirm  = attrs.get('confirm_password', '').strip()
+        if password:
+            if password != confirm:
+                raise serializers.ValidationError(
+                    {'confirm_password': 'Passwords do not match.'}
+                )
+            # Run Django password validators
+            from django.contrib.auth.password_validation import validate_password
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                validate_password(password)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({'password': list(exc.messages)})
+        return attrs
 
     def create(self, validated_data):
         User = get_user_model()
+        password = validated_data.get('password', '').strip()
         user = User(
             email=validated_data['email'],
             username=validated_data['username'],
@@ -373,9 +404,13 @@ class AdminUserCreateSerializer(serializers.Serializer):
             last_name=validated_data.get('last_name', ''),
             is_active=True,
         )
-        user.set_unusable_password()
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
         user.save()
         return user
+
 
 class SoftwareResourceSerializer(serializers.ModelSerializer):
     guide_title = serializers.CharField(source='guide.title', read_only=True)

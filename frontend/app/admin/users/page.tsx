@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
-  CheckCircle2, ChevronLeft, ChevronRight, Loader2,
+  CheckCircle2, ChevronLeft, ChevronRight, Eye, EyeOff, Loader2,
   Pencil, Plus, Search, ShieldCheck, UserPlus, UserRound, Users, X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -84,7 +84,9 @@ export default function UserManagement() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState({
     email: "", username: "", first_name: "", last_name: "",
+    password: "", confirm_password: "",
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [addRoles, setAddRoles] = useState<Set<RoleValue>>(new Set());
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [addSaving, setAddSaving] = useState(false);
@@ -206,7 +208,8 @@ export default function UserManagement() {
       }
       const created = data as ManagedUser;
       setShowAddModal(false);
-      setAddForm({ email: "", username: "", first_name: "", last_name: "" });
+      setAddForm({ email: "", username: "", first_name: "", last_name: "", password: "", confirm_password: "" });
+      setShowPassword(false);
       setAddRoles(new Set());
       setNotice(`Account for ${created.name || created.username} created successfully.`);
       // Go to first page to see the new user
