@@ -1,10 +1,11 @@
-"use client";
+﻿"use client";
 
 import { AnimatePresence, motion } from "motion/react";
 import {
-  ArrowDown, ArrowUp, GitBranch, LayoutGrid, ListChecks,
-  Pencil, Plus, Sparkles, Trash2, X,
-} from "lucide-react";
+  ArrowDown, ArrowUp, Badge, Camera, GitBranch, KeyRound,
+  Laptop, LayoutGrid, LifeBuoy, ListChecks,
+  Pencil, Plus, Sparkles, Trash2, Wifi, X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   adminGetServices, adminSaveService,
@@ -96,6 +97,24 @@ const AUDIENCE_BADGE: Record<AdminService["audience"], { label: string; bg: stri
   staff:   { label: "Faculty & staff",  bg: "#f0fdf4", color: "#166534" },
   all:     { label: "All users",        bg: "#faf5ff", color: "#6d28d9" },
 };
+
+
+// -- Icon map (mirrors service-grid.tsx)
+import type { LucideProps as _LP } from "lucide-react";
+
+const SERVICE_ICONS: Record<string, React.ComponentType<_LP>> = {
+  "key-round": KeyRound,
+  laptop:      Laptop,
+  badge:       Badge,
+  wifi:        Wifi,
+  camera:      Camera,
+  "life-buoy": LifeBuoy,
+};
+
+function ServiceIcon({ name }: { name: string }) {
+  const Icon = SERVICE_ICONS[name] ?? LifeBuoy;
+  return <Icon aria-hidden="true" size={22} />;
+}
 
 // ── StageBuilder ──────────────────────────────────────────────────────────────
 
@@ -502,11 +521,9 @@ export default function ServiceManagement() {
                   <div style={{
                     width: 48, height: 48, borderRadius: 12, background: "#eef2ff",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "1.4rem", flexShrink: 0,
-                  }}
-                    aria-hidden="true"
-                  >
-                    {service.icon || "🛠️"}
+                    color: "#234395", flexShrink: 0,
+                  }}>
+                    <ServiceIcon name={service.icon} />
                   </div>
                   {/* Name + chip */}
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -718,7 +735,7 @@ export default function ServiceManagement() {
                           }}
                             aria-label="Icon preview"
                           >
-                            {draftIcon || "🛠️"}
+                            <ServiceIcon name={draftIcon} />
                           </div>
                         </div>
                       </div>
