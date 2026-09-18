@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
-  ArrowDown, ArrowUp, LayoutGrid, ListChecks,
+  ArrowDown, ArrowUp, GitBranch, LayoutGrid, ListChecks,
   Pencil, Plus, Sparkles, Trash2, X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -17,11 +17,11 @@ import { FieldBuilder } from "@/components/field-builder";
 
 const SEED_STAGES: Record<string, ServiceStage[]> = {
   "id-card-replacement": [
-    { key: "received",        label: "Received",          icon: "📥", description: "Your request has been received and is awaiting review." },
-    { key: "details-verified",label: "Details Verified",  icon: "✅", description: "Your details have been verified by the IT team." },
-    { key: "id-generated",    label: "ID Generated",      icon: "🪪", description: "Your new ID card has been generated." },
-    { key: "sent-for-printing",label:"Sent for Printing", icon: "🖨️", description: "Your ID card has been sent to the print queue." },
-    { key: "ready-to-collect",label: "Ready to Collect",  icon: "🎉", description: "Your ID card is ready. Please collect it from the IT helpdesk." },
+    { key: "received",         label: "Received",          icon: "📥", description: "Your request has been received and is awaiting review." },
+    { key: "details-verified", label: "Details Verified",  icon: "✅", description: "Your details have been verified by the IT team." },
+    { key: "id-generated",     label: "ID Generated",      icon: "🪪", description: "Your new ID card has been generated." },
+    { key: "sent-for-printing",label: "Sent for Printing", icon: "🖨️", description: "Your ID card has been sent to the print queue." },
+    { key: "ready-to-collect", label: "Ready to Collect",  icon: "🎉", description: "Your ID card is ready. Please collect it from the IT helpdesk." },
   ],
   "account-recovery": [
     { key: "request-received",  label: "Request Received",  icon: "📥", description: "Your account recovery request has been received." },
@@ -36,20 +36,20 @@ const SEED_STAGES: Record<string, ServiceStage[]> = {
     { key: "confirmation-sent", label: "Confirmation Sent", icon: "📧", description: "Recovery credentials have been emailed to you." },
   ],
   "laptop-device-support": [
-    { key: "received",    label: "Request Received", icon: "📥", description: "Your device support request has been logged." },
-    { key: "diagnosing",  label: "Diagnosing",       icon: "🔎", description: "The IT team is diagnosing the issue." },
-    { key: "in-repair",   label: "In Repair",        icon: "🛠️", description: "Your device is being repaired or configured." },
-    { key: "ready",       label: "Ready",            icon: "✅", description: "Your device is ready for collection." },
+    { key: "received",   label: "Request Received", icon: "📥", description: "Your device support request has been logged." },
+    { key: "diagnosing", label: "Diagnosing",       icon: "🔎", description: "The IT team is diagnosing the issue." },
+    { key: "in-repair",  label: "In Repair",        icon: "🛠️", description: "Your device is being repaired or configured." },
+    { key: "ready",      label: "Ready",            icon: "✅", description: "Your device is ready for collection." },
   ],
   "wi-fi-issue": [
-    { key: "received",      label: "Report Received",   icon: "📥", description: "Your Wi-Fi issue report has been received." },
-    { key: "investigating", label: "Investigating",     icon: "🔍", description: "The NOC team is investigating the issue." },
-    { key: "resolved",      label: "Resolved",          icon: "✅", description: "The Wi-Fi issue has been resolved." },
+    { key: "received",      label: "Report Received", icon: "📥", description: "Your Wi-Fi issue report has been received." },
+    { key: "investigating", label: "Investigating",   icon: "🔍", description: "The NOC team is investigating the issue." },
+    { key: "resolved",      label: "Resolved",        icon: "✅", description: "The Wi-Fi issue has been resolved." },
   ],
   "wifi-issue": [
-    { key: "received",      label: "Report Received",   icon: "📥", description: "Your Wi-Fi issue report has been received." },
-    { key: "investigating", label: "Investigating",     icon: "🔍", description: "The NOC team is investigating the issue." },
-    { key: "resolved",      label: "Resolved",          icon: "✅", description: "The Wi-Fi issue has been resolved." },
+    { key: "received",      label: "Report Received", icon: "📥", description: "Your Wi-Fi issue report has been received." },
+    { key: "investigating", label: "Investigating",   icon: "🔍", description: "The NOC team is investigating the issue." },
+    { key: "resolved",      label: "Resolved",        icon: "✅", description: "The Wi-Fi issue has been resolved." },
   ],
 };
 
@@ -88,6 +88,15 @@ function messageFrom(data: unknown): string {
   return "The change could not be saved.";
 }
 
+// ── Audience badge styles ─────────────────────────────────────────────────────
+
+const AUDIENCE_BADGE: Record<AdminService["audience"], { label: string; bg: string; color: string }> = {
+  public:  { label: "Public",           bg: "#f1f5f9", color: "#475569" },
+  student: { label: "Students",         bg: "#eef2ff", color: "#3730a3" },
+  staff:   { label: "Faculty & staff",  bg: "#f0fdf4", color: "#166534" },
+  all:     { label: "All users",        bg: "#faf5ff", color: "#6d28d9" },
+};
+
 // ── StageBuilder ──────────────────────────────────────────────────────────────
 
 function StageBuilder({
@@ -105,7 +114,6 @@ function StageBuilder({
     const next = stages.map((s, i) => {
       if (i !== idx) return s;
       const updated = { ...s, ...patch };
-      // Auto-derive key from label unless user manually changed it
       if (patch.label !== undefined && s.key === slugify(s.label)) {
         updated.key = slugify(patch.label);
       }
@@ -146,7 +154,6 @@ function StageBuilder({
                 borderRadius: 10, padding: "12px 14px",
               }}
             >
-              {/* Top row: icon + label + move + delete */}
               <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
                 <input
                   type="text"
@@ -203,7 +210,6 @@ function StageBuilder({
                 </div>
               </div>
 
-              {/* Key (editable) */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                 <span style={{ fontSize: ".72rem", color: "#94a3b8", fontWeight: 700, minWidth: 30 }}>key</span>
                 <input
@@ -220,7 +226,6 @@ function StageBuilder({
                 />
               </div>
 
-              {/* Description */}
               <input
                 type="text"
                 value={stage.description ?? ""}
@@ -230,6 +235,7 @@ function StageBuilder({
                 style={{
                   width: "100%", border: "1px solid #e2e8f0", borderRadius: 7,
                   padding: "6px 10px", fontSize: ".82rem", background: "#fff",
+                  boxSizing: "border-box",
                 }}
               />
             </motion.div>
@@ -253,6 +259,18 @@ function StageBuilder({
   );
 }
 
+// ── Inline styles helpers ─────────────────────────────────────────────────────
+
+const fieldLabelStyle: React.CSSProperties = {
+  fontSize: ".8rem", fontWeight: 700, color: "#374151", marginBottom: 4, display: "block",
+};
+
+const inputStyle: React.CSSProperties = {
+  border: "1.5px solid #e2e8f0", borderRadius: 8, padding: "9px 11px",
+  fontSize: ".9rem", width: "100%", boxSizing: "border-box", background: "#fff",
+  color: "#0f172a",
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ServiceManagement() {
@@ -267,6 +285,9 @@ export default function ServiceManagement() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [schemaErrors, setSchemaErrors] = useState<SchemaFieldError[]>([]);
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<"details" | "fields" | "stages">("details");
 
   // Draft fields
   const [draftName, setDraftName] = useState("");
@@ -293,6 +314,7 @@ export default function ServiceManagement() {
   function openEditor(service: AdminService) {
     setEditing(service);
     setCreating(false);
+    setActiveTab("details");
     setDraftName(service.name);
     setDraftSummary(service.summary);
     setDraftAudience(service.audience);
@@ -309,6 +331,7 @@ export default function ServiceManagement() {
   function openCreate() {
     setEditing(null);
     setCreating(true);
+    setActiveTab("details");
     setDraftName(defaultDraft.name);
     setDraftSummary(defaultDraft.summary);
     setDraftAudience(defaultDraft.audience);
@@ -390,7 +413,6 @@ export default function ServiceManagement() {
       setError("Save the category details first before setting stages.");
       return;
     }
-    // Validate: every stage must have a non-empty label and key
     const invalid = draftStages.some((s) => !s.label.trim() || !s.key.trim());
     if (invalid) {
       setError("All stages must have a label and a key before saving.");
@@ -456,62 +478,110 @@ export default function ServiceManagement() {
         )}
       </AnimatePresence>
 
-      {/* Services table */}
-      <section className="content-table services-table" aria-label="Service categories">
-        <div className="table-head" aria-hidden="true">
-          <span>Name</span>
-          <span>Audience</span>
-          <span>Status</span>
-          <span>Fields</span>
-          <span>Stages</span>
-          <span></span>
+      {/* ── Card grid ── */}
+      {services.length === 0 ? (
+        <div className="empty-row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <LayoutGrid aria-hidden="true" style={{ width: 22, color: "#234395" }} />
+          <span>No service categories yet. Create one to get started.</span>
         </div>
+      ) : (
+        <section className="service-card-grid" aria-label="Service categories">
+          {services.map((service, index) => {
+            const aud = AUDIENCE_BADGE[service.audience];
+            return (
+              <motion.article
+                key={service.id}
+                className="service-card"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(index * 0.04, 0.2) }}
+              >
+                {/* Card header row */}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  {/* Icon square */}
+                  <div style={{
+                    width: 48, height: 48, borderRadius: 12, background: "#eef2ff",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "1.4rem", flexShrink: 0,
+                  }}
+                    aria-hidden="true"
+                  >
+                    {service.icon || "🛠️"}
+                  </div>
+                  {/* Name + chip */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <strong style={{ fontSize: "1rem", lineHeight: 1.35 }}>{service.name}</strong>
+                      <span className={`status-chip ${service.is_active ? "active" : "archived"}`} style={{ flexShrink: 0 }}>
+                        {service.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-        {services.length === 0 ? (
-          <div className="empty-row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <LayoutGrid aria-hidden="true" style={{ width: 22, color: "#234395" }} />
-            <span>No service categories yet. Create one to get started.</span>
-          </div>
-        ) : (
-          services.map((service, index) => (
-            <motion.article
-              key={service.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(index * 0.04, 0.2) }}
-            >
-              <div>
-                <strong>{service.name}</strong>
-                <small>{service.summary}</small>
-              </div>
-              <span style={{ textTransform: "capitalize" }}>{service.audience}</span>
-              <span>
-                <span className={`status-chip ${service.is_active ? "active" : "archived"}`}>
-                  {service.is_active ? "Active" : "Inactive"}
-                </span>
-              </span>
-              <span style={{ color: "#64748b", fontSize: ".88rem" }}>
-                {service.form_schema?.length ?? 0} {(service.form_schema?.length ?? 0) === 1 ? "field" : "fields"}
-              </span>
-              <span style={{ color: "#64748b", fontSize: ".88rem" }}>
-                {(service.stages?.length ?? 0) > 0 ? (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <ListChecks size={13} aria-hidden="true" style={{ color: "#234395" }} />
-                    {service.stages.length} stage{service.stages.length !== 1 ? "s" : ""}
+                {/* Summary */}
+                <p style={{
+                  margin: 0, fontSize: ".84rem", color: "#64748b", lineHeight: 1.5,
+                  display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}>
+                  {service.summary || <em>No summary</em>}
+                </p>
+
+                {/* Footer row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: "auto" }}>
+                  {/* Audience badge */}
+                  <span style={{
+                    fontSize: ".73rem", fontWeight: 700, borderRadius: 6, padding: "3px 8px",
+                    background: aud.bg, color: aud.color,
+                  }}>
+                    {aud.label}
                   </span>
-                ) : (
-                  <span style={{ color: "#cbd5e1" }}>—</span>
-                )}
-              </span>
-              <button aria-label={`Edit ${service.name}`} onClick={() => openEditor(service)}>
-                <Pencil aria-hidden="true" />
-              </button>
-            </motion.article>
-          ))
-        )}
-      </section>
 
-      {/* Editor panel */}
+                  {/* Field count */}
+                  <span style={{
+                    fontSize: ".73rem", color: "#64748b", background: "#f1f5f9",
+                    borderRadius: 6, padding: "3px 8px",
+                  }}>
+                    {service.form_schema?.length ?? 0} {(service.form_schema?.length ?? 0) === 1 ? "field" : "fields"}
+                  </span>
+
+                  {/* Stage count */}
+                  {(service.stages?.length ?? 0) > 0 ? (
+                    <span style={{
+                      fontSize: ".73rem", color: "#234395", background: "#eef2ff",
+                      borderRadius: 6, padding: "3px 8px",
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                    }}>
+                      <ListChecks size={11} aria-hidden="true" />
+                      {service.stages.length} stage{service.stages.length !== 1 ? "s" : ""}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: ".73rem", color: "#cbd5e1", background: "#f8fafc", borderRadius: 6, padding: "3px 8px" }}>
+                      No stages
+                    </span>
+                  )}
+
+                  {/* Edit button — pushed right */}
+                  <button
+                    aria-label={`Edit ${service.name}`}
+                    onClick={() => openEditor(service)}
+                    style={{
+                      marginLeft: "auto", border: "1px solid #e2e8f0", background: "#f8fafc",
+                      borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#475569",
+                      display: "flex", alignItems: "center", gap: 5, fontSize: ".78rem", fontWeight: 600,
+                    }}
+                  >
+                    <Pencil size={13} aria-hidden="true" /> Edit
+                  </button>
+                </div>
+              </motion.article>
+            );
+          })}
+        </section>
+      )}
+
+      {/* ── Editor panel ── */}
       <AnimatePresence>
         {isEditorOpen && (
           <motion.aside
@@ -522,192 +592,309 @@ export default function ServiceManagement() {
             exit={{ opacity: 0, x: 24, scale: 0.985 }}
             transition={{ type: "spring", stiffness: 340, damping: 32 }}
             aria-label={creating ? "New service category" : `Edit ${editing?.name ?? "category"}`}
+            style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 48px)" }}
           >
-            <header>
-              <div>
-                <span>{creating ? "New category" : "Edit category"}</span>
-                <h2>{creating ? "Create service category" : (editing?.name ?? "")}</h2>
+            {/* Fixed panel header */}
+            <header style={{ borderBottom: "1px solid #e2e8f0", padding: "18px 22px 0", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
+                <div>
+                  <span style={{ fontSize: ".75rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                    {creating ? "New category" : "Edit category"}
+                  </span>
+                  <h2 style={{ margin: "2px 0 0", fontSize: "1.05rem" }}>
+                    {creating ? "Create service category" : (editing?.name ?? "")}
+                  </h2>
+                </div>
+                <button
+                  aria-label="Close editor"
+                  onClick={closeEditor}
+                  style={{ border: "1px solid #e2e8f0", background: "#f8fafc", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "#64748b" }}
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
               </div>
-              <button aria-label="Close editor" onClick={closeEditor}>
-                <X aria-hidden="true" />
-              </button>
+
+              {/* Tab bar */}
+              <div className="svc-tab-bar" style={{ margin: "0 -22px" }}>
+                <button
+                  type="button"
+                  className={`svc-tab${activeTab === "details" ? " active" : ""}`}
+                  onClick={() => setActiveTab("details")}
+                >
+                  <LayoutGrid aria-hidden="true" /> Details
+                </button>
+                <button
+                  type="button"
+                  className={`svc-tab${activeTab === "fields" ? " active" : ""}`}
+                  onClick={() => { if (!creating) setActiveTab("fields"); }}
+                  disabled={creating}
+                  title={creating ? "Save details first" : undefined}
+                >
+                  <ListChecks aria-hidden="true" /> Form Fields
+                </button>
+                <button
+                  type="button"
+                  className={`svc-tab${activeTab === "stages" ? " active" : ""}`}
+                  onClick={() => { if (!creating) setActiveTab("stages"); }}
+                  disabled={creating}
+                  title={creating ? "Save details first" : undefined}
+                >
+                  <GitBranch aria-hidden="true" /> Stages
+                </button>
+              </div>
             </header>
 
-            <form onSubmit={(e) => { e.preventDefault(); saveDetails(); }} style={{ display: "contents" }}>
-              <div style={{ padding: "20px", display: "grid", gap: 16, maxHeight: "calc(100vh - 110px)", overflowY: "auto" }}>
+            {/* ── Details tab ── */}
+            {activeTab === "details" && (
+              <>
+                <form
+                  id="details-form"
+                  onSubmit={(e) => { e.preventDefault(); saveDetails(); }}
+                  style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "20px 22px" }}>
+                    {/* Name */}
+                    <div>
+                      <label htmlFor="svc-name" style={fieldLabelStyle}>Name</label>
+                      <input
+                        id="svc-name"
+                        type="text"
+                        value={draftName}
+                        required
+                        maxLength={100}
+                        placeholder="e.g. Laptop & device support"
+                        onChange={(e) => setDraftName(e.target.value)}
+                        style={inputStyle}
+                      />
+                    </div>
 
-                {/* ── Section 1: Category details ── */}
-                <label>
-                  Name
-                  <input
-                    type="text"
-                    value={draftName}
-                    required
-                    maxLength={100}
-                    placeholder="e.g. Laptop &amp; device support"
-                    onChange={(e) => setDraftName(e.target.value)}
-                  />
-                </label>
+                    {/* Summary */}
+                    <div>
+                      <label htmlFor="svc-summary" style={fieldLabelStyle}>Summary</label>
+                      <textarea
+                        id="svc-summary"
+                        rows={3}
+                        value={draftSummary}
+                        maxLength={240}
+                        placeholder="Brief description shown on the service card."
+                        onChange={(e) => setDraftSummary(e.target.value)}
+                        style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }}
+                      />
+                    </div>
 
-                <label>
-                  Summary
-                  <textarea
-                    rows={3}
-                    value={draftSummary}
-                    maxLength={240}
-                    placeholder="Brief description shown on the service card."
-                    onChange={(e) => setDraftSummary(e.target.value)}
-                  />
-                </label>
+                    {/* Audience + Icon row */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      <div>
+                        <label htmlFor="svc-audience" style={fieldLabelStyle}>Audience</label>
+                        <select
+                          id="svc-audience"
+                          value={draftAudience}
+                          onChange={(e) => setDraftAudience(e.target.value as AdminService["audience"])}
+                          style={inputStyle}
+                        >
+                          <option value="public">Public</option>
+                          <option value="student">Students</option>
+                          <option value="staff">Faculty &amp; staff</option>
+                          <option value="all">Students &amp; staff</option>
+                        </select>
+                      </div>
 
-                <div className="form-pair">
-                  <label>
-                    Audience
-                    <select
-                      value={draftAudience}
-                      onChange={(e) => setDraftAudience(e.target.value as AdminService["audience"])}
-                    >
-                      <option value="public">Public</option>
-                      <option value="student">Students</option>
-                      <option value="staff">Faculty &amp; staff</option>
-                      <option value="all">Students &amp; staff</option>
-                    </select>
-                  </label>
+                      <div>
+                        <label htmlFor="svc-icon" style={fieldLabelStyle}>Icon name</label>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <input
+                            id="svc-icon"
+                            type="text"
+                            value={draftIcon}
+                            maxLength={32}
+                            placeholder="life-buoy"
+                            onChange={(e) => setDraftIcon(e.target.value)}
+                            style={{ ...inputStyle, flex: 1, width: "auto" }}
+                          />
+                          <div style={{
+                            width: 40, height: 40, borderRadius: 8, background: "#eef2ff",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: "1.1rem", flexShrink: 0, border: "1.5px solid #e2e8f0",
+                          }}
+                            aria-label="Icon preview"
+                          >
+                            {draftIcon || "🛠️"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
-                  <label>
-                    Icon name
-                    <input
-                      type="text"
-                      value={draftIcon}
-                      maxLength={32}
-                      placeholder="life-buoy"
-                      onChange={(e) => setDraftIcon(e.target.value)}
-                    />
-                  </label>
-                </div>
+                    {/* Sort order + Active row */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      <div>
+                        <label htmlFor="svc-sort" style={fieldLabelStyle}>Sort order</label>
+                        <input
+                          id="svc-sort"
+                          type="number"
+                          min={0}
+                          value={draftSortOrder}
+                          onChange={(e) => setDraftSortOrder(Number(e.target.value))}
+                          style={inputStyle}
+                        />
+                      </div>
 
-                <div className="form-pair">
-                  <label>
-                    Sort order
-                    <input
-                      type="number"
-                      min={0}
-                      value={draftSortOrder}
-                      onChange={(e) => setDraftSortOrder(Number(e.target.value))}
-                    />
-                  </label>
+                      <div>
+                        <span style={fieldLabelStyle}>Active</span>
+                        <div style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          border: "1.5px solid #e2e8f0", borderRadius: 8, padding: "9px 11px",
+                          background: "#fff", cursor: "pointer",
+                        }}
+                          onClick={() => setDraftIsActive((v) => !v)}
+                        >
+                          <span style={{ fontSize: ".88rem", color: draftIsActive ? "#166534" : "#64748b" }}>
+                            {draftIsActive ? "Enabled" : "Disabled"}
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={draftIsActive}
+                            onChange={(e) => setDraftIsActive(e.target.checked)}
+                            style={{ width: 18, height: 18, accentColor: "#234395", cursor: "pointer" }}
+                            aria-label="Service active"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </form>
 
-                  <label style={{ flexDirection: "row", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                    <span>Active</span>
-                    <input
-                      type="checkbox"
-                      checked={draftIsActive}
-                      style={{ width: 17, height: 17 }}
-                      onChange={(e) => setDraftIsActive(e.target.checked)}
-                    />
-                  </label>
-                </div>
-
-                <div className="editor-actions">
+                {/* Footer */}
+                <div style={{
+                  borderTop: "1px solid #e2e8f0", padding: "14px 22px",
+                  background: "#f8fafc", display: "flex", justifyContent: "flex-end",
+                  gap: 10, flexShrink: 0,
+                }}>
                   <button type="button" className="secondary-button" onClick={closeEditor}>
                     Cancel
                   </button>
-                  <button className="primary-button" type="submit" disabled={saving}>
+                  <button
+                    form="details-form"
+                    className="primary-button"
+                    type="submit"
+                    disabled={saving}
+                  >
                     {saving ? "Saving…" : creating ? "Create category" : "Save details"}
                   </button>
                 </div>
+              </>
+            )}
 
-                {/* ── Section 2: Form schema ── */}
-                <div className="schema-section">
-                  <h3>Form schema</h3>
-
-                  {creating ? (
-                    <p style={{ color: "#64748b", fontSize: ".85rem", margin: "0 0 12px" }}>
-                      Save the category details first to enable schema editing.
+            {/* ── Form Fields tab ── */}
+            {activeTab === "fields" && (
+              <>
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                  <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 12 }}>
+                    <p style={{ margin: 0, fontSize: ".8rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                      Form fields
                     </p>
-                  ) : (
-                    <>
-                      <FieldBuilder schema={draftSchema} onChange={setDraftSchema} />
 
-                      {schemaErrors.length > 0 && (
-                        <ul style={{ margin: "10px 0 0", padding: "0 0 0 18px", color: "#b91c1c", fontSize: ".85rem" }}>
-                          {schemaErrors.map((e, i) => (
-                            <li key={i}>
-                              {e.key ? `"${e.key}"` : `Field ${(e.index ?? 0) + 1}`}: {e.error}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-
-                      <div className="editor-actions" style={{ marginTop: 12 }}>
-                        <button
-                          type="button"
-                          className="primary-button"
-                          onClick={saveSchema}
-                          disabled={savingSchema}
-                        >
-                          {savingSchema ? "Saving…" : "Save schema"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* ── Section 3: Progress stages ── */}
-                <div className="schema-section">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
-                    <div>
-                      <h3 style={{ margin: 0 }}>
-                        <ListChecks size={15} style={{ verticalAlign: "middle", marginRight: 6 }} aria-hidden="true" />
-                        Progress stages
-                      </h3>
-                      <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: ".82rem" }}>
-                        Stages shown as a visual progress tracker on the requester's ticket page.
+                    {creating ? (
+                      <p style={{ color: "#64748b", fontSize: ".85rem", margin: 0 }}>
+                        Save the category details first to enable schema editing.
                       </p>
-                    </div>
+                    ) : (
+                      <>
+                        <FieldBuilder schema={draftSchema} onChange={setDraftSchema} />
 
-                    {/* Seed preset button */}
-                    {seedKey && (
-                      <button
-                        type="button"
-                        title={`Load default stages for "${editing?.name}"`}
-                        onClick={() => setDraftStages(SEED_STAGES[seedKey])}
-                        style={{
-                          border: "1px solid #a5b4fc", background: "#eef2ff", color: "#3730a3",
-                          borderRadius: 8, padding: "6px 11px", fontSize: ".78rem", fontWeight: 700,
-                          cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
-                          flexShrink: 0,
-                        }}
-                      >
-                        <Sparkles size={13} aria-hidden="true" /> Use defaults
-                      </button>
+                        {schemaErrors.length > 0 && (
+                          <ul style={{ margin: 0, padding: "0 0 0 18px", color: "#b91c1c", fontSize: ".85rem" }}>
+                            {schemaErrors.map((e, i) => (
+                              <li key={i}>
+                                {e.key ? `"${e.key}"` : `Field ${(e.index ?? 0) + 1}`}: {e.error}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
                     )}
                   </div>
-
-                  {creating ? (
-                    <p style={{ color: "#64748b", fontSize: ".85rem", margin: 0 }}>
-                      Save the category details first to enable stage editing.
-                    </p>
-                  ) : (
-                    <>
-                      <StageBuilder stages={draftStages} onChange={setDraftStages} />
-
-                      <div className="editor-actions" style={{ marginTop: 12 }}>
-                        <button
-                          type="button"
-                          className="primary-button"
-                          onClick={saveStages}
-                          disabled={savingStages}
-                        >
-                          {savingStages ? "Saving…" : "Save stages"}
-                        </button>
-                      </div>
-                    </>
-                  )}
                 </div>
 
-              </div>
-            </form>
+                {!creating && (
+                  <div style={{
+                    borderTop: "1px solid #e2e8f0", padding: "14px 22px",
+                    background: "#f8fafc", display: "flex", justifyContent: "flex-end",
+                    gap: 10, flexShrink: 0,
+                  }}>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={saveSchema}
+                      disabled={savingSchema}
+                    >
+                      {savingSchema ? "Saving…" : "Save schema"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── Stages tab ── */}
+            {activeTab === "stages" && (
+              <>
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+                  <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 12 }}>
+                    {/* Section header + preset button */}
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                      <div>
+                        <p style={{ margin: 0, fontSize: ".8rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                          Progress stages
+                        </p>
+                        <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: ".82rem" }}>
+                          Stages shown as a visual progress tracker on the requester&apos;s ticket page.
+                        </p>
+                      </div>
+
+                      {seedKey && (
+                        <button
+                          type="button"
+                          title={`Load default stages for "${editing?.name}"`}
+                          onClick={() => setDraftStages(SEED_STAGES[seedKey])}
+                          style={{
+                            border: "1px solid #a5b4fc", background: "#eef2ff", color: "#3730a3",
+                            borderRadius: 8, padding: "6px 11px", fontSize: ".78rem", fontWeight: 700,
+                            cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Sparkles size={13} aria-hidden="true" /> Use defaults
+                        </button>
+                      )}
+                    </div>
+
+                    {creating ? (
+                      <p style={{ color: "#64748b", fontSize: ".85rem", margin: 0 }}>
+                        Save the category details first to enable stage editing.
+                      </p>
+                    ) : (
+                      <StageBuilder stages={draftStages} onChange={setDraftStages} />
+                    )}
+                  </div>
+                </div>
+
+                {!creating && (
+                  <div style={{
+                    borderTop: "1px solid #e2e8f0", padding: "14px 22px",
+                    background: "#f8fafc", display: "flex", justifyContent: "flex-end",
+                    gap: 10, flexShrink: 0,
+                  }}>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={saveStages}
+                      disabled={savingStages}
+                    >
+                      {savingStages ? "Saving…" : "Save stages"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </motion.aside>
         )}
       </AnimatePresence>
