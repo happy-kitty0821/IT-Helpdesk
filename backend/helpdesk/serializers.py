@@ -1,4 +1,4 @@
-from django.conf import settings
+﻿from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -339,6 +339,43 @@ class AdminUserSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'is_superuser': 'You cannot remove your own superuser access.'})
         return attrs
 
+
+
+class AdminUserCreateSerializer(serializers.Serializer):
+    """Validates manual user creation from the admin panel."""
+    email      = serializers.EmailField()
+    username   = serializers.CharField(max_length=150)
+    first_name = serializers.CharField(max_length=150, allow_blank=True, default='')
+    last_name  = serializers.CharField(max_length=150, allow_blank=True, default='')
+
+    def validate_email(self, value):
+        User = get_user_model()
+        value = value.lower()
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError('A user with this email already exists.')
+        return value
+
+    def validate_username(self, value):
+        User = get_user_model()
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError('A user with this username already exists.')
+        import re
+        if not re.match(r'^[\w.@+-]+$', value):
+            raise serializers.ValidationError('Enter a valid username. Only letters, digits and @/./+/-/_ are allowed.')
+        return value
+
+    def create(self, validated_data):
+        User = get_user_model()
+        user = User(
+            email=validated_data['email'],
+            username=validated_data['username'],
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            is_active=True,
+        )
+        user.set_unusable_password()
+        user.save()
+        return user
 
 class SoftwareResourceSerializer(serializers.ModelSerializer):
     guide_title = serializers.CharField(source='guide.title', read_only=True)
