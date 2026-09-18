@@ -5,11 +5,12 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   Calendar, CheckCircle2, ChevronRight, CircleDot, Clock,
   Download, FileSpreadsheet, Inbox, KeyRound, MessageSquare,
-  Search, TicketCheck, User, X,
+  Search, TicketCheck, User, Wifi, WifiOff, X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { csrfToken } from "@/lib/auth";
 import type { ServiceStage } from "@/lib/admin-api";
+import { useTicketStream, type TicketSnapshot, type StreamMessage } from "@/hooks/use-ticket-stream";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -242,6 +243,61 @@ export default function AdminTicketsPage() {
   const [recoveryResult, setRecoveryResult] = useState<{ backup_code: string; temp_password: string } | null>(null);
   const [sendingRecovery, setSendingRecovery] = useState(false);
 
+  // SSE connection state for the open panel
+  const [streamConnected, setStreamConnected] = useState(false);
+
+  // ── SSE stream callbacks ──────────────────────────────────────────────────
+
+  const handleTicketUpdate = useCallback((snapshot: TicketSnapshot) => {
+    // Update both the table list and the open panel
+    setTickets((prev) => prev.map((t) =>
+      t.id === snapshot.id ? {
+        ...t,
+        status:        snapshot.status,
+        priority:      snapshot.priority,
+        current_stage: snapshot.current_stage,
+        subject:       snapshot.subject,
+        assignee_name: snapshot.assignee_name,
+        team:          snapshot.team,
+        updated_at:    snapshot.updated_at ?? t.updated_at,
+      } : t
+    ));
+    setSelected((prev) => {
+      if (!prev || prev.id !== snapshot.id) return prev;
+      // Keep draft fields in sync when status/stage change externally
+      if (snapshot.status !== prev.status) setDraftStatus(snapshot.status);
+      if (snapshot.current_stage !== prev.current_stage) setDraftStage(snapshot.current_stage ?? "");
+      return {
+        ...prev,
+        status:        snapshot.status,
+        priority:      snapshot.priority,
+        current_stage: snapshot.current_stage,
+        subject:       snapshot.subject,
+        assignee_name: snapshot.assignee_name,
+        team:          snapshot.team,
+        updated_at:    snapshot.updated_at ?? prev.updated_at,
+      };
+    });
+    setPanelNotice("Updated just now ✓");
+    setTimeout(() => setPanelNotice(""), 3000);
+  }, []);
+
+  const handleNewMessage = useCallback((msg: StreamMessage) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      return [...prev, msg as unknown as TicketMessage];
+    });
+  }, []);
+
+  useTicketStream({
+    ticketId:       selected?.id ?? null,
+    enabled:        !!selected,
+    onTicketUpdate: handleTicketUpdate,
+    onNewMessage:   handleNewMessage,
+    onConnected:    () => setStreamConnected(true),
+    onError:        () => setStreamConnected(false),
+  });
+
   // ── Initial data load ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -293,6 +349,7 @@ export default function AdminTicketsPage() {
     setReplyError("");
     setRecoveryResult(null);
     setCategoryStages([]);
+    setStreamConnected(false);
 
     // Fetch stages for the category
     if (ticket.category) {
@@ -711,6 +768,23 @@ export default function AdminTicketsPage() {
               <div className="atq-panel-title">
                 <span className="atq-panel-ref">{selected.reference}</span>
                 <StatusBadge status={selected.status} />
+                {/* SSE live indicator */}
+                <span
+                  title={streamConnected ? "Live updates active" : "Connecting…"}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    fontSize: ".68rem", fontWeight: 700, borderRadius: 999, padding: "2px 7px",
+                    background: streamConnected ? "#f0fdf4" : "#f8fafc",
+                    color:      streamConnected ? "#166534" : "#94a3b8",
+                    border:     `1px solid ${streamConnected ? "#bbf7d0" : "#e2e8f0"}`,
+                  }}
+                  aria-live="polite"
+                >
+                  {streamConnected
+                    ? <Wifi size={9} aria-hidden="true" />
+                    : <WifiOff size={9} aria-hidden="true" />}
+                  {streamConnected ? "Live" : "…"}
+                </span>
               </div>
               <button className="atq-close" onClick={() => setSelected(null)} aria-label="Close panel">
                 <X size={18} />

@@ -1705,3 +1705,177 @@ class TicketExportView(APIView):
         response["X-Report-Tickets"]    = str(len(tickets))
         response["X-Report-Generated"]  = tz.now().isoformat()
         return response
+
+
+# ---------------------------------------------------------------------------
+# Server-Sent Events (SSE) — real-time ticket updates
+# ---------------------------------------------------------------------------
+
+def _sse_format(event: str, data: str) -> str:
+    """Format a single SSE frame."""
+    return f"event: {event}\ndata: {data}\n\n"
+
+
+def _sse_heartbeat() -> str:
+    return ": heartbeat\n\n"
+
+
+class TicketStreamView(APIView):
+    """
+    GET /api/v1/tickets/{pk}/stream/
+
+    Streams Server-Sent Events for a single ticket.  The client receives:
+
+    event: connected       — sent once on connect; carries the current ticket snapshot
+    event: ticket_update   — whenever ticket fields change (status, stage, assignee …)
+    event: new_message     — whenever a new TicketMessage is saved
+    event: error           — if the ticket is not found or the client is unauthorised
+
+    The view polls the DB every ~1.5 s and diffs against the last-seen state.
+    It honours intern scope restrictions and non-staff requester-only access.
+
+    IMPORTANT: run Django with a threaded WSGI server (Gunicorn --worker-class=gthread
+    or Django's built-in `runserver`, which is threaded) so long-lived streaming
+    connections don't block other requests.
+    """
+    permission_classes = (permissions.IsAuthenticated,)
+    # SSE connections must not be CSRF-checked (GET method, authenticated via session)
+    authentication_classes = []   # handled manually below
+
+    def get(self, request, pk):
+        import json as _json
+        import time
+        from uuid import UUID
+        from django.http import StreamingHttpResponse
+        from django.contrib.auth import get_user_model
+
+        # ── Manual session auth (authentication_classes is empty to skip CSRF) ──
+        from django.contrib.sessions.backends.db import SessionStore
+        from rest_framework.authentication import SessionAuthentication
+        try:
+            auth = SessionAuthentication()
+            result = auth.authenticate(request)
+            if result:
+                request._request.user = result[0]
+            if not request.user or not request.user.is_authenticated:
+                def _unauth():
+                    yield _sse_format("error", _json.dumps({"detail": "Authentication required."}))
+                return StreamingHttpResponse(_unauth(), content_type="text/event-stream")
+        except Exception:
+            pass
+
+        # ── Resolve ticket + access check ─────────────────────────────────
+        from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
+
+        try:
+            ticket_pk = UUID(pk)
+            ticket    = Ticket.objects.select_related("category", "requester", "assigned_to").get(pk=ticket_pk)
+        except (Ticket.DoesNotExist, ValueError):
+            def _notfound():
+                yield _sse_format("error", _json.dumps({"detail": "Ticket not found."}))
+            return StreamingHttpResponse(_notfound(), content_type="text/event-stream")
+
+        roles       = get_user_roles(request.user)
+        staff_roles = {"administrator", "service_lead", "it_agent", "it_noc_intern",
+                       "content_editor", "designated_approver"}
+        is_staff    = request.user.is_superuser or bool(roles.intersection(staff_roles))
+
+        if is_staff:
+            if not request.user.is_superuser and user_has_intern_scope_only(request.user):
+                if ticket.category and ticket.category.slug not in get_intern_scope_slugs():
+                    def _forbidden():
+                        yield _sse_format("error", _json.dumps({"detail": "Access denied."}))
+                    return StreamingHttpResponse(_forbidden(), content_type="text/event-stream")
+        else:
+            if ticket.requester_id != request.user.pk:
+                def _forbidden2():
+                    yield _sse_format("error", _json.dumps({"detail": "Access denied."}))
+                return StreamingHttpResponse(_forbidden2(), content_type="text/event-stream")
+
+        # ── Serialise ticket snapshot ──────────────────────────────────────
+
+        def _ticket_snapshot(t: Ticket) -> dict:
+            return {
+                "id":            str(t.pk),
+                "status":        t.status,
+                "priority":      t.priority,
+                "current_stage": t.current_stage,
+                "subject":       t.subject,
+                "assignee_name": (t.assigned_to.get_full_name() or t.assigned_to.username)
+                                  if t.assigned_to else None,
+                "team":          t.team,
+                "updated_at":    t.updated_at.isoformat() if t.updated_at else None,
+            }
+
+        def _message_dict(m: TicketMessage, is_staff_viewer: bool) -> dict | None:
+            if m.is_internal and not is_staff_viewer:
+                return None
+            return {
+                "id":           m.id,
+                "sender":       m.sender_id,
+                "sender_name":  (m.sender.get_full_name() or m.sender.username) if m.sender else None,
+                "sender_email": m.sender.email if m.sender else None,
+                "body":         m.body,
+                "is_staff_reply": m.is_staff_reply,
+                "is_internal":  m.is_internal,
+                "created_at":   m.created_at.isoformat(),
+            }
+
+        # ── Generator ─────────────────────────────────────────────────────
+
+        def event_stream():
+            last_snapshot    = _ticket_snapshot(ticket)
+            last_message_id  = (
+                TicketMessage.objects.filter(ticket=ticket).order_by("-created_at")
+                .values_list("id", flat=True).first() or 0
+            )
+
+            # Send initial connected event
+            yield _sse_format("connected", _json.dumps({
+                "ticket":    last_snapshot,
+                "ticket_id": str(ticket.pk),
+            }))
+
+            heartbeat_counter = 0
+
+            while True:
+                time.sleep(1.5)
+
+                # ── Heartbeat every ~15 s to keep the connection alive ─────
+                heartbeat_counter += 1
+                if heartbeat_counter % 10 == 0:
+                    yield _sse_heartbeat()
+
+                # ── Check for ticket changes ───────────────────────────────
+                try:
+                    t = Ticket.objects.select_related("assigned_to").get(pk=ticket_pk)
+                except Ticket.DoesNotExist:
+                    yield _sse_format("error", _json.dumps({"detail": "Ticket deleted."}))
+                    return
+
+                current_snapshot = _ticket_snapshot(t)
+                if current_snapshot != last_snapshot:
+                    last_snapshot = current_snapshot
+                    yield _sse_format("ticket_update", _json.dumps(current_snapshot))
+
+                # ── Check for new messages ─────────────────────────────────
+                new_msgs = (
+                    TicketMessage.objects
+                    .filter(ticket_id=ticket_pk, id__gt=last_message_id)
+                    .select_related("sender")
+                    .order_by("id")
+                )
+                for msg in new_msgs:
+                    payload = _message_dict(msg, is_staff)
+                    if payload:
+                        yield _sse_format("new_message", _json.dumps(payload))
+                    last_message_id = msg.id
+
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type="text/event-stream",
+        )
+        response["Cache-Control"]     = "no-cache"
+        response["X-Accel-Buffering"] = "no"   # Disable Nginx buffering
+        response["Access-Control-Allow-Origin"] = "*"
+        return response

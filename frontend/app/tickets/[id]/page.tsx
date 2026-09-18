@@ -3,13 +3,14 @@
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft, Calendar, CheckCircle2, ChevronRight, CircleDot,
-  Clock, Info, MessageSquare, Send, Tag, User, XCircle,
+  Clock, Info, MessageSquare, Send, Tag, User, Wifi, WifiOff, XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/site-header";
 import { csrfToken } from "@/lib/auth";
+import { useTicketStream, type TicketSnapshot, type StreamMessage } from "@/hooks/use-ticket-stream";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -417,6 +418,45 @@ export default function TicketDetailPage() {
   const [sendingReply, setSendingReply] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
 
+  // SSE connection state
+  const [streamConnected, setStreamConnected] = useState(false);
+
+  // ── SSE stream callbacks ───────────────────────────────────────────────
+
+  const handleTicketUpdate = useCallback((snapshot: TicketSnapshot) => {
+    setTicket((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        status:        snapshot.status as typeof prev.status,
+        priority:      snapshot.priority as typeof prev.priority,
+        current_stage: snapshot.current_stage,
+        subject:       snapshot.subject,
+        assignee_name: snapshot.assignee_name,
+        team:          snapshot.team,
+        updated_at:    snapshot.updated_at ?? prev.updated_at,
+      };
+    });
+  }, []);
+
+  const handleNewMessage = useCallback((msg: StreamMessage) => {
+    setMessages((prev) => {
+      // Deduplicate by id in case of reconnect
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      return [...prev, msg as unknown as TicketMessage];
+    });
+  }, []);
+
+  // Open SSE stream once ticket is loaded; disable when ticket is closed
+  useTicketStream({
+    ticketId: ticket?.id ?? null,
+    enabled:  !loading && !pageError && !!ticket,
+    onTicketUpdate: handleTicketUpdate,
+    onNewMessage:   handleNewMessage,
+    onConnected:    () => setStreamConnected(true),
+    onError:        () => setStreamConnected(false),
+  });
+
   // ── Load ticket + messages + stages ─────────────────────────────────────
 
   useEffect(() => {
@@ -594,6 +634,27 @@ export default function TicketDetailPage() {
             <span className="ticket-reference">{ticket.reference}</span>
             <StatusBadge status={ticket.status} />
             <PriorityBadge priority={ticket.priority} />
+            {/* Live indicator */}
+            {!isClosed && (
+              <span
+                title={streamConnected ? "Live updates active" : "Connecting…"}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  fontSize: ".72rem", fontWeight: 700,
+                  borderRadius: 999, padding: "3px 9px",
+                  background: streamConnected ? "#f0fdf4" : "#f8fafc",
+                  color:      streamConnected ? "#166534" : "#94a3b8",
+                  border:     `1px solid ${streamConnected ? "#bbf7d0" : "#e2e8f0"}`,
+                }}
+                aria-live="polite"
+                aria-label={streamConnected ? "Live updates active" : "Connecting to live updates"}
+              >
+                {streamConnected
+                  ? <Wifi size={11} aria-hidden="true" />
+                  : <WifiOff size={11} aria-hidden="true" />}
+                {streamConnected ? "Live" : "Connecting…"}
+              </span>
+            )}
           </div>
           <h1 className="td-subject">{ticket.subject}</h1>
           <div className="td-byline">
