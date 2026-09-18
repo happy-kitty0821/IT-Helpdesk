@@ -616,8 +616,82 @@ export default function UserManagement() {
                     </div>
                   </div>
 
-                  <p style={{ margin: 0, fontSize: ".75rem", color: "#94a3b8", background: "#f8fafc", borderRadius: 8, padding: "8px 12px", lineHeight: 1.5 }}>
-                    No password is set. The user must sign in via Google SSO or contact an administrator to reset their password.
+
+                  {/* Password fields */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {/* Password */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <label htmlFor="add-password" style={{ fontSize: ".8rem", fontWeight: 700, color: "#374151" }}>
+                        Password
+                      </label>
+                      <div style={{ position: "relative" }}>
+                        <input
+                          id="add-password"
+                          type={showPassword ? "text" : "password"}
+                          value={addForm.password}
+                          onChange={(e) => setAddForm((p) => ({ ...p, password: e.target.value }))}
+                          placeholder="Min 8 characters"
+                          autoComplete="new-password"
+                          style={{
+                            border: `1.5px solid ${addErrors.password ? "#f87171" : "#cbd5e1"}`,
+                            borderRadius: 8, padding: "9px 36px 9px 11px",
+                            fontSize: ".88rem", width: "100%", boxSizing: "border-box",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                          style={{
+                            position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)",
+                            border: 0, background: "transparent", cursor: "pointer",
+                            color: "#94a3b8", padding: 2, display: "flex",
+                          }}
+                        >
+                          {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
+                      {addErrors.password && <span style={{ color: "#dc2626", fontSize: ".75rem", marginTop: 1 }}>{addErrors.password}</span>}
+                    </div>
+                    {/* Confirm password */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <label htmlFor="add-confirm" style={{ fontSize: ".8rem", fontWeight: 700, color: "#374151" }}>
+                        Confirm password
+                      </label>
+                      <div style={{ position: "relative" }}>
+                        <input
+                          id="add-confirm"
+                          type={showPassword ? "text" : "password"}
+                          value={addForm.confirm_password}
+                          onChange={(e) => setAddForm((p) => ({ ...p, confirm_password: e.target.value }))}
+                          placeholder="Repeat password"
+                          autoComplete="new-password"
+                          style={{
+                            border: `1.5px solid ${addErrors.confirm_password ? "#f87171" : "#cbd5e1"}`,
+                            borderRadius: 8, padding: "9px 36px 9px 11px",
+                            fontSize: ".88rem", width: "100%", boxSizing: "border-box",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                          style={{
+                            position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)",
+                            border: 0, background: "transparent", cursor: "pointer",
+                            color: "#94a3b8", padding: 2, display: "flex",
+                          }}
+                        >
+                          {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
+                      {addErrors.confirm_password && <span style={{ color: "#dc2626", fontSize: ".75rem", marginTop: 1 }}>{addErrors.confirm_password}</span>}
+                    </div>
+                  </div>
+
+                  <p style={{ margin: 0, fontSize: ".75rem", color: "#64748b", background: "#f8fafc", borderRadius: 8, padding: "8px 12px", lineHeight: 1.5 }}>
+                    Set a password so the user can sign in directly with username and password.
+                    Leave both fields blank for SSO-only accounts (Google sign-in).
                   </p>
                 </div>
               </form>
