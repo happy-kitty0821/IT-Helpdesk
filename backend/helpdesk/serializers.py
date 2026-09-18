@@ -1,4 +1,4 @@
-﻿from django.conf import settings
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -464,14 +464,14 @@ class NotificationRuleSerializer(serializers.ModelSerializer):
 
     def get_channel_emoji(self, obj) -> str:
         emoji_map = {
-            'discord': '🎮',
-            'google_workspace': '📊',
-            'teams': '🔵',
-            'slack': '💬',
-            'email_smtp': '📧',
-            'email_mailgun': '📨',
+            'discord': '??',
+            'google_workspace': '??',
+            'teams': '??',
+            'slack': '??',
+            'email_smtp': '??',
+            'email_mailgun': '??',
         }
-        return emoji_map.get(obj.channel.type, '📢')
+        return emoji_map.get(obj.channel.type, '??')
 
 
 class TicketMessageSerializer(serializers.ModelSerializer):

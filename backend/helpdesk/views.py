@@ -12,6 +12,7 @@ from google.oauth2 import id_token
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
@@ -557,9 +558,27 @@ class AdminSoftwareDetail(generics.RetrieveUpdateDestroyAPIView):
         serializer.save(updated_by=self.request.user)
 
 
-class AdminUserList(generics.ListAPIView):
+class AdminUserPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+    page_query_param = 'page'
+
+    def get_paginated_response(self, data):
+        return Response({
+            'count':    self.page.paginator.count,
+            'num_pages': self.page.paginator.num_pages,
+            'page':     self.page.number,
+            'page_size': self.get_page_size(self.request),
+            'next':     self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'results':  data,
+        })
+
+
+class AdminUserList(generics.ListCreateAPIView):
     permission_classes = (IsAdministrator,)
-    pagination_class = None
+    pagination_class = AdminUserPagination
     serializer_class = AdminUserSerializer
 
     def get_queryset(self):
@@ -573,6 +592,52 @@ class AdminUserList(generics.ListAPIView):
                 Q(last_name__icontains=query)
             )
         return queryset
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        from .serializers import AdminUserCreateSerializer
+        from .models import RoleGrant, RoleAuditEvent
+
+        # Validate base fields
+        serializer = AdminUserCreateSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        # Email domain check (skip for superusers who may add external accounts)
+        email = serializer.validated_data['email']
+        if not request.user.is_superuser and not email_domain_allowed(email):
+            return Response(
+                {'email': ['Email domain is not allowed. Use an approved institutional address.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = serializer.save()
+
+        # Grant initial roles
+        initial_roles = request.data.get('initial_roles', [])
+        VALID_ROLES = {r[0] for r in RoleGrant.ROLE_CHOICES} if hasattr(RoleGrant, 'ROLE_CHOICES') else {
+            'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+            'designated_approver', 'content_editor', 'faculty_staff', 'student', 'visitor',
+        }
+        if isinstance(initial_roles, list):
+            for role_name in initial_roles:
+                if role_name in VALID_ROLES:
+                    RoleGrant.objects.create(user=user, role=role_name, granted_by=request.user)
+                    RoleAuditEvent.objects.create(
+                        actor=request.user, target=user,
+                        role=role_name, action=RoleAuditEvent.ACTION_GRANTED,
+                    )
+            # Sync Django flags
+            if 'administrator' in initial_roles:
+                user.is_superuser = True
+                user.is_staff = True
+                user.save(update_fields=['is_superuser', 'is_staff'])
+            elif any(r in initial_roles for r in ('service_lead', 'it_agent', 'it_noc_intern',
+                                                    'content_editor', 'designated_approver', 'faculty_staff')):
+                user.is_staff = True
+                user.save(update_fields=['is_staff'])
+
+        out = AdminUserSerializer(user, context={'request': request})
+        return Response(out.data, status=status.HTTP_201_CREATED)
 
 
 class AdminUserDetail(generics.RetrieveUpdateAPIView):
@@ -1198,7 +1263,7 @@ class TicketExportView(APIView):
         )
         return bool(allowed)
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # -- Helpers --------------------------------------------------------------
 
     @staticmethod
     def _parse_date(value: str | None):
@@ -1224,14 +1289,14 @@ class TicketExportView(APIView):
 
     @staticmethod
     def _sla_bucket(hours: float) -> str:
-        if hours <= 4:   return "≤ 4h"
-        if hours <= 8:   return "≤ 8h"
-        if hours <= 24:  return "≤ 24h"
-        if hours <= 72:  return "≤ 3d"
-        if hours <= 168: return "≤ 7d"
+        if hours <= 4:   return "= 4h"
+        if hours <= 8:   return "= 8h"
+        if hours <= 24:  return "= 24h"
+        if hours <= 72:  return "= 3d"
+        if hours <= 168: return "= 7d"
         return "> 7d"
 
-    # ── Build workbook ────────────────────────────────────────────────────────
+    # -- Build workbook --------------------------------------------------------
 
     def _build_workbook(self, tickets):
         import openpyxl
@@ -1245,7 +1310,7 @@ class TicketExportView(APIView):
 
         wb = openpyxl.Workbook()
 
-        # ── Style constants ─────────────────────────────────────────────────
+        # -- Style constants -------------------------------------------------
 
         brand_fill   = PatternFill("solid", fgColor="234395")
         header_font  = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
@@ -1308,7 +1373,7 @@ class TicketExportView(APIView):
                 cell.font   = normal_font
                 cell.border = border
 
-        # ── Collect all extra_field keys across all tickets ─────────────────
+        # -- Collect all extra_field keys across all tickets -----------------
 
         extra_keys: list[str] = []
         seen_extra: set[str] = set()
@@ -1318,7 +1383,7 @@ class TicketExportView(APIView):
                     extra_keys.append(k)
                     seen_extra.add(k)
 
-        # ── Sheet 1: Ticket Register ────────────────────────────────────────
+        # -- Sheet 1: Ticket Register ----------------------------------------
 
         ws1 = wb.active
         ws1.title = "Ticket Register"
@@ -1439,7 +1504,7 @@ class TicketExportView(APIView):
 
             ws1.row_dimensions[row_num].height = 16
 
-        # ── Sheet 2: Analytics Summary ──────────────────────────────────────
+        # -- Sheet 2: Analytics Summary --------------------------------------
 
         ws2 = wb.create_sheet("Analytics Summary")
         ws2.sheet_view.showGridLines = False
@@ -1501,7 +1566,7 @@ class TicketExportView(APIView):
                 row += 1
             row += 1  # blank spacer
 
-        # ── Report metadata ─────────────────────────────────────────────────
+        # -- Report metadata -------------------------------------------------
 
         ws2.merge_cells("A1:D1")
         title_a2 = ws2["A1"]
@@ -1515,7 +1580,7 @@ class TicketExportView(APIView):
         ws2.cell(row=row, column=1, value=f"Generated: {iso_now}    Total tickets: {len(tickets)}").font = Font(size=9, italic=True, color="64748B", name="Calibri")
         row += 2
 
-        # ── KPIs ────────────────────────────────────────────────────────────
+        # -- KPIs ------------------------------------------------------------
 
         section_header("Key Performance Indicators")
 
@@ -1544,7 +1609,7 @@ class TicketExportView(APIView):
         write_kv("Avg resolution time",     f"{avg_res:.1f}h" if avg_res is not None else "—")
         row += 1
 
-        # ── By status ───────────────────────────────────────────────────────
+        # -- By status -------------------------------------------------------
 
         section_header("Tickets by Status")
         status_counts = Counter(t.status for t in tickets)
@@ -1555,7 +1620,7 @@ class TicketExportView(APIView):
             fills=[status_fills.get(s) for s, _ in sorted(status_counts.items(), key=lambda x: -x[1])],
         )
 
-        # ── By priority ─────────────────────────────────────────────────────
+        # -- By priority -----------------------------------------------------
 
         section_header("Tickets by Priority")
         prio_counts = Counter(t.priority for t in tickets)
@@ -1566,7 +1631,7 @@ class TicketExportView(APIView):
             fills=[priority_fills.get(p) for p, _ in sorted(prio_counts.items())],
         )
 
-        # ── By category ─────────────────────────────────────────────────────
+        # -- By category -----------------------------------------------------
 
         section_header("Tickets by Service Category")
         cat_counts = Counter(
@@ -1578,7 +1643,7 @@ class TicketExportView(APIView):
              for cat, c in sorted(cat_counts.items(), key=lambda x: -x[1])],
         )
 
-        # ── SLA distribution ────────────────────────────────────────────────
+        # -- SLA distribution ------------------------------------------------
 
         section_header("SLA Bucket Distribution (Time to Resolve / Current Age)")
         sla_buckets = Counter()
@@ -1589,14 +1654,14 @@ class TicketExportView(APIView):
                 h = (now_utc - t.created_at).total_seconds() / 3600
             sla_buckets[self._sla_bucket(h)] += 1
 
-        bucket_order = ["≤ 4h", "≤ 8h", "≤ 24h", "≤ 3d", "≤ 7d", "> 7d"]
+        bucket_order = ["= 4h", "= 8h", "= 24h", "= 3d", "= 7d", "> 7d"]
         write_table(
             ["SLA Bucket", "Count", "% of Total"],
             [(b, sla_buckets[b], f"{sla_buckets[b]/total*100:.1f}%" if total else "—")
              for b in bucket_order if sla_buckets[b] > 0],
         )
 
-        # ── Assignee workload ────────────────────────────────────────────────
+        # -- Assignee workload ------------------------------------------------
 
         section_header("Assignee Workload")
         assignee_counts: Counter[str] = Counter()
@@ -1608,7 +1673,7 @@ class TicketExportView(APIView):
             [(a, c) for a, c in sorted(assignee_counts.items(), key=lambda x: -x[1])],
         )
 
-        # ── Submission by day-of-week ───────────────────────────────────────
+        # -- Submission by day-of-week ---------------------------------------
 
         section_header("Submissions by Day of Week")
         dow_labels = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
@@ -1618,7 +1683,7 @@ class TicketExportView(APIView):
             [(dow_labels[d], dow_counts[d]) for d in range(7)],
         )
 
-        # ── Submission by month ─────────────────────────────────────────────
+        # -- Submission by month ---------------------------------------------
 
         section_header("Submissions by Month")
         month_counts: Counter[str] = Counter(
@@ -1631,21 +1696,21 @@ class TicketExportView(APIView):
 
         return wb
 
-    # ── GET handler ───────────────────────────────────────────────────────────
+    # -- GET handler -----------------------------------------------------------
 
     def get(self, request):
         import io
         from django.http import HttpResponse
         from django.utils import timezone as tz
 
-        # ── Permission check ──────────────────────────────────────────────
+        # -- Permission check ----------------------------------------------
         if not self._check_export_permission(request):
             return Response(
                 {'detail': 'Your role does not have permission to export ticket reports.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # ── Build queryset with optional filters ──────────────────────────
+        # -- Build queryset with optional filters --------------------------
         qs = Ticket.objects.select_related(
             'category', 'requester', 'assigned_to'
         ).order_by('created_at')
@@ -1686,10 +1751,10 @@ class TicketExportView(APIView):
         if not tickets:
             return Response({'detail': 'No tickets match the selected filters.'}, status=status.HTTP_204_NO_CONTENT)
 
-        # ── Build Excel ──────────────────────────────────────────────────
+        # -- Build Excel --------------------------------------------------
         wb = self._build_workbook(tickets)
 
-        # ── Return as streaming response ──────────────────────────────────
+        # -- Return as streaming response ----------------------------------
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
@@ -1749,7 +1814,7 @@ class TicketStreamView(APIView):
         from django.http import StreamingHttpResponse
         from django.contrib.auth import get_user_model
 
-        # ── Manual session auth (authentication_classes is empty to skip CSRF) ──
+        # -- Manual session auth (authentication_classes is empty to skip CSRF) --
         from django.contrib.sessions.backends.db import SessionStore
         from rest_framework.authentication import SessionAuthentication
         try:
@@ -1764,7 +1829,7 @@ class TicketStreamView(APIView):
         except Exception:
             pass
 
-        # ── Resolve ticket + access check ─────────────────────────────────
+        # -- Resolve ticket + access check ---------------------------------
         from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
 
         try:
@@ -1792,7 +1857,7 @@ class TicketStreamView(APIView):
                     yield _sse_format("error", _json.dumps({"detail": "Access denied."}))
                 return StreamingHttpResponse(_forbidden2(), content_type="text/event-stream")
 
-        # ── Serialise ticket snapshot ──────────────────────────────────────
+        # -- Serialise ticket snapshot --------------------------------------
 
         def _ticket_snapshot(t: Ticket) -> dict:
             return {
@@ -1821,7 +1886,7 @@ class TicketStreamView(APIView):
                 "created_at":   m.created_at.isoformat(),
             }
 
-        # ── Generator ─────────────────────────────────────────────────────
+        # -- Generator -----------------------------------------------------
 
         def event_stream():
             last_snapshot    = _ticket_snapshot(ticket)
@@ -1841,12 +1906,12 @@ class TicketStreamView(APIView):
             while True:
                 time.sleep(1.5)
 
-                # ── Heartbeat every ~15 s to keep the connection alive ─────
+                # -- Heartbeat every ~15 s to keep the connection alive -----
                 heartbeat_counter += 1
                 if heartbeat_counter % 10 == 0:
                     yield _sse_heartbeat()
 
-                # ── Check for ticket changes ───────────────────────────────
+                # -- Check for ticket changes -------------------------------
                 try:
                     t = Ticket.objects.select_related("assigned_to").get(pk=ticket_pk)
                 except Ticket.DoesNotExist:
@@ -1858,7 +1923,7 @@ class TicketStreamView(APIView):
                     last_snapshot = current_snapshot
                     yield _sse_format("ticket_update", _json.dumps(current_snapshot))
 
-                # ── Check for new messages ─────────────────────────────────
+                # -- Check for new messages ---------------------------------
                 new_msgs = (
                     TicketMessage.objects
                     .filter(ticket_id=ticket_pk, id__gt=last_message_id)
