@@ -669,7 +669,7 @@ export default function ServiceManagement() {
                   onSubmit={(e) => { e.preventDefault(); saveDetails(); }}
                   style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "20px 22px" }}>
+                  <div className="svc-details-form" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "20px 22px" }}>
                     {/* Name */}
                     <div>
                       <label htmlFor="svc-name" style={fieldLabelStyle}>Name</label>

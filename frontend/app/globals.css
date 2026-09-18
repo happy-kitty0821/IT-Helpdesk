@@ -518,6 +518,54 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .svc-tab { background: transparent; border: 0; border-bottom: 2.5px solid transparent; padding: 11px 14px; font-size: .84rem; font-weight: 600; color: #64748b; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap; transition: color 150ms, border-color 150ms; }
 .svc-tab.active { color: #234395; border-bottom-color: #234395; font-weight: 700; }
 .svc-tab:disabled { opacity: .4; cursor: not-allowed; }
+.svc-tab svg { width: 14px; height: 14px; }
+
+/* Overrides for the services editor details form.
+   .editor-panel label/input rules use display:grid and heavy borders that
+   clash with the new label-for / input-id layout used in the tabbed panel. */
+.svc-details-form label {
+  display: block !important;
+  font-size: .8rem !important;
+  font-weight: 700 !important;
+  color: #374151 !important;
+  margin-bottom: 5px !important;
+  gap: 0 !important;
+}
+.svc-details-form input,
+.svc-details-form textarea,
+.svc-details-form select {
+  width: 100% !important;
+  border: 1.5px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  padding: 9px 11px !important;
+  font-size: .9rem !important;
+  font-weight: 400 !important;
+  background: #fff !important;
+  color: #0f172a !important;
+  box-sizing: border-box !important;
+}
+.svc-details-form textarea { resize: vertical !important; }
+.svc-details-form input[type="checkbox"] {
+  width: 18px !important;
+  height: 18px !important;
+  padding: 0 !important;
+  border: none !important;
+  accent-color: #234395 !important;
+}
+/* Icon preview badge in the admin card grid */
+.svc-icon-badge {
+  width: 48px; height: 48px; border-radius: 12px;
+  background: #eef2ff; color: #234395;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+/* Icon preview in the editor panel */
+.svc-icon-preview {
+  width: 40px; height: 40px; border-radius: 8px;
+  background: #eef2ff; color: #234395; border: 1.5px solid #e2e8f0;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
 
 /* ── Software admin page ─────────────────────────────────────────────────── */
 .sw-table .table-head,
