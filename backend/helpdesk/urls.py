@@ -1,6 +1,9 @@
 ﻿from django.urls import path, re_path
 
 from .views import (
+    ActiveAnnouncementView,
+    AdminAnnouncementDetail,
+    AdminAnnouncementListCreate,
     AccountRecoveryCodeView,
     CsrfView,
     CurrentUserView,
@@ -103,4 +106,9 @@ urlpatterns = [
     re_path(r'^admin/settings/roles/(?P<role>[a-z_]+)/?$',        RoleConfigDetailView.as_view(),    name='settings-role-detail'),
     re_path(r'^admin/settings/intern-scope/?$',                   InternScopeListView.as_view(),     name='settings-intern-scope'),
     re_path(r'^admin/settings/intern-scope/(?P<slug>[a-z0-9-]+)/?$', InternScopeDetailView.as_view(), name='settings-intern-scope-detail'),
+
+    # Announcements
+    re_path(r'^announcement/?$',                          ActiveAnnouncementView.as_view(),      name='announcement-active'),
+    re_path(r'^admin/announcements/?$',                   AdminAnnouncementListCreate.as_view(), name='admin-announcement-list'),
+    re_path(r'^admin/announcements/(?P<pk>[0-9]+)/?$',    AdminAnnouncementDetail.as_view(),     name='admin-announcement-detail'),
 ]

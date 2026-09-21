@@ -17,9 +17,11 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
+from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
 from .permissions import IsAdministrator, IsContentEditor, IsITAgent, IsServiceLead
 from .serializers import (
+    AnnouncementAdminSerializer,
+    AnnouncementSerializer,
     AccountRecoveryTokenSerializer,
     AdminServiceCategorySerializer,
     EmailTemplateSerializer,
@@ -1938,4 +1940,69 @@ class TicketStreamView(View):
         response["X-Accel-Buffering"] = "no"
         return response
 
+        return response
+
+
+# ---------------------------------------------------------------------------
+# Announcement views
+# ---------------------------------------------------------------------------
+
+class ActiveAnnouncementView(APIView):
+    """
+    GET /api/v1/announcement/
+
+    Public endpoint — no auth required. Returns the single most-recently-
+    updated active announcement, or 204 No Content if none is active.
+    """
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+
+    def get(self, request):
+        ann = (
+            Announcement.objects
+            .filter(is_active=True)
+            .order_by('-updated_at')
+            .first()
+        )
+        if ann is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(AnnouncementSerializer(ann, context={'request': request}).data)
+
+
+class AdminAnnouncementListCreate(generics.ListCreateAPIView):
+    """
+    GET  /api/v1/admin/announcements/  — list all (admin only)
+    POST /api/v1/admin/announcements/  — create new (admin only)
+    """
+    permission_classes = (IsAdministrator,)
+    serializer_class = AnnouncementAdminSerializer
+    pagination_class = None
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_queryset(self):
+        return Announcement.objects.all()
+
+
+class AdminAnnouncementDetail(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /api/v1/admin/announcements/{pk}/
+    PATCH  /api/v1/admin/announcements/{pk}/
+    DELETE /api/v1/admin/announcements/{pk}/
+    """
+    permission_classes = (IsAdministrator,)
+    serializer_class = AnnouncementAdminSerializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+    queryset = Announcement.objects.all()
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+    @transaction.atomic
+    def partial_update(self, request, *args, **kwargs):
+        """
+        When activating an announcement, automatically deactivate all others
+        so only one is ever active at a time.
+        """
+        response = super().partial_update(request, *args, **kwargs)
+        if request.data.get('is_active'):
+            pk = self.get_object().pk
+            Announcement.objects.exclude(pk=pk).update(is_active=False)
         return response

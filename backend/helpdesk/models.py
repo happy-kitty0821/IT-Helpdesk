@@ -560,3 +560,56 @@ class TicketFormSettings(models.Model):
         """Return the singleton row, creating it with defaults if absent."""
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+# ---------------------------------------------------------------------------
+# Announcement / welcome modal
+# ---------------------------------------------------------------------------
+
+def announcement_image_path(instance, filename):
+    """Upload banner images to media/announcements/<campaign_id>/<filename>."""
+    return f'announcements/{instance.campaign_id}/{filename}'
+
+
+class Announcement(models.Model):
+    """
+    A single active announcement banner shown on the public home page.
+
+    Only one row should have is_active=True at a time — the public endpoint
+    always returns the most-recently-updated active announcement so admins
+    can swap campaigns by creating a new row and activating it.
+    """
+    campaign_id = models.SlugField(
+        max_length=80, unique=True,
+        help_text='Short unique slug identifying this campaign, e.g. "orientation-2026". '
+                  'Changing this causes the modal to re-show for users who already dismissed it.',
+    )
+    title = models.CharField(max_length=160, blank=True, default='',
+                             help_text='Internal label — not shown publicly.')
+    image = models.ImageField(
+        upload_to=announcement_image_path,
+        help_text='Banner/flyer image (JPEG, PNG, WebP). Recommended: 800 × 600 px.',
+    )
+    alt_text = models.CharField(
+        max_length=300,
+        help_text='Descriptive alt text for screen readers.',
+    )
+    link_url = models.URLField(
+        blank=True, default='',
+        help_text='Optional URL the banner links to (leave blank for image-only).',
+    )
+    is_active = models.BooleanField(
+        default=False,
+        help_text='Only active announcements are served to the public home page.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-updated_at',)
+        verbose_name = 'Announcement'
+        verbose_name_plural = 'Announcements'
+
+    def __str__(self):
+        active_label = ' [ACTIVE]' if self.is_active else ''
+        return f'{self.title or self.campaign_id}{active_label}'

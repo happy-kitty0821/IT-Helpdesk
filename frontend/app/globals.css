@@ -520,39 +520,37 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .svc-tab:disabled { opacity: .4; cursor: not-allowed; }
 .svc-tab svg { width: 14px; height: 14px; }
 
-/* Overrides for the services editor details form.
-   .editor-panel label/input rules use display:grid and heavy borders that
-   clash with the new label-for / input-id layout used in the tabbed panel. */
+/* ── Services editor details form ─────────────────────────────────────────── */
+/* Override .editor-panel label/input rules which use display:grid and were
+   designed for the old wrapped-label pattern, not label-for/input-id pairs. */
 .svc-details-form label {
-  display: block !important;
-  font-size: .8rem !important;
-  font-weight: 700 !important;
-  color: #374151 !important;
-  margin-bottom: 5px !important;
-  gap: 0 !important;
+  display: block !important; font-size: .82rem !important;
+  font-weight: 700 !important; color: #374151 !important;
+  margin-bottom: 5px !important; gap: 0 !important;
 }
-.svc-details-form input,
+.svc-details-form input:not([type='checkbox']),
 .svc-details-form textarea,
 .svc-details-form select {
-  width: 100% !important;
-  border: 1.5px solid #e2e8f0 !important;
-  border-radius: 8px !important;
-  padding: 9px 11px !important;
-  font-size: .9rem !important;
-  font-weight: 400 !important;
-  background: #fff !important;
-  color: #0f172a !important;
-  box-sizing: border-box !important;
+  border: 1.5px solid #e2e8f0 !important; border-radius: 8px !important;
+  padding: 9px 11px !important; font-size: .9rem !important;
+  font-weight: 400 !important; background: #fff !important;
+  color: #0f172a !important; box-sizing: border-box !important;
+}
+.svc-details-form input[style*='flex'] {
+  width: auto !important;
 }
 .svc-details-form textarea { resize: vertical !important; }
-.svc-details-form input[type="checkbox"] {
-  width: 18px !important;
-  height: 18px !important;
-  padding: 0 !important;
-  border: none !important;
-  accent-color: #234395 !important;
+.svc-details-form input[type='checkbox'] {
+  width: 18px !important; height: 18px !important;
+  padding: 0 !important; border: none !important;
+  accent-color: #234395 !important; cursor: pointer !important;
 }
-/* Icon preview badge in the admin card grid */
+.svc-active-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 9px 11px;
+  background: #fff; cursor: pointer;
+}
+/* Icon badge in the admin service card grid */
 .svc-icon-badge {
   width: 48px; height: 48px; border-radius: 12px;
   background: #eef2ff; color: #234395;
@@ -561,10 +559,9 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 }
 /* Icon preview in the editor panel */
 .svc-icon-preview {
-  width: 40px; height: 40px; border-radius: 8px;
+  width: 40px; height: 40px; border-radius: 8px; flex-shrink: 0;
   background: #eef2ff; color: #234395; border: 1.5px solid #e2e8f0;
   display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
 }
 
 /* ── Software admin page ─────────────────────────────────────────────────── */
@@ -803,3 +800,66 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .notif-test-btn  { display: flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 14px; border: 1px solid #dbe2ee; border-radius: 9px; background: #fff; color: #475569; font-weight: 700; font-size: .8rem; cursor: pointer; transition: border-color 120ms, color 120ms; }
 .notif-test-btn:hover { border-color: #94a3b8; color: #0f172a; }
 .notif-test-btn:disabled { opacity: .55; cursor: wait; }
+
+
+/* ── Announcement modal ──────────────────────────────────────────────────── */
+
+/* Full-viewport dark backdrop */
+.ann-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(8,15,31,.72); backdrop-filter: blur(4px);
+}
+
+/*
+  Centering wrapper — plain div, no transform, so Framer Motion's transform
+  on the child motion.div (scale + y) is never clobbered.
+*/
+.ann-centering {
+  position: fixed; inset: 0; z-index: 201;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; pointer-events: none;
+}
+
+/* The animated card */
+.ann-card {
+  pointer-events: all;
+  position: relative;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 28px 80px rgba(8,15,31,.38);
+  width: min(92vw, 580px);
+  max-height: calc(100vh - 48px);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* Close button — top-right corner of the card */
+.ann-close {
+  position: absolute; top: 10px; right: 10px; z-index: 1;
+  width: 34px; height: 34px; border-radius: 50%; border: 0;
+  background: rgba(15,23,42,.55); color: #fff;
+  display: grid; place-items: center; cursor: pointer;
+  transition: background 150ms ease; flex-shrink: 0;
+}
+.ann-close:hover  { background: rgba(15,23,42,.82); }
+.ann-close:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+
+/* Banner image */
+.ann-image-link { display: block; line-height: 0; }
+.ann-image {
+  width: 100%; height: auto;
+  max-height: calc(100vh - 100px);
+  object-fit: contain; display: block;
+}
+
+/* Dismiss footer */
+.ann-hint {
+  margin: 0; padding: 10px 16px;
+  font-size: .75rem; color: #94a3b8; text-align: center;
+  background: #f8fafc; border-top: 1px solid #e2e8f0; flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .ann-card { width: calc(100vw - 24px); border-radius: 14px; }
+  .ann-centering { padding: 12px; }
+}

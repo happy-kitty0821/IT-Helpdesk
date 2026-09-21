@@ -5,7 +5,8 @@ import {
   ArrowDown, ArrowUp, Badge, Camera, GitBranch, KeyRound,
   Laptop, LayoutGrid, LifeBuoy, ListChecks,
   Pencil, Plus, Sparkles, Trash2, Wifi, X,
-} from "lucide-react";
+} from "lucide-react";
+
 import { useEffect, useState } from "react";
 import {
   adminGetServices, adminSaveService,
@@ -100,9 +101,9 @@ const AUDIENCE_BADGE: Record<AdminService["audience"], { label: string; bg: stri
 
 
 // -- Icon map (mirrors service-grid.tsx)
-import type { LucideProps as _LP } from "lucide-react";
 
-const SERVICE_ICONS: Record<string, React.ComponentType<_LP>> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SERVICE_ICONS: Record<string, React.ComponentType<any>> = {
   "key-round": KeyRound,
   laptop:      Laptop,
   badge:       Badge,
@@ -278,17 +279,6 @@ function StageBuilder({
   );
 }
 
-// ── Inline styles helpers ─────────────────────────────────────────────────────
-
-const fieldLabelStyle: React.CSSProperties = {
-  fontSize: ".8rem", fontWeight: 700, color: "#374151", marginBottom: 4, display: "block",
-};
-
-const inputStyle: React.CSSProperties = {
-  border: "1.5px solid #e2e8f0", borderRadius: 8, padding: "9px 11px",
-  fontSize: ".9rem", width: "100%", boxSizing: "border-box", background: "#fff",
-  color: "#0f172a",
-};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -518,11 +508,7 @@ export default function ServiceManagement() {
                 {/* Card header row */}
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   {/* Icon square */}
-                  <div style={{
-                    width: 48, height: 48, borderRadius: 12, background: "#eef2ff",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#234395", flexShrink: 0,
-                  }}>
+                  <div className="svc-icon-badge">
                     <ServiceIcon name={service.icon} />
                   </div>
                   {/* Name + chip */}
@@ -670,9 +656,10 @@ export default function ServiceManagement() {
                   style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
                 >
                   <div className="svc-details-form" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "20px 22px" }}>
+
                     {/* Name */}
                     <div>
-                      <label htmlFor="svc-name" style={fieldLabelStyle}>Name</label>
+                      <label htmlFor="svc-name">Name</label>
                       <input
                         id="svc-name"
                         type="text"
@@ -681,13 +668,12 @@ export default function ServiceManagement() {
                         maxLength={100}
                         placeholder="e.g. Laptop & device support"
                         onChange={(e) => setDraftName(e.target.value)}
-                        style={inputStyle}
                       />
                     </div>
 
                     {/* Summary */}
                     <div>
-                      <label htmlFor="svc-summary" style={fieldLabelStyle}>Summary</label>
+                      <label htmlFor="svc-summary">Summary</label>
                       <textarea
                         id="svc-summary"
                         rows={3}
@@ -695,19 +681,17 @@ export default function ServiceManagement() {
                         maxLength={240}
                         placeholder="Brief description shown on the service card."
                         onChange={(e) => setDraftSummary(e.target.value)}
-                        style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }}
                       />
                     </div>
 
                     {/* Audience + Icon row */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                       <div>
-                        <label htmlFor="svc-audience" style={fieldLabelStyle}>Audience</label>
+                        <label htmlFor="svc-audience">Audience</label>
                         <select
                           id="svc-audience"
                           value={draftAudience}
                           onChange={(e) => setDraftAudience(e.target.value as AdminService["audience"])}
-                          style={inputStyle}
                         >
                           <option value="public">Public</option>
                           <option value="student">Students</option>
@@ -717,7 +701,7 @@ export default function ServiceManagement() {
                       </div>
 
                       <div>
-                        <label htmlFor="svc-icon" style={fieldLabelStyle}>Icon name</label>
+                        <label htmlFor="svc-icon">Icon name</label>
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                           <input
                             id="svc-icon"
@@ -726,15 +710,9 @@ export default function ServiceManagement() {
                             maxLength={32}
                             placeholder="life-buoy"
                             onChange={(e) => setDraftIcon(e.target.value)}
-                            style={{ ...inputStyle, flex: 1, width: "auto" }}
+                            style={{ flex: 1 }}
                           />
-                          <div style={{
-                            width: 40, height: 40, borderRadius: 8, background: "#eef2ff",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: "1.1rem", flexShrink: 0, border: "1.5px solid #e2e8f0",
-                          }}
-                            aria-label="Icon preview"
-                          >
+                          <div className="svc-icon-preview" aria-label="Icon preview">
                             <ServiceIcon name={draftIcon} />
                           </div>
                         </div>
@@ -744,24 +722,20 @@ export default function ServiceManagement() {
                     {/* Sort order + Active row */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                       <div>
-                        <label htmlFor="svc-sort" style={fieldLabelStyle}>Sort order</label>
+                        <label htmlFor="svc-sort">Sort order</label>
                         <input
                           id="svc-sort"
                           type="number"
                           min={0}
                           value={draftSortOrder}
                           onChange={(e) => setDraftSortOrder(Number(e.target.value))}
-                          style={inputStyle}
                         />
                       </div>
 
                       <div>
-                        <span style={fieldLabelStyle}>Active</span>
-                        <div style={{
-                          display: "flex", alignItems: "center", justifyContent: "space-between",
-                          border: "1.5px solid #e2e8f0", borderRadius: 8, padding: "9px 11px",
-                          background: "#fff", cursor: "pointer",
-                        }}
+                        <label>Active</label>
+                        <div
+                          className="svc-active-toggle"
                           onClick={() => setDraftIsActive((v) => !v)}
                         >
                           <span style={{ fontSize: ".88rem", color: draftIsActive ? "#166534" : "#64748b" }}>
@@ -771,7 +745,6 @@ export default function ServiceManagement() {
                             type="checkbox"
                             checked={draftIsActive}
                             onChange={(e) => setDraftIsActive(e.target.checked)}
-                            style={{ width: 18, height: 18, accentColor: "#234395", cursor: "pointer" }}
                             aria-label="Service active"
                           />
                         </div>

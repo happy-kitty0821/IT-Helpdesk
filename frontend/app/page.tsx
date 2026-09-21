@@ -1,5 +1,6 @@
 import { ArrowRight, BookOpen, Clock3, Search, ShieldCheck } from "lucide-react";
 import Link from "next/link";
+import { AnnouncementModal } from "@/components/announcement-modal";
 import { ServiceSection } from "@/components/service-section";
 import { SiteHeader } from "@/components/site-header";
 
@@ -71,6 +72,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ q
           <span>Support contact and office hours pending confirmation</span>
         </div>
       </footer>
+
+      {/* Announcement modal — only mounts on /, rendered client-side */}
+      <AnnouncementModal />
     </>
   );
 }

@@ -1,8 +1,9 @@
-from django.contrib import admin
+﻿from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import (
+    Announcement,
     DomainRoleMapping,
     GuideArticle,
     InternCategoryScope,
@@ -113,3 +114,18 @@ class RoleAuditEventAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(Announcement)
+class AnnouncementAdmin(admin.ModelAdmin):
+    list_display  = ('campaign_id', 'title', 'is_active', 'updated_at')
+    list_filter   = ('is_active',)
+    search_fields = ('campaign_id', 'title', 'alt_text')
+    readonly_fields = ('created_at', 'updated_at')
+
+    def save_model(self, request, obj, form, change):
+        """Enforce single-active rule from Django admin too."""
+        super().save_model(request, obj, form, change)
+        if obj.is_active:
+            from .models import Announcement as Ann
+            Ann.objects.exclude(pk=obj.pk).update(is_active=False)

@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AccountRecoveryToken, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
+from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
 
 
 def email_domain_allowed(email):
@@ -620,3 +620,57 @@ class TicketFormSettingsSerializer(serializers.ModelSerializer):
                     {max_key: f'{field} max length must be greater than min length.'}
                 )
         return attrs
+
+
+# ---------------------------------------------------------------------------
+# Announcement serializers
+# ---------------------------------------------------------------------------
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    """Read-only public serializer — serves the active announcement."""
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Announcement
+        fields = (
+            'id', 'campaign_id', 'title', 'image_url',
+            'alt_text', 'link_url', 'is_active', 'updated_at',
+        )
+        read_only_fields = fields
+
+    def get_image_url(self, obj):
+        request = self.context.get('request')
+        if obj.image and request:
+            return request.build_absolute_uri(obj.image.url)
+        if obj.image:
+            return obj.image.url
+        return None
+
+
+class AnnouncementAdminSerializer(serializers.ModelSerializer):
+    """Full read/write serializer for the admin panel."""
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Announcement
+        fields = (
+            'id', 'campaign_id', 'title', 'image', 'image_url',
+            'alt_text', 'link_url', 'is_active', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'image_url', 'created_at', 'updated_at')
+
+    def get_image_url(self, obj):
+        request = self.context.get('request')
+        if obj.image and request:
+            return request.build_absolute_uri(obj.image.url)
+        if obj.image:
+            return obj.image.url
+        return None
+
+    def validate_campaign_id(self, value):
+        import re
+        if not re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)*$', value):
+            raise serializers.ValidationError(
+                'campaign_id must be a lowercase slug (letters, digits, hyphens).'
+            )
+        return value

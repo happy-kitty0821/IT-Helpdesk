@@ -2,7 +2,7 @@
 
 import {
   Bell, BookOpen, Boxes, CircleDot, Gauge,
-  Home, LayoutGrid, LoaderCircle, Settings, Shield, ShieldAlert, Users,
+  Home, LayoutGrid, LoaderCircle, Megaphone, Settings, Shield, ShieldAlert, Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -34,6 +34,8 @@ const ALL_NAV: NavItem[] = [
   { href: "/admin/software",      label: "Software",      icon: Boxes,
     allowedRoles: ["administrator", "service_lead", "content_editor"] },
   { href: "/admin/users",         label: "Users",         icon: Users,
+    allowedRoles: ["administrator"] },
+  { href: "/admin/announcements", label: "Announcements", icon: Megaphone,
     allowedRoles: ["administrator"] },
   { href: "/admin/roles",         label: "Roles",         icon: Shield,
     allowedRoles: ["administrator"] },
