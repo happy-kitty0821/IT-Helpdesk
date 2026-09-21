@@ -639,12 +639,11 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_image_url(self, obj):
-        request = self.context.get('request')
-        if obj.image and request:
-            return request.build_absolute_uri(obj.image.url)
-        if obj.image:
-            return obj.image.url
-        return None
+        # Return raw Django /media/ path — proxied by Next.js rewrite.
+        return obj.image.url if obj.image else None
+
+
+
 
 
 class AnnouncementAdminSerializer(serializers.ModelSerializer):
@@ -660,12 +659,11 @@ class AnnouncementAdminSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'image_url', 'created_at', 'updated_at')
 
     def get_image_url(self, obj):
-        request = self.context.get('request')
-        if obj.image and request:
-            return request.build_absolute_uri(obj.image.url)
-        if obj.image:
-            return obj.image.url
-        return None
+        # Return raw Django /media/ path — proxied by Next.js rewrite.
+        return obj.image.url if obj.image else None
+
+
+
 
     def validate_campaign_id(self, value):
         import re
