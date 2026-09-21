@@ -50,6 +50,11 @@ from .views import (
     UserRoleListCreate,
     health,
 )
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
 
 urlpatterns = [
     path('health/', health, name='health'),
@@ -111,4 +116,14 @@ urlpatterns = [
     re_path(r'^announcement/?$',                          ActiveAnnouncementView.as_view(),      name='announcement-active'),
     re_path(r'^admin/announcements/?$',                   AdminAnnouncementListCreate.as_view(), name='admin-announcement-list'),
     re_path(r'^admin/announcements/(?P<pk>[0-9]+)/?$',    AdminAnnouncementDetail.as_view(),     name='admin-announcement-detail'),
+
+    # Swagger ui for testing
+    # 1. Downloads the raw OpenAPI 3 schema YAML/JSON
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+
+    # 2. Interactive Swagger UI
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+
+    # 3. Optional: Redoc UI (alternative interactive viewer)
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]

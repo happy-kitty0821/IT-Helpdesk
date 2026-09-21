@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'helpdesk',
+    'drf_spectacular',
+    'drf_spectacular_sidecar',
 ]
 
 MIDDLEWARE = [
@@ -158,6 +160,7 @@ REST_FRAMEWORK = {
         'auth_register': '5/hour',
         'auth_google': '10/minute',
     },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 AUTHENTICATION_BACKENDS = [
@@ -193,3 +196,14 @@ HELPDESK_INTERN_SCOPE_SLUGS = [
 
 
 HELPDESK_URL = os.environ.get('HELPDESK_URL', 'http://localhost:3000')
+
+# Optional: Customize API title, version, and Swagger behavior
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'IIC-IT Help Desk Application',
+    'DESCRIPTION': 'API documentation generated automatically',
+    'VERSION': '0.0.1',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SWAGGER_UI_DIST': 'SIDECAR',  # optional: use sidecar assets
+    'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
+    'REDOC_DIST': 'SIDECAR',
+}
