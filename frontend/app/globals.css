@@ -208,7 +208,7 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .editor-panel { position: sticky; top: 22px; background: #fff; border: 1px solid #dbe2ee; border-radius: 16px; overflow: hidden; box-shadow: 0 18px 48px rgba(15,23,42,.08); }
 .editor-panel > header { padding: 18px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
 .editor-panel h2 { font-size: 1.15rem; margin: 0; }
-.editor-panel form { padding: 20px; display: grid; gap: 16px; max-height: calc(100vh - 110px); overflow-y: auto; }
+.editor-panel form { overflow-y: auto; }
 .editor-panel label, .editor-panel fieldset { display: grid; gap: 7px; color: #1e293b; font-weight: 700; }
 .editor-panel input, .editor-panel textarea, .editor-panel select { width: 100%; border: 1px solid #94a3b8; background: #fff; color: #0f172a; border-radius: 9px; padding: 10px 11px; font-weight: 400; }
 .editor-panel textarea { resize: vertical; }
@@ -520,30 +520,40 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .svc-tab:disabled { opacity: .4; cursor: not-allowed; }
 .svc-tab svg { width: 14px; height: 14px; }
 
-/* ── Services editor details form ─────────────────────────────────────────── */
-/* Override .editor-panel label/input rules which use display:grid and were
-   designed for the old wrapped-label pattern, not label-for/input-id pairs. */
-.svc-details-form label {
-  display: block !important; font-size: .82rem !important;
-  font-weight: 700 !important; color: #374151 !important;
-  margin-bottom: 5px !important; gap: 0 !important;
+/* ── Editor panel form layout (.ep-form) ────────────────────────────────────
+   Used by Services details tab and Software editor.
+   Provides clean label-for/input-id layout without fighting .editor-panel rules.
+   Labels are block elements; inputs get the design-system border/radius/padding.
+   No !important — works because .ep-form has higher specificity for its children.
+*/
+.ep-form { display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; }
+.ep-form label {
+  display: block;
+  font-size: .82rem; font-weight: 700; color: #374151;
+  margin-bottom: 5px;
 }
-.svc-details-form input:not([type='checkbox']),
-.svc-details-form textarea,
-.svc-details-form select {
-  border: 1.5px solid #e2e8f0 !important; border-radius: 8px !important;
-  padding: 9px 11px !important; font-size: .9rem !important;
-  font-weight: 400 !important; background: #fff !important;
-  color: #0f172a !important; box-sizing: border-box !important;
+.ep-form input:not([type='checkbox']),
+.ep-form textarea,
+.ep-form select {
+  width: 100%; box-sizing: border-box;
+  border: 1.5px solid #e2e8f0; border-radius: 8px;
+  padding: 9px 11px; font-size: .9rem; font-weight: 400;
+  background: #fff; color: #0f172a;
 }
-.svc-details-form input[style*='flex'] {
-  width: auto !important;
+.ep-form textarea { resize: vertical; }
+.ep-form input[type='checkbox'] {
+  width: 18px; height: 18px; padding: 0;
+  border: none; accent-color: #234395; cursor: pointer;
 }
-.svc-details-form textarea { resize: vertical !important; }
-.svc-details-form input[type='checkbox'] {
-  width: 18px !important; height: 18px !important;
-  padding: 0 !important; border: none !important;
-  accent-color: #234395 !important; cursor: pointer !important;
+/* Icon input inside a flex row — let it shrink */
+.ep-form .ep-input-flex { flex: 1; width: auto !important; }
+/* fieldset inside ep-form — platforms grid */
+.ep-form fieldset {
+  border: 1.5px solid #e2e8f0; border-radius: 10px;
+  padding: 12px 14px; margin: 0;
+}
+.ep-form legend {
+  font-size: .82rem; font-weight: 700; color: #374151; padding-inline: 6px;
 }
 .svc-active-toggle {
   display: flex; align-items: center; justify-content: space-between;

@@ -655,7 +655,7 @@ export default function ServiceManagement() {
                   onSubmit={(e) => { e.preventDefault(); saveDetails(); }}
                   style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
                 >
-                  <div className="svc-details-form" style={{ display: "flex", flexDirection: "column", gap: 14, padding: "20px 22px" }}>
+                  <div className="ep-form">
 
                     {/* Name */}
                     <div>
@@ -710,7 +710,7 @@ export default function ServiceManagement() {
                             maxLength={32}
                             placeholder="life-buoy"
                             onChange={(e) => setDraftIcon(e.target.value)}
-                            style={{ flex: 1 }}
+                            className="ep-input-flex"
                           />
                           <div className="svc-icon-preview" aria-label="Icon preview">
                             <ServiceIcon name={draftIcon} />
