@@ -2,6 +2,7 @@
 
 import { Suspense } from "react";
 import { useEffect, useState } from "react";
+import { motion } from "motion/react";
 import { ArrowLeft, CheckCircle2, Info } from "lucide-react";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
@@ -9,6 +10,7 @@ import { DynamicField } from "@/components/dynamic-field";
 import { CharCount } from "@/components/char-count";
 import { type FieldDefinition, type Service, fallbackServices } from "@/lib/services";
 import { csrfToken } from "@/lib/auth";
+import { fadeUp, scalePop, staggerContainer, staggerItem } from "@/lib/animations";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -246,13 +248,18 @@ function NewTicketForm() {
       <>
         <SiteHeader />
         <main className="form-page shell">
-          <div className="ticket-confirmation">
-            <CheckCircle2 aria-hidden="true" />
-            <h1>Request submitted</h1>
-            <p>Your reference number is <strong>{submitted.reference}</strong></p>
-            <p>The IT team will review your request and respond as soon as possible.</p>
-            <Link href="/" className="primary-button">Back to home</Link>
-          </div>
+          <motion.div
+            className="ticket-confirmation"
+            variants={staggerContainer}
+            initial="hidden"
+            animate="show"
+          >
+            <motion.div variants={scalePop}><CheckCircle2 aria-hidden="true" /></motion.div>
+            <motion.h1 variants={fadeUp}>Request submitted</motion.h1>
+            <motion.p variants={fadeUp}>Your reference number is <strong>{submitted.reference}</strong></motion.p>
+            <motion.p variants={fadeUp}>The IT team will review your request and respond as soon as possible.</motion.p>
+            <motion.div variants={fadeUp}><Link href="/" className="primary-button">Back to home</Link></motion.div>
+          </motion.div>
         </main>
       </>
     );
@@ -267,8 +274,8 @@ function NewTicketForm() {
         <Link href="/" className="back-link">
           <ArrowLeft aria-hidden="true" /> Back to services
         </Link>
-        <div className="form-layout">
-          <section>
+        <motion.div className="form-layout" variants={staggerContainer} initial="hidden" animate="show">
+          <motion.section variants={staggerItem}>
             <p className="eyebrow">New support request</p>
             <h1>Tell us what happened</h1>
             <p className="form-intro">
@@ -378,9 +385,9 @@ function NewTicketForm() {
                 {submitting ? "Submitting…" : "Submit request"}
               </button>
             </form>
-          </section>
+          </motion.section>
 
-          <aside className="privacy-note">
+          <motion.aside className="privacy-note" variants={staggerItem}>
             <Info aria-hidden="true" />
             <div>
               <h2>Before you submit</h2>
@@ -389,8 +396,8 @@ function NewTicketForm() {
                 requests are restricted to authorized staff.
               </p>
             </div>
-          </aside>
-        </div>
+          </motion.aside>
+        </motion.div>
       </main>
     </>
   );

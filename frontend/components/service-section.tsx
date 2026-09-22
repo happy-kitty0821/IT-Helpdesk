@@ -1,21 +1,56 @@
 "use client";
 
+import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { ServiceGrid } from "@/components/service-grid";
 import { type Service, fallbackServices } from "@/lib/services";
+import { fadeIn } from "@/lib/animations";
 
 interface Props {
   initialQuery?: string;
 }
 
-/**
- * Client component that fetches services WITH auth credentials so the
- * backend can apply per-user audience filtering correctly.
- *
- * Replaces the previous server-side unauthenticated fetch which always
- * treated every visitor as anonymous and therefore never returned
- * staff-only services (e.g. CCTV Review Request) even for logged-in staff.
- */
+// ── Skeleton placeholder ───────────────────────────────────────────────────────
+function ServiceSkeleton() {
+  return (
+    <motion.div
+      className="service-grid"
+      variants={fadeIn}
+      initial="hidden"
+      animate="show"
+      aria-hidden="true"
+    >
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className="service-card"
+          style={{
+            background: "var(--surface)",
+            minHeight: 275,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          {/* Icon placeholder */}
+          <span
+            className="service-icon"
+            style={{ background: "var(--background)", borderRadius: 14 }}
+          />
+          {/* Text placeholders */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+            <div className="skel-line" style={{ width: "40%", height: 10 }} />
+            <div className="skel-line" style={{ width: "75%", height: 18 }} />
+            <div className="skel-line" style={{ width: "90%", height: 12 }} />
+            <div className="skel-line" style={{ width: "70%", height: 12 }} />
+          </div>
+          <div className="skel-line" style={{ width: "50%", height: 14, marginTop: "auto" }} />
+        </div>
+      ))}
+    </motion.div>
+  );
+}
+
 export function ServiceSection({ initialQuery = "" }: Props) {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,26 +65,23 @@ export function ServiceSection({ initialQuery = "" }: Props) {
   }, []);
 
   const visible = query
-    ? services.filter((s) =>
-        `${s.name} ${s.summary}`.toLowerCase().includes(query)
-      )
+    ? services.filter((s) => `${s.name} ${s.summary}`.toLowerCase().includes(query))
     : services;
 
-  if (loading) {
-    return (
-      <div style={{ textAlign: "center", padding: "40px 0", color: "var(--muted)", fontSize: ".9rem" }}>
-        Loading services…
-      </div>
-    );
-  }
+  if (loading) return <ServiceSkeleton />;
 
   if (visible.length === 0) {
     return (
-      <div className="no-results">
+      <motion.div
+        className="no-results"
+        variants={fadeIn}
+        initial="hidden"
+        animate="show"
+      >
         <h3>No matching service</h3>
-        <p>Try "Wi-Fi", "account", "device", or choose General IT support.</p>
+        <p>Try &ldquo;Wi-Fi&rdquo;, &ldquo;account&rdquo;, &ldquo;device&rdquo;, or choose General IT support.</p>
         <a href="/#services">Clear search</a>
-      </div>
+      </motion.div>
     );
   }
 

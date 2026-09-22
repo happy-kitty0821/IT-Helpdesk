@@ -873,3 +873,32 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
   .ann-card { width: calc(100vw - 24px); border-radius: 14px; }
   .ann-centering { padding: 12px; }
 }
+
+/* ── Skeleton shimmer (used for service-section loading state) ───────────── */
+@keyframes skel-shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+.skel-line {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--border) 25%, color-mix(in srgb, var(--border) 60%, var(--surface)) 50%, var(--border) 75%);
+  background-size: 600px 100%;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+}
+
+/* ── Page-level fade-in (server pages that can't use motion/react) ────────── */
+@keyframes page-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: page-fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.page-enter-delay-1 { animation-delay: 0.08s; }
+.page-enter-delay-2 { animation-delay: 0.16s; }
+.page-enter-delay-3 { animation-delay: 0.24s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skel-line { animation: none; }
+  .page-enter { animation: none; }
+}

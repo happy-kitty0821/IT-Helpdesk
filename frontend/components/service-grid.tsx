@@ -4,26 +4,45 @@ import { Badge, Camera, KeyRound, Laptop, LifeBuoy, Wifi } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import type { Service } from "@/lib/services";
+import { staggerContainer, staggerItem } from "@/lib/animations";
 
-const icons = { "key-round": KeyRound, laptop: Laptop, badge: Badge, wifi: Wifi, camera: Camera, "life-buoy": LifeBuoy };
+const icons = {
+  "key-round": KeyRound,
+  laptop:      Laptop,
+  badge:       Badge,
+  wifi:        Wifi,
+  camera:      Camera,
+  "life-buoy": LifeBuoy,
+};
 
 export function ServiceGrid({ services }: { services: Service[] }) {
   const reducedMotion = useReducedMotion();
+
   return (
-    <div className="service-grid">
-      {services.map((service, index) => {
+    <motion.div
+      className="service-grid"
+      variants={reducedMotion ? undefined : staggerContainer}
+      initial={reducedMotion ? false : "hidden"}
+      animate="show"
+    >
+      {services.map((service) => {
         const Icon = icons[service.icon as keyof typeof icons] ?? LifeBuoy;
         return (
           <motion.article
             className="service-card"
             key={service.slug}
-            initial={reducedMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.24, delay: reducedMotion ? 0 : Math.min(index * 0.04, 0.2) }}
+            variants={reducedMotion ? undefined : staggerItem}
+            whileHover={reducedMotion ? undefined : { y: -4, transition: { duration: 0.18 } }}
           >
             <span className="service-icon"><Icon aria-hidden="true" /></span>
             <div className="service-copy">
-              <p className="eyebrow">{service.audience === "staff" ? "Faculty & staff" : service.audience === "public" ? "Available without sign-in" : "Students & staff"}</p>
+              <p className="eyebrow">
+                {service.audience === "staff"
+                  ? "Faculty & staff"
+                  : service.audience === "public"
+                    ? "Available without sign-in"
+                    : "Students & staff"}
+              </p>
               <h3>{service.name}</h3>
               <p>{service.summary}</p>
             </div>
@@ -33,6 +52,6 @@ export function ServiceGrid({ services }: { services: Service[] }) {
           </motion.article>
         );
       })}
-    </div>
+    </motion.div>
   );
 }
