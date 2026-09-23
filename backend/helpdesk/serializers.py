@@ -19,10 +19,13 @@ class UserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
     category_scope = serializers.SerializerMethodField()
+    is_suspended = serializers.SerializerMethodField()
+    suspension_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = get_user_model()
-        fields = ('id', 'username', 'email', 'name', 'is_staff', 'is_superuser', 'roles', 'category_scope')
+        fields = ('id', 'username', 'email', 'name', 'is_staff', 'is_superuser',
+                  'roles', 'category_scope', 'is_suspended', 'suspension_reason')
 
     def get_name(self, obj):
         return obj.get_full_name() or obj.username
@@ -37,6 +40,17 @@ class UserSerializer(serializers.ModelSerializer):
             return get_intern_scope_slugs()
         return None
 
+    def get_is_suspended(self, obj):
+        try:
+            return obj.profile.is_suspended
+        except Exception:
+            return False
+
+    def get_suspension_reason(self, obj):
+        try:
+            return obj.profile.suspension_reason if obj.profile.is_suspended else ''
+        except Exception:
+            return ''
 
 class RegistrationSerializer(serializers.Serializer):
     username = serializers.RegexField(r'^[A-Za-z0-9._-]+$', min_length=3, max_length=150)

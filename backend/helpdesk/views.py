@@ -128,16 +128,47 @@ class LoginView(APIView):
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = authenticate(
-            request,
-            username=serializer.validated_data['identifier'],
-            password=serializer.validated_data['password'],
-        )
+        identifier = serializer.validated_data['identifier']
+        password   = serializer.validated_data['password']
+
+        # Pre-check: look up the user by email or username to give a
+        # suspension-specific error before Django's generic 'inactive' rejection.
+        User = get_user_model()
+        try:
+            if '@' in identifier:
+                candidate = User.objects.get(email__iexact=identifier)
+            else:
+                candidate = User.objects.get(username__iexact=identifier)
+        except User.DoesNotExist:
+            candidate = None
+
+        if candidate is not None and not candidate.is_active:
+            # Check whether this is a suspension (profile exists with is_suspended=True)
+            try:
+                profile = candidate.profile
+                if profile.is_suspended:
+                    reason = profile.suspension_reason or ''
+                    return Response(
+                        {
+                            'code': 'account_suspended',
+                            'detail': 'Your account has been suspended.',
+                            'suspension_reason': reason,
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            except Exception:
+                pass
+            # is_active=False but not a suspension — generic inactive response
+            return Response(
+                {'detail': 'This account is inactive. Contact IT support.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        user = authenticate(request, username=identifier, password=password)
         if user is None:
             return Response({'detail': 'Invalid username/email or password.'}, status=status.HTTP_400_BAD_REQUEST)
         login(request, user)
         return Response(UserSerializer(user).data)
-
 
 class LogoutView(APIView):
     # Allow unauthenticated requests — logging out an already-logged-out
