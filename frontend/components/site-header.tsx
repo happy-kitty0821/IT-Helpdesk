@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { authPost, hasStaffRole, type AuthUser } from "@/lib/auth";
+import { SuspensionBanner } from "./suspension-banner";
 import { ThemeToggle } from "./theme-toggle";
 
 export function SiteHeader() {
@@ -25,59 +26,66 @@ export function SiteHeader() {
   const isStaff = user ? hasStaffRole(user) : false;
 
   return (
-    <header className="site-header">
-      <div className="shell header-inner">
-        <Link href="/" className="brand" aria-label="IIC IT Helpdesk home">
-          <Image
-            src="/iic-logo.png"
-            width={800}
-            height={337}
-            alt="Itahari International College, ING"
-            priority
-          />
-          <span>
-            <strong>IT &amp; NOC</strong>
-            <small>Helpdesk</small>
-          </span>
-        </Link>
-
-        <nav aria-label="Primary navigation">
-          <Link href="/#services">Services</Link>
-          <Link href="/#status">Status</Link>
-
-          {user ? (
-            <span className="account-name" title={user.email}>
-              {user.name}
+    <>
+      <header className="site-header">
+        <div className="shell header-inner">
+          <Link href="/" className="brand" aria-label="IIC IT Helpdesk home">
+            <Image
+              src="/iic-logo.png"
+              width={800}
+              height={337}
+              alt="Itahari International College, ING"
+              priority
+            />
+            <span>
+              <strong>IT &amp; NOC</strong>
+              <small>Helpdesk</small>
             </span>
-          ) : (
-            <Link href="/login">Sign in</Link>
-          )}
-
-          {user && (
-            <Link href="/tickets" className="text-button">
-              My tickets
-            </Link>
-          )}
-
-          {/* Show portal link for any staff/admin role, not just superusers */}
-          {isStaff && (
-            <Link href="/admin" className="admin-link">
-              {user?.is_superuser ? "Admin" : "Staff portal"}
-            </Link>
-          )}
-
-          {user && (
-            <button type="button" className="text-button" onClick={signOut}>
-              Sign out
-            </button>
-          )}
-
-          <Link href="/tickets/new" className="nav-action">
-            Request support
           </Link>
-          <ThemeToggle />
-        </nav>
-      </div>
-    </header>
+
+          <nav aria-label="Primary navigation">
+            <Link href="/#services">Services</Link>
+            <Link href="/#status">Status</Link>
+
+            {user ? (
+              <span className="account-name" title={user.email}>
+                {user.name}
+              </span>
+            ) : (
+              <Link href="/login">Sign in</Link>
+            )}
+
+            {user && (
+              <Link href="/tickets" className="text-button">
+                My tickets
+              </Link>
+            )}
+
+            {/* Show portal link for any staff/admin role, not just superusers */}
+            {isStaff && (
+              <Link href="/admin" className="admin-link">
+                {user?.is_superuser ? "Admin" : "Staff portal"}
+              </Link>
+            )}
+
+            {user && (
+              <button type="button" className="text-button" onClick={signOut}>
+                Sign out
+              </button>
+            )}
+
+            <Link href="/tickets/new" className="nav-action">
+              Request support
+            </Link>
+            <ThemeToggle />
+          </nav>
+        </div>
+      </header>
+
+      {/* Suspension banner — shown below the header for suspended users who still have a session */}
+      {user?.is_suspended && (
+        <SuspensionBanner reason={user.suspension_reason || undefined} />
+      )}
+    </>
   );
 }

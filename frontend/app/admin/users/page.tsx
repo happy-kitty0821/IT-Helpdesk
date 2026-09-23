@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import {
   CheckCircle2, ChevronLeft, ChevronRight, Eye, EyeOff, Loader2,
-  Pencil, Plus, Search, ShieldCheck, UserPlus, UserRound, Users, X,
+  Pencil, Plus, Search, ShieldCheck, ShieldOff, UserPlus, UserRound, Users, X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -95,6 +95,11 @@ export default function UserManagement() {
   const [error, setError]   = useState("");
   const [notice, setNotice] = useState("");
 
+  // ── Suspension state ──────────────────────────────────────────────────────
+  const [suspending, setSuspending]         = useState(false);
+  const [suspendReason, setSuspendReason]   = useState("");
+  const [showSuspendForm, setShowSuspendForm] = useState(false);
+
   // ── Debounce search ───────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => {
@@ -177,6 +182,36 @@ export default function UserManagement() {
       setError(e instanceof Error ? e.message : "User could not be updated.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ── Suspend / unsuspend ────────────────────────────────────────────────────
+  async function handleSuspend(doSuspend: boolean) {
+    if (!editing) return;
+    setSuspending(true);
+    setError(""); setNotice("");
+    try {
+      const token = await csrfToken();
+      const res = await fetch(`/api/v1/admin/users/${editing.id}/suspend/`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify({ suspend: doSuspend, reason: suspendReason }),
+      });
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Could not update suspension.");
+      setNotice(doSuspend
+        ? `${editing.name} has been suspended.`
+        : `${editing.name}'s account has been reinstated.`
+      );
+      setShowSuspendForm(false);
+      setSuspendReason("");
+      setEditing(null);
+      loadPage(page, pageSize, debouncedQuery);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Suspension could not be updated.");
+    } finally {
+      setSuspending(false);
     }
   }
 
@@ -789,6 +824,126 @@ export default function UserManagement() {
               </fieldset>
 
               <p className="account-date">Account created {formatDate(editing.date_joined)}</p>
+
+              {/* ── Suspension section ── */}
+              <div style={{
+                borderTop: "1px solid #e2e8f0",
+                paddingTop: 14,
+                marginTop: 4,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <strong style={{ fontSize: ".85rem", color: editing.is_suspended ? "#991b1b" : "#334155" }}>
+                      {editing.is_suspended ? "Account suspended" : "Suspend account"}
+                    </strong>
+                    <small style={{ display: "block", color: "#64748b", fontSize: ".75rem", marginTop: 2 }}>
+                      {editing.is_suspended
+                        ? "User is currently blocked from signing in."
+                        : "Block this user from signing in immediately."}
+                    </small>
+                  </div>
+                  {editing.is_suspended ? (
+                    <button
+                      type="button"
+                      disabled={suspending}
+                      onClick={() => handleSuspend(false)}
+                      style={{
+                        border: "1px solid #86efac", borderRadius: 8, padding: "6px 12px",
+                        background: "#f0fdf4", color: "#166534", cursor: "pointer",
+                        fontSize: ".8rem", fontWeight: 700, flexShrink: 0,
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}
+                    >
+                      {suspending
+                        ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                        : <CheckCircle2 size={13} aria-hidden="true" />}
+                      Reinstate
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowSuspendForm((v) => !v)}
+                      style={{
+                        border: "1px solid #fca5a5", borderRadius: 8, padding: "6px 12px",
+                        background: "#fef2f2", color: "#dc2626", cursor: "pointer",
+                        fontSize: ".8rem", fontWeight: 700, flexShrink: 0,
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}
+                    >
+                      <ShieldOff size={13} aria-hidden="true" />
+                      Suspend
+                    </button>
+                  )}
+                </div>
+
+                {/* Existing suspension reason display */}
+                {editing.is_suspended && editing.suspension_reason && (
+                  <div style={{
+                    background: "#fee2e2", borderRadius: 8, padding: "8px 11px",
+                    fontSize: ".8rem", color: "#7f1d1d", lineHeight: 1.5,
+                  }}>
+                    <strong>Reason: </strong>{editing.suspension_reason}
+                  </div>
+                )}
+
+                {/* Suspension confirmation form */}
+                {showSuspendForm && !editing.is_suspended && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    style={{
+                      background: "#fef2f2", border: "1px solid #fca5a5",
+                      borderRadius: 10, padding: "12px 14px",
+                      display: "flex", flexDirection: "column", gap: 10,
+                    }}
+                  >
+                    <label style={{ fontSize: ".8rem", fontWeight: 700, color: "#7f1d1d", display: "grid", gap: 5 }}>
+                      Reason <span style={{ fontWeight: 400, color: "#94a3b8" }}>(shown to user)</span>
+                      <textarea
+                        rows={3}
+                        maxLength={500}
+                        value={suspendReason}
+                        onChange={(e) => setSuspendReason(e.target.value)}
+                        placeholder="e.g. Violation of acceptable use policy — please visit the IT & NOC helpdesk counter."
+                        style={{
+                          border: "1px solid #fca5a5", borderRadius: 7, padding: "8px 10px",
+                          fontSize: ".85rem", fontWeight: 400, resize: "vertical",
+                          background: "#fff",
+                        }}
+                      />
+                    </label>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => { setShowSuspendForm(false); setSuspendReason(""); }}
+                        style={{ fontSize: ".82rem" }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={suspending}
+                        onClick={() => handleSuspend(true)}
+                        style={{
+                          border: 0, borderRadius: 8, padding: "8px 14px",
+                          background: "#dc2626", color: "#fff",
+                          cursor: "pointer", fontSize: ".82rem", fontWeight: 700,
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}
+                      >
+                        {suspending
+                          ? <Loader2 size={13} className="spin" aria-hidden="true" />
+                          : <ShieldOff size={13} aria-hidden="true" />}
+                        Confirm suspension
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
 
               <div className="editor-actions">
                 <button type="button" className="secondary-button" onClick={() => { setEditing(null); setGrants([]); }}>Cancel</button>

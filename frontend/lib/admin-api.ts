@@ -44,6 +44,9 @@ export type ManagedUser = {
   date_joined: string;
   last_login: string | null;
   roles: RoleValue[];
+  // Suspension fields from UserProfile
+  is_suspended: boolean;
+  suspension_reason: string;
 };
 
 export type ServiceStage = {

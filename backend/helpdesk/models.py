@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 
 from django.conf import settings
 from django.db import models
@@ -178,6 +178,12 @@ class UserProfile(models.Model):
     )
     programme = models.CharField(max_length=200, blank=True)
     department = models.CharField(max_length=200, blank=True)
+    is_suspended     = models.BooleanField(default=False, db_index=True,
+                          help_text="Marks the account as suspended. The user will see a notice at login.")
+    suspension_reason = models.CharField(
+        max_length=500, blank=True, default="",
+        help_text="Reason shown to the user when their account is suspended.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

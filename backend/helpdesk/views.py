@@ -2006,3 +2006,98 @@ class AdminAnnouncementDetail(generics.RetrieveUpdateDestroyAPIView):
             pk = self.get_object().pk
             Announcement.objects.exclude(pk=pk).update(is_active=False)
         return response
+
+
+# ---------------------------------------------------------------------------
+# Account suspension
+# ---------------------------------------------------------------------------
+
+class SuspendUserView(APIView):
+    """
+    POST /api/v1/admin/users/{pk}/suspend/
+         { "suspend": true/false, "reason": "optional text" }
+
+    Suspends or unsuspends a user account.
+
+    Rules:
+    - Only administrators may call this endpoint.
+    - An administrator cannot suspend their own account.
+    - Suspending sets is_active=False on the User and is_suspended=True on the
+      UserProfile (creating a profile row if one does not exist yet).
+    - Unsuspending sets is_active=True and is_suspended=False and clears the
+      suspension_reason.
+    """
+    permission_classes = (IsAdministrator,)
+
+    def post(self, request, pk):
+        from .models import UserProfile
+        from django.contrib.sessions.models import Session
+        from django.utils import timezone as tz
+
+        User = get_user_model()
+        try:
+            target = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Self-suspension guard
+        if target.pk == request.user.pk:
+            return Response(
+                {'code': 'self_suspend_denied', 'detail': 'You cannot suspend your own account.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Role guard — administrators cannot be suspended by another administrator
+        # (only a superuser can suspend another administrator)
+        from .permissions import get_user_roles
+        target_roles = get_user_roles(target)
+        if 'administrator' in target_roles and not request.user.is_superuser:
+            return Response(
+                {'code': 'cannot_suspend_admin',
+                 'detail': 'Only a superuser can suspend another administrator.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        suspend = bool(request.data.get('suspend', True))
+        reason  = str(request.data.get('reason', '')).strip()[:500]
+
+        with transaction.atomic():
+            # Get or create the UserProfile
+            profile, _ = UserProfile.objects.get_or_create(user=target)
+
+            if suspend:
+                target.is_active        = False
+                profile.is_suspended    = True
+                profile.suspension_reason = reason
+            else:
+                target.is_active        = True
+                profile.is_suspended    = False
+                profile.suspension_reason = ''
+
+            target.save(update_fields=['is_active'])
+            profile.save(update_fields=['is_suspended', 'suspension_reason'])
+
+            # If suspending, invalidate all active sessions for this user
+            # so they are immediately logged out.
+            if suspend:
+                try:
+                    # Django database session backend stores user id in _auth_user_id
+                    from importlib import import_module
+                    from django.conf import settings as _settings
+                    engine = import_module(_settings.SESSION_ENGINE)
+                    store  = engine.SessionStore
+                    now    = tz.now()
+                    for session in Session.objects.filter(expire_date__gt=now):
+                        data = session.get_decoded()
+                        if str(data.get('_auth_user_id')) == str(target.pk):
+                            session.delete()
+                except Exception:
+                    pass  # session invalidation is best-effort
+
+        action = 'suspended' if suspend else 'unsuspended'
+        return Response({
+            'detail': f'Account {action} successfully.',
+            'is_suspended': profile.is_suspended,
+            'suspension_reason': profile.suspension_reason,
+            'is_active': target.is_active,
+        })

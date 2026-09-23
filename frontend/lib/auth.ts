@@ -13,6 +13,9 @@ export type AuthUser = {
   is_superuser: boolean;
   roles: RoleValue[];
   category_scope: string[] | null; // null = no restriction; string[] = intern scope
+  // Suspension fields — populated by UserSerializer from UserProfile
+  is_suspended: boolean;
+  suspension_reason: string;
 };
 
 // Staff roles that get access to the management portal
@@ -48,7 +51,17 @@ export const ROLE_LABELS: Record<RoleValue, string> = {
   visitor:             "Visitor",
 };
 
-type ApiError = { detail?: string; [field: string]: unknown };
+// Error thrown when an account is suspended — carries the suspension reason
+export class SuspensionError extends Error {
+  readonly suspensionReason: string;
+  constructor(reason: string) {
+    super("Your account has been suspended.");
+    this.name = "SuspensionError";
+    this.suspensionReason = reason;
+  }
+}
+
+type ApiError = { code?: string; detail?: string; suspension_reason?: string; [field: string]: unknown };
 
 export async function csrfToken() {
   const response = await fetch("/api/v1/auth/csrf/", { credentials: "include" });
@@ -66,6 +79,10 @@ export async function authPost(path: string, body: object): Promise<AuthUser> {
   });
   const data = await response.json().catch(() => ({})) as ApiError;
   if (!response.ok) {
+    // Suspension gets its own typed error so the login page can show a distinct UI
+    if (data.code === "account_suspended") {
+      throw new SuspensionError(data.suspension_reason ?? "");
+    }
     const fieldMessage = Object.values(data).flat().find((value) => typeof value === "string");
     throw new Error(data.detail ?? String(fieldMessage ?? "The request could not be completed."));
   }
