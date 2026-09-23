@@ -2,6 +2,7 @@
 
 from .views import (
     SuspendUserView,
+    DeleteUserView,
     ActiveAnnouncementView,
     AdminAnnouncementDetail,
     AdminAnnouncementListCreate,
@@ -96,6 +97,7 @@ urlpatterns = [
     re_path(r'^admin/users/(?P<pk>[0-9]+)/roles/?$',                    UserRoleListCreate.as_view(), name='admin-user-roles'),
     re_path(r'^admin/users/(?P<pk>[0-9]+)/roles/(?P<role>[a-z_]+)/?$', UserRoleDetail.as_view(),     name='admin-user-role-detail'),
     re_path(r'^admin/users/(?P<pk>[0-9]+)/suspend/?$',                  SuspendUserView.as_view(),    name='admin-user-suspend'),
+    re_path(r'^admin/users/(?P<pk>[0-9]+)/delete/?$',                   DeleteUserView.as_view(),     name='admin-user-delete'),
 
     # Notification channels — test must come before {pk} pattern
     re_path(r'^admin/notifications/channels/?$',               NotificationChannelListCreate.as_view(), name='notification-channel-list'),

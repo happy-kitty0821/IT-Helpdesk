@@ -2132,3 +2132,81 @@ class SuspendUserView(APIView):
             'suspension_reason': profile.suspension_reason,
             'is_active': target.is_active,
         })
+
+
+# ---------------------------------------------------------------------------
+# User deletion
+# ---------------------------------------------------------------------------
+
+class DeleteUserView(APIView):
+    """
+    DELETE /api/v1/admin/users/{pk}/delete/
+
+    Permanently removes a user account and all related data (tickets,
+    role grants, profile, session data).
+
+    Guards:
+    - Cannot delete your own account.
+    - Cannot delete another administrator unless you are a superuser.
+    - Only administrators (IsAdministrator) may call this endpoint.
+    """
+    permission_classes = (IsAdministrator,)
+
+    def delete(self, request, pk):
+        from .models import RoleAuditEvent
+        from django.contrib.sessions.models import Session
+        from django.utils import timezone as tz
+
+        User = get_user_model()
+        try:
+            target = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Self-delete guard
+        if target.pk == request.user.pk:
+            return Response(
+                {'code': 'self_delete_denied', 'detail': 'You cannot delete your own account.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Administrator guard — only a superuser can delete another administrator
+        from .permissions import get_user_roles
+        target_roles = get_user_roles(target)
+        if 'administrator' in target_roles and not request.user.is_superuser:
+            return Response(
+                {'code': 'cannot_delete_admin',
+                 'detail': 'Only a superuser can delete another administrator.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Invalidate all sessions belonging to the target user before deletion
+        try:
+            now = tz.now()
+            for session in Session.objects.filter(expire_date__gt=now):
+                data = session.get_decoded()
+                if str(data.get('_auth_user_id')) == str(target.pk):
+                    session.delete()
+        except Exception:
+            pass  # best-effort
+
+        # Log the deletion as a role audit event for each active role
+        try:
+            for role in target_roles:
+                RoleAuditEvent.objects.create(
+                    actor=request.user,
+                    target=target,
+                    role=role,
+                    action=RoleAuditEvent.ACTION_REVOKED,
+                )
+        except Exception:
+            pass
+
+        target_name = target.get_full_name() or target.username
+        with transaction.atomic():
+            target.delete()
+
+        return Response(
+            {'detail': f'Account for {target_name} has been permanently deleted.'},
+            status=status.HTTP_200_OK,
+        )
