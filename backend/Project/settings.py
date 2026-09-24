@@ -177,23 +177,79 @@ CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.environ.get(
 ).split(',') if origin.strip()]
 
 
-# Email
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+# ── Email configuration (Django 6.1 MAILERS format) ───────────────────────
+#
+# Django 6.1 replaced the legacy EMAIL_BACKEND / EMAIL_HOST / EMAIL_PORT /
+# EMAIL_HOST_USER / EMAIL_HOST_PASSWORD / EMAIL_USE_TLS settings with the
+# unified MAILERS dict.  Setting both simultaneously raises
+# ImproperlyConfigured, so ALL email configuration must live here.
+#
+# Environment variables read (all optional — safe defaults shown):
+#
+#   MAILER_BACKEND        Backend path
+#                         default: django.core.mail.backends.console.EmailBackend
+#                         production: django.core.mail.backends.smtp.EmailBackend
+#
+#   MAILER_HOST           SMTP hostname       (default: localhost)
+#   MAILER_PORT           SMTP port           (default: 587)
+#   MAILER_USE_TLS        "true"/"false"      (default: true)
+#   MAILER_USE_SSL        "true"/"false"      (default: false)
+#   MAILER_USERNAME       SMTP login          (default: "")
+#   MAILER_PASSWORD       SMTP password       (default: "")  — keep secret
+#   MAILER_TIMEOUT        Connection timeout  (default: 30)
+#
+# Note: use MAILER_* prefixes (not EMAIL_*) to avoid the deprecated settings
+# namespace that Django 6.1 now forbids when MAILERS is defined.
+
+def _bool(value: str, default: bool) -> bool:
+    if not value:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes')
+
+
+_mailer_backend  = os.environ.get('MAILER_BACKEND',  'django.core.mail.backends.console.EmailBackend')
+_mailer_host     = os.environ.get('MAILER_HOST',     'localhost')
+_mailer_port     = int(os.environ.get('MAILER_PORT', '587'))
+_mailer_use_tls  = _bool(os.environ.get('MAILER_USE_TLS',  ''), True)
+_mailer_use_ssl  = _bool(os.environ.get('MAILER_USE_SSL',  ''), False)
+_mailer_username = os.environ.get('MAILER_USERNAME', '')
+_mailer_password = os.environ.get('MAILER_PASSWORD', '')
+_mailer_timeout  = int(os.environ.get('MAILER_TIMEOUT', '30'))
+
+# Build SMTP OPTIONS dict — only include non-empty values so the console
+# backend (which ignores OPTIONS entirely) is not given irrelevant kwargs.
+_smtp_options: dict = {
+    'host':     _mailer_host,
+    'port':     _mailer_port,
+    'use_tls':  _mailer_use_tls,
+    'use_ssl':  _mailer_use_ssl,
+    'timeout':  _mailer_timeout,
+}
+if _mailer_username:
+    _smtp_options['username'] = _mailer_username
+if _mailer_password:
+    _smtp_options['password'] = _mailer_password  # value read from env, not hardcoded
 
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': _mailer_backend,
+        'OPTIONS': _smtp_options,
     },
 }
 
-# Default intern category scope slugs used as a fallback when the
-# InternCategoryScope table is empty (e.g., before the seed migration runs).
+# ── Verification-specific settings (not email transport — safe to set here) ─
+VERIFICATION_FROM_EMAIL         = os.environ.get('VERIFICATION_FROM_EMAIL', 'noreply@iic.edu.np')
+VERIFICATION_TOKEN_EXPIRY_HOURS = int(os.environ.get('VERIFICATION_TOKEN_EXPIRY_HOURS', '24'))
+EMAIL_VERIFICATION_ENABLED      = _bool(os.environ.get('EMAIL_VERIFICATION_ENABLED', ''), True)
+
+# ── Default intern category scope slugs ─────────────────────────────────────
+# Used as a fallback when the InternCategoryScope table is empty (e.g., before
+# the seed migration has run).
 HELPDESK_INTERN_SCOPE_SLUGS = [
     'device-support',
     'wifi-issue',
     'general-support',
 ]
-
 
 HELPDESK_URL = os.environ.get('HELPDESK_URL', 'http://localhost:3000')
 
@@ -203,23 +259,7 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'API documentation generated automatically',
     'VERSION': '0.0.1',
     'SERVE_INCLUDE_SCHEMA': False,
-    'SWAGGER_UI_DIST': 'SIDECAR',  # optional: use sidecar assets
+    'SWAGGER_UI_DIST': 'SIDECAR',
     'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
     'REDOC_DIST': 'SIDECAR',
 }
-
-# ── Email (Django standard settings used by email_verification.py) ──────────
-EMAIL_BACKEND = os.environ.get(
-    'EMAIL_BACKEND',
-    'django.core.mail.backends.console.EmailBackend',  # safe default for dev
-)
-EMAIL_HOST         = os.environ.get('EMAIL_HOST', 'localhost')
-EMAIL_PORT         = int(os.environ.get('EMAIL_PORT', '587'))
-EMAIL_USE_TLS      = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
-EMAIL_HOST_USER    = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-
-# Verification settings
-VERIFICATION_FROM_EMAIL        = os.environ.get('VERIFICATION_FROM_EMAIL', 'noreply@iic.edu.np')
-VERIFICATION_TOKEN_EXPIRY_HOURS = int(os.environ.get('VERIFICATION_TOKEN_EXPIRY_HOURS', '24'))
-EMAIL_VERIFICATION_ENABLED     = os.environ.get('EMAIL_VERIFICATION_ENABLED', 'true').lower() != 'false'

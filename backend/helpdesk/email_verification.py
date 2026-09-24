@@ -6,19 +6,34 @@ Utilities for sending and managing email ownership verification.
 This module is intentionally separate from notifications.py because:
   - Verification is transactional (must work even without a NotificationChannel
     configured in the DB — a cold install must still be able to verify users).
-  - It uses Django's built-in email machinery (EMAIL_BACKEND) rather than the
-    admin-configured SMTP/Mailgun NotificationChannel system.
+  - It uses Django's built-in mail machinery (django.core.mail.send_mail)
+    which automatically routes through MAILERS["default"] in Django 6.1.
   - Tokens must NEVER appear in logs or API responses.
 
-Configuration (settings / environment)
-───────────────────────────────────────
-  EMAIL_BACKEND               standard Django setting; defaults to console
-  EMAIL_HOST / PORT / etc.    standard Django SMTP settings
-  VERIFICATION_FROM_EMAIL     sender address (default: noreply@iic.edu.np)
-  VERIFICATION_TOKEN_EXPIRY_HOURS  expiry window in hours (default: 24)
-  EMAIL_VERIFICATION_ENABLED  set to False to disable verification entirely
-                              (for CI / development — default: True)
-  HELPDESK_URL                base URL for the verification link
+Configuration (settings.py / environment variables)
+─────────────────────────────────────────────────────
+All email transport is configured via the MAILERS setting in settings.py,
+which reads these environment variables (note MAILER_* prefix, not EMAIL_*):
+
+  MAILER_BACKEND          Backend class path
+                          dev default:  django.core.mail.backends.console.EmailBackend
+                          production:   django.core.mail.backends.smtp.EmailBackend
+  MAILER_HOST             SMTP hostname         (default: localhost)
+  MAILER_PORT             SMTP port             (default: 587)
+  MAILER_USE_TLS          true/false            (default: true)
+  MAILER_USERNAME         SMTP login            (default: "")
+  MAILER_PASSWORD         SMTP password — keep secret, never log
+
+Verification-specific variables:
+  VERIFICATION_FROM_EMAIL         Sender address (default: noreply@iic.edu.np)
+  VERIFICATION_TOKEN_EXPIRY_HOURS Token lifetime in hours (default: 24)
+  EMAIL_VERIFICATION_ENABLED      Set to false to skip sending in CI/dev
+
+IMPORTANT — Django 6.1 compatibility:
+  Do NOT set any of the legacy EMAIL_BACKEND / EMAIL_HOST / EMAIL_HOST_USER /
+  EMAIL_HOST_PASSWORD / EMAIL_PORT / EMAIL_USE_TLS environment variables.
+  Django 6.1 raises ImproperlyConfigured if MAILERS and any EMAIL_* setting
+  coexist.  Use the MAILER_* variables defined above instead.
 """
 
 import logging
@@ -36,7 +51,7 @@ _SUBJECT      = 'Verify your IIC IT Helpdesk account'
 
 
 def _verification_enabled() -> bool:
-    """Return True unless EMAIL_VERIFICATION_ENABLED is explicitly set to False."""
+    """Return True unless EMAIL_VERIFICATION_ENABLED is explicitly False."""
     return getattr(settings, 'EMAIL_VERIFICATION_ENABLED', True)
 
 
@@ -124,16 +139,23 @@ def send_verification_email(user) -> None:
     Generate a new EmailVerificationToken for *user* and dispatch the
     verification email in a daemon thread so callers are never blocked.
 
-    SECURITY: the raw token is passed only to the email body and is NEVER
-    logged, stored, or returned to the caller.
+    Uses django.core.mail.send_mail() which automatically routes through
+    MAILERS["default"] — the Django 6.1-compatible approach.
 
-    If EMAIL_VERIFICATION_ENABLED is False (e.g. in CI), this is a no-op and
-    a DEBUG log message is written instead.
+    SECURITY:
+      - The raw token is passed only inside the email body.
+      - It is NEVER logged, stored, or returned to any caller.
+      - Credentials are read from MAILER_PASSWORD env var via settings.py.
+
+    If EMAIL_VERIFICATION_ENABLED is False (e.g. in CI/testing), this is a
+    no-op and a DEBUG log entry is written instead — no email is sent and
+    no token is created.
     """
     if not _verification_enabled():
         logger.debug(
             'Email verification disabled (EMAIL_VERIFICATION_ENABLED=False). '
-            'Skipping verification email for %s.', user.email
+            'Skipping verification email for user id=%s.', user.pk
+            # Intentionally not logging the email address to avoid PII in CI logs.
         )
         return
 
@@ -142,24 +164,33 @@ def send_verification_email(user) -> None:
     raw_token, _token_obj = EmailVerificationToken.create_for_user(user)
 
     plain, html = _build_email_body(user, raw_token, expiry_hours)
+    recipient   = user.email
+    from_addr   = _from_email()
 
     def _send():
+        # raw_token is captured in this closure.  It must NOT be referenced
+        # in any log statement inside this function.
         try:
             send_mail(
                 subject=_SUBJECT,
                 message=plain,
-                from_email=_from_email(),
-                recipient_list=[user.email],
+                from_email=from_addr,
+                recipient_list=[recipient],
                 html_message=html,
-                fail_silently=False,
+                # No deprecated `connection` or `fail_silently` arguments —
+                # send_mail() in Django 6.1 uses MAILERS["default"] automatically.
             )
-            logger.info('Verification email dispatched to %s.', user.email)
+            logger.info(
+                'Verification email dispatched for user id=%s.', user.pk
+                # Not logging the email address here either — avoids PII exposure.
+            )
         except Exception as exc:
-            # Log the error (without the token) and do NOT re-raise.
-            # The registration still succeeded; the user can request a resend.
+            # Log error WITHOUT the token or password.
+            # Registration already succeeded; user can request a resend.
             logger.error(
-                'Failed to send verification email to %s: %s',
-                user.email, exc,
+                'Failed to send verification email for user id=%s: %s',
+                user.pk, type(exc).__name__,
+                # Intentionally NOT logging exc message — may contain SMTP auth details.
             )
 
     t = threading.Thread(target=_send, daemon=True)
