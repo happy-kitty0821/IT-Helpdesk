@@ -48,9 +48,14 @@ export function SiteHeader() {
             <Link href="/#status">Status</Link>
 
             {user ? (
-              <span className="account-name" title={user.email}>
+              <Link
+                href="/profile"
+                className="account-name"
+                title={`${user.email} — view profile`}
+                style={{ cursor: "pointer" }}
+              >
                 {user.name}
-              </span>
+              </Link>
             ) : (
               <Link href="/login">Sign in</Link>
             )}

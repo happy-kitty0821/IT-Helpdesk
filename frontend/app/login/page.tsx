@@ -113,6 +113,11 @@ export default function LoginPage() {
               Password
               <input name="password" type="password" autoComplete="current-password" required />
             </label>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -4, marginBottom: 4 }}>
+              <Link href="/forgot-password" style={{ fontSize: ".82rem", color: "var(--brand)", fontWeight: 700 }}>
+                Forgot password?
+              </Link>
+            </div>
             <button className="primary-button" type="submit" disabled={pending}>
               {pending ? "Signing in…" : "Sign in"}
             </button>
