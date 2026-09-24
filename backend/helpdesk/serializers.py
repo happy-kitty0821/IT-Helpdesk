@@ -772,3 +772,58 @@ class RateLimitViolationSerializer(serializers.ModelSerializer):
         if obj.resolved_by:
             return obj.resolved_by.get_full_name() or obj.resolved_by.username
         return ''
+
+
+# ---------------------------------------------------------------------------
+# User profile serializer
+# ---------------------------------------------------------------------------
+
+class ProfileSerializer(serializers.ModelSerializer):
+    """
+    Read/write serializer for the authenticated user's own profile.
+    Exposes: name fields, username (read-only), email (read-only),
+    programme, department, and email_verified status.
+    Password changes are handled separately via a dedicated endpoint.
+    """
+    username         = serializers.CharField(read_only=True)
+    email            = serializers.CharField(read_only=True)
+    email_verified   = serializers.SerializerMethodField()
+    programme        = serializers.CharField(
+        source='profile.programme', allow_blank=True, default='',
+        max_length=200,
+    )
+    department       = serializers.CharField(
+        source='profile.department', allow_blank=True, default='',
+        max_length=200,
+    )
+
+    class Meta:
+        model = get_user_model()
+        fields = (
+            'id', 'username', 'email',
+            'first_name', 'last_name',
+            'programme', 'department',
+            'email_verified',
+        )
+        read_only_fields = ('id', 'username', 'email', 'email_verified')
+
+    def get_email_verified(self, obj):
+        try:
+            return obj.profile.email_verified
+        except Exception:
+            return False
+
+    def update(self, instance, validated_data):
+        profile_data = validated_data.pop('profile', {})
+        # Update User fields
+        instance.first_name = validated_data.get('first_name', instance.first_name)
+        instance.last_name  = validated_data.get('last_name',  instance.last_name)
+        instance.save(update_fields=['first_name', 'last_name'])
+        # Update UserProfile fields
+        if profile_data:
+            from .models import UserProfile
+            profile, _ = UserProfile.objects.get_or_create(user=instance)
+            for attr, value in profile_data.items():
+                setattr(profile, attr, value)
+            profile.save()
+        return instance

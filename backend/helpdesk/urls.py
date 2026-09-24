@@ -60,6 +60,10 @@ from .views import (
     health,
     VerifyEmailView,
     ResendVerificationView,
+    ForgotPasswordView,
+    ResetPasswordView,
+    UserProfileView,
+    ChangePasswordView,
 )
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -77,6 +81,10 @@ urlpatterns = [
     re_path(r'^auth/logout/?$',    LogoutView.as_view(),      name='auth-logout'),
     re_path(r'^auth/verify-email/?$',     VerifyEmailView.as_view(),      name='auth-verify-email'),
     re_path(r'^auth/resend-verification/?$', ResendVerificationView.as_view(), name='auth-resend-verification'),
+    re_path(r'^auth/forgot-password/?$',     ForgotPasswordView.as_view(),  name='auth-forgot-password'),
+    re_path(r'^auth/reset-password/?$',      ResetPasswordView.as_view(),   name='auth-reset-password'),
+    re_path(r'^auth/profile/?$',             UserProfileView.as_view(),     name='auth-profile'),
+    re_path(r'^auth/change-password/?$',     ChangePasswordView.as_view(),  name='auth-change-password'),
 
     path('services/', ServiceCategoryList.as_view(), name='service-list'),
 

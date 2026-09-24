@@ -2623,3 +2623,272 @@ class ResendVerificationView(APIView):
         # Re-send verification email (creates new token, invalidates old one)
         send_verification_email(user)
         return _generic
+
+
+# ---------------------------------------------------------------------------
+# Forgot password / password reset
+# ---------------------------------------------------------------------------
+
+def _send_password_reset_email(user, raw_token: str) -> None:
+    """
+    Dispatch the password-reset email in a background thread.
+    The raw token is NEVER logged — only passed inside the email body.
+    """
+    import threading as _threading
+    from django.core.mail import send_mail as _send_mail
+    from .email_config_service import get_effective_from_email
+
+    helpdesk_url = getattr(settings, 'HELPDESK_URL', 'http://localhost:3000').rstrip('/')
+    reset_url    = f'{helpdesk_url}/reset-password?token={raw_token}'
+    name         = user.get_full_name() or user.username
+    from_addr    = get_effective_from_email()
+    expiry_hours = int(getattr(settings, 'PASSWORD_RESET_TOKEN_EXPIRY_HOURS', 2))
+
+    plain = (
+        f'Hi {name},\n\n'
+        f'You requested a password reset for your IIC IT Helpdesk account.\n\n'
+        f'Click the link below to set a new password:\n\n'
+        f'{reset_url}\n\n'
+        f'This link expires in {expiry_hours} hour(s).\n\n'
+        f'If you did not request this, you can safely ignore this email.\n\n'
+        f'— IIC IT & NOC Department'
+    )
+    html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Reset your password</title></head>
+<body style="font-family:Inter,ui-sans-serif,sans-serif;background:#f8fafc;margin:0;padding:32px 0;">
+  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+    <table width="560" cellpadding="0" cellspacing="0"
+           style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;padding:40px;">
+      <tr><td>
+        <p style="margin:0 0 4px;font-size:.75rem;font-weight:800;color:#234395;text-transform:uppercase;letter-spacing:.1em;">
+          IIC IT &amp; NOC Helpdesk
+        </p>
+        <h1 style="margin:0 0 24px;font-size:1.6rem;color:#0f172a;letter-spacing:-.03em;">
+          Reset your password
+        </h1>
+        <p style="margin:0 0 16px;color:#475569;line-height:1.6;">Hi <strong>{name}</strong>,</p>
+        <p style="margin:0 0 24px;color:#475569;line-height:1.6;">
+          You requested a password reset. Click the button below to set a new password.
+        </p>
+        <p style="margin:0 0 32px;text-align:center;">
+          <a href="{reset_url}"
+             style="display:inline-block;background:#234395;color:#fff;
+                    font-weight:750;padding:13px 28px;border-radius:10px;
+                    text-decoration:none;font-size:1rem;">
+            Reset password
+          </a>
+        </p>
+        <p style="margin:0 0 8px;color:#94a3b8;font-size:.82rem;line-height:1.55;">
+          This link expires in <strong>{expiry_hours} hour(s)</strong>.
+          If you did not request this, you can safely ignore this email.
+        </p>
+        <hr style="margin:28px 0;border:0;border-top:1px solid #e2e8f0;">
+        <p style="margin:0;color:#94a3b8;font-size:.75rem;">
+          Itahari International College · IT &amp; NOC Department
+        </p>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>"""
+
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
+    def _send():
+        try:
+            _send_mail(
+                subject='[IIC IT Helpdesk] Reset your password',
+                message=plain,
+                from_email=from_addr,
+                recipient_list=[user.email],
+                html_message=html,
+            )
+            _logger.info('Password reset email sent for user id=%s.', user.pk)
+        except Exception as exc:
+            _logger.error(
+                'Failed to send password reset email for user id=%s: %s',
+                user.pk, type(exc).__name__,
+            )
+
+    _threading.Thread(target=_send, daemon=True).start()
+
+
+class ForgotPasswordView(APIView):
+    """
+    POST /api/v1/auth/forgot-password/
+         { "email": "user@iic.edu.np" }
+
+    Sends a password-reset link to the email address if it belongs to
+    an active, verified account.  Always returns the same generic 200
+    response to prevent account/email enumeration.
+
+    Rate-limited via AuthRegisterThrottle (5/hour per IP).
+    """
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes   = (AuthRegisterThrottle,)
+
+    @method_decorator(csrf_protect)
+    def post(self, request):
+        from .models import PasswordResetToken
+
+        # Generic response used in ALL cases — prevents enumeration
+        _ok = Response(
+            {'detail': 'If that email belongs to an active account, a reset link has been sent.'},
+            status=status.HTTP_200_OK,
+        )
+
+        email = (request.data.get('email') or '').strip().lower()
+        if not email:
+            return _ok
+
+        User = get_user_model()
+        try:
+            user = User.objects.select_related('profile').get(
+                email__iexact=email, is_active=True
+            )
+        except User.DoesNotExist:
+            return _ok
+
+        # Only verified, non-suspended accounts can request a reset
+        try:
+            profile = user.profile
+            if profile.is_suspended or not profile.email_verified:
+                return _ok
+        except Exception:
+            return _ok
+
+        raw_token, _instance = PasswordResetToken.create_for_user(user)
+        _send_password_reset_email(user, raw_token)
+        return _ok
+
+
+class ResetPasswordView(APIView):
+    """
+    POST /api/v1/auth/reset-password/
+         { "token": "<raw_token>", "password": "<new_password>", "confirm_password": "<new_password>" }
+
+    Validates the token, enforces password policy, sets the new password,
+    and marks the token as used.  Returns 200 on success.
+    """
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes   = (AuthLoginThrottle,)   # 10/minute — same as login
+
+    @method_decorator(csrf_protect)
+    def post(self, request):
+        from .models import PasswordResetToken
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.utils import timezone
+
+        raw_token        = (request.data.get('token') or '').strip()
+        password         = (request.data.get('password') or '').strip()
+        confirm_password = (request.data.get('confirm_password') or '').strip()
+
+        if not raw_token:
+            return Response({'detail': 'Reset token is required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not password:
+            return Response({'detail': 'New password is required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if password != confirm_password:
+            return Response({'detail': 'Passwords do not match.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate token
+        try:
+            token = PasswordResetToken.verify(raw_token)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate new password against Django's AUTH_PASSWORD_VALIDATORS
+        user = token.user
+        try:
+            validate_password(password, user=user)
+        except DjangoValidationError as exc:
+            return Response({'password': list(exc.messages)},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            token.used_at = timezone.now()
+            token.save(update_fields=['used_at'])
+            user.set_password(password)
+            user.save(update_fields=['password'])
+
+        return Response(
+            {'detail': 'Password reset successfully. You can now sign in with your new password.'},
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------------
+# User profile (own account)
+# ---------------------------------------------------------------------------
+
+class UserProfileView(generics.RetrieveUpdateAPIView):
+    """
+    GET   /api/v1/auth/profile/  — return the authenticated user's profile
+    PATCH /api/v1/auth/profile/  — update first_name, last_name, programme, department
+
+    Password change is handled separately at /api/v1/auth/change-password/.
+    """
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_serializer_class(self):
+        from .serializers import ProfileSerializer
+        return ProfileSerializer
+
+    def get_object(self):
+        return self.request.user
+
+
+class ChangePasswordView(APIView):
+    """
+    POST /api/v1/auth/change-password/
+         { "current_password": "...", "new_password": "...", "confirm_password": "..." }
+
+    Requires the user to supply their current password as confirmation.
+    """
+
+    def post(self, request):
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        user             = request.user
+        current_password = (request.data.get('current_password') or '').strip()
+        new_password     = (request.data.get('new_password') or '').strip()
+        confirm_password = (request.data.get('confirm_password') or '').strip()
+
+        if not current_password:
+            return Response({'detail': 'Current password is required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not user.check_password(current_password):
+            return Response({'detail': 'Current password is incorrect.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not new_password:
+            return Response({'detail': 'New password is required.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if new_password != confirm_password:
+            return Response({'detail': 'Passwords do not match.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if new_password == current_password:
+            return Response({'detail': 'New password must be different from the current one.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response({'new_password': list(exc.messages)},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+        # Re-establish the session so the user stays logged in after password change
+        from django.contrib.auth import update_session_auth_hash
+        update_session_auth_hash(request, user)
+
+        return Response(
+            {'detail': 'Password changed successfully.'},
+            status=status.HTTP_200_OK,
+        )

@@ -1102,3 +1102,86 @@ class EmailConfiguration(models.Model):
             'BACKEND': self.backend,
             'OPTIONS': options,
         }
+
+
+# ---------------------------------------------------------------------------
+# Password reset token
+# ---------------------------------------------------------------------------
+
+class PasswordResetToken(models.Model):
+    """
+    Single-use, time-limited token for password reset.
+
+    Security properties (mirrors EmailVerificationToken):
+    - Only the SHA-256 digest is stored; the raw token is never persisted.
+    - Single-use: used_at is set on first use.
+    - Expires after PASSWORD_RESET_TOKEN_EXPIRY_HOURS (default 2 h).
+    - At most one pending token per user; creating a new one deletes previous ones.
+    - Bound to exactly one user account.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='password_reset_tokens',
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text='SHA-256 hex digest. Raw token is never stored.',
+    )
+    created_at  = models.DateTimeField(auto_now_add=True)
+    expires_at  = models.DateTimeField(db_index=True)
+    used_at     = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Password reset token'
+        verbose_name_plural = 'Password reset tokens'
+
+    def __str__(self):
+        status = 'used' if self.used_at else ('expired' if self.is_expired() else 'pending')
+        return f'PasswordResetToken({self.user}, {status})'
+
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    def is_valid(self) -> bool:
+        return self.used_at is None and not self.is_expired()
+
+    @classmethod
+    def _hash(cls, raw_token: str) -> str:
+        return hashlib.sha256(raw_token.encode()).hexdigest()
+
+    @classmethod
+    def create_for_user(cls, user) -> tuple:
+        """
+        Delete any existing pending tokens, generate a new one, return (raw_token, instance).
+        raw_token must be sent to the user's email and MUST NOT be stored or logged.
+        """
+        from django.conf import settings as _s
+        expiry_hours = int(getattr(_s, 'PASSWORD_RESET_TOKEN_EXPIRY_HOURS', 2))
+        cls.objects.filter(user=user, used_at__isnull=True).delete()
+        raw       = secrets.token_hex(32)
+        expires   = timezone.now() + timezone.timedelta(hours=expiry_hours)
+        instance  = cls.objects.create(
+            user=user, token_hash=cls._hash(raw), expires_at=expires
+        )
+        return raw, instance
+
+    @classmethod
+    def verify(cls, raw_token: str):
+        """
+        Look up by hash, check validity, return instance.
+        Raises ValueError with a generic message on any failure.
+        """
+        token_hash = cls._hash(raw_token)
+        try:
+            token = cls.objects.select_related('user').get(token_hash=token_hash)
+        except cls.DoesNotExist:
+            raise ValueError('Reset link is invalid or has already been used.')
+        if token.used_at is not None:
+            raise ValueError('Reset link is invalid or has already been used.')
+        if token.is_expired():
+            raise ValueError('Reset link has expired. Please request a new one.')
+        return token
