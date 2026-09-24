@@ -619,3 +619,166 @@ class Announcement(models.Model):
     def __str__(self):
         active_label = ' [ACTIVE]' if self.is_active else ''
         return f'{self.title or self.campaign_id}{active_label}'
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — admin-configurable rules and violation log
+# ---------------------------------------------------------------------------
+
+class RateLimitRule(models.Model):
+    """
+    A named rate-limit rule stored in the database.
+
+    Each rule covers one *scope* (a short identifier that maps to one or more
+    endpoint groups) and defines:
+      - how many requests are allowed per window
+      - what happens when the limit is exceeded (violation_action)
+
+    Scopes understood by the system
+    ────────────────────────────────
+    auth_login            POST /api/v1/auth/login/
+    auth_register         POST /api/v1/auth/register/
+    auth_google           POST /api/v1/auth/google/
+    ticket_create         POST /api/v1/tickets/
+    ticket_message        POST /api/v1/tickets/{pk}/messages/
+    ticket_status         POST /api/v1/tickets/{pk}/status/
+    public_api            GET  any public read endpoint (services, guides, software)
+    admin_user_write      POST/PATCH/DELETE /api/v1/admin/users/*
+    admin_bulk            any admin write that is not user-management
+    export                GET  /api/v1/admin/tickets/export/
+    password_reset        future hook for password-reset endpoints
+    """
+
+    class Window(models.TextChoices):
+        SECOND  = 'second',  'Per second'
+        MINUTE  = 'minute',  'Per minute'
+        HOUR    = 'hour',    'Per hour'
+        DAY     = 'day',     'Per day'
+
+    class ViolationAction(models.TextChoices):
+        BLOCK    = 'block',   'Block the request (429)'
+        WARN     = 'warn',    'Allow but log the violation'
+        SUSPEND  = 'suspend', 'Suspend the account automatically'
+
+    scope = models.CharField(
+        max_length=60,
+        unique=True,
+        help_text='Short scope key that the throttle class looks up.',
+    )
+    label = models.CharField(
+        max_length=160,
+        blank=True,
+        help_text='Human-readable label shown in the admin UI.',
+    )
+    description = models.TextField(
+        blank=True,
+        help_text='Explains what this rule protects.',
+    )
+    limit = models.PositiveIntegerField(
+        help_text='Maximum number of requests allowed in the window.',
+    )
+    window = models.CharField(
+        max_length=10,
+        choices=Window.choices,
+        default=Window.MINUTE,
+    )
+    violation_action = models.CharField(
+        max_length=10,
+        choices=ViolationAction.choices,
+        default=ViolationAction.BLOCK,
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Inactive rules are ignored by the throttle engine.',
+    )
+    # How many excess requests trigger the violation action.
+    # 0 = trigger on the very first request over the limit.
+    violation_threshold = models.PositiveSmallIntegerField(
+        default=0,
+        help_text=(
+            'Number of additional requests above the limit before the '
+            'violation action fires. 0 = fire immediately on first excess request.'
+        ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('scope',)
+        verbose_name = 'Rate limit rule'
+        verbose_name_plural = 'Rate limit rules'
+
+    def __str__(self):
+        return f'{self.scope}: {self.limit}/{self.window} ({self.violation_action})'
+
+
+class RateLimitViolation(models.Model):
+    """
+    Audit record created each time a rate-limit rule is exceeded.
+
+    *identifier* is the IP address (for unauthenticated requests) or
+    "user:<pk>" for authenticated ones.
+    """
+
+    class ActionTaken(models.TextChoices):
+        BLOCKED   = 'blocked',   'Request blocked (429)'
+        WARNED    = 'warned',    'Allowed but logged'
+        SUSPENDED = 'suspended', 'Account suspended'
+
+    rule = models.ForeignKey(
+        RateLimitRule,
+        on_delete=models.CASCADE,
+        related_name='violations',
+    )
+    identifier = models.CharField(
+        max_length=100,
+        db_index=True,
+        help_text='IP address or "user:<pk>".',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='rate_limit_violations',
+        help_text='Populated when the request is authenticated.',
+    )
+    request_count = models.PositiveIntegerField(
+        default=1,
+        help_text='Total requests seen in the window when this violation was logged.',
+    )
+    action_taken = models.CharField(
+        max_length=12,
+        choices=ActionTaken.choices,
+    )
+    request_path = models.CharField(max_length=500, blank=True)
+    request_method = models.CharField(max_length=10, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    is_resolved = models.BooleanField(
+        default=False,
+        help_text='Admins can mark a violation resolved after reviewing it.',
+    )
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='resolved_violations',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True, help_text='Admin notes on this violation.')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Rate limit violation'
+        verbose_name_plural = 'Rate limit violations'
+        indexes = [
+            models.Index(fields=['identifier', 'rule'], name='rl_violation_id_rule_idx'),
+            models.Index(fields=['created_at'], name='rl_violation_created_idx'),
+            models.Index(fields=['is_resolved'], name='rl_violation_resolved_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.rule.scope} violation by {self.identifier} at {self.created_at}'

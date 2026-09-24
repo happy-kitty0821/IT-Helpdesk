@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import {
   Bell, BookOpen, Boxes, CircleDot, Gauge,
-  Home, LayoutGrid, LoaderCircle, Megaphone, Settings, Shield, ShieldAlert, Users,
+  Home, LayoutGrid, LoaderCircle, Megaphone, Settings, Shield, ShieldAlert, Siren, Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -36,6 +36,8 @@ const ALL_NAV: NavItem[] = [
   { href: "/admin/users",         label: "Users",         icon: Users,
     allowedRoles: ["administrator"] },
   { href: "/admin/announcements", label: "Announcements", icon: Megaphone,
+    allowedRoles: ["administrator"] },
+  { href: "/admin/rate-limits",    label: "Rate Limits",    icon: Siren,
     allowedRoles: ["administrator"] },
   { href: "/admin/roles",         label: "Roles",         icon: Shield,
     allowedRoles: ["administrator"] },

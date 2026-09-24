@@ -14,7 +14,12 @@ from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import ScopedRateThrottle  # kept for fallback
+from .throttling import (
+    AuthLoginThrottle, AuthRegisterThrottle, AuthGoogleThrottle,
+    TicketCreateThrottle, TicketMessageThrottle, TicketStatusThrottle,
+    PublicApiThrottle, AdminUserWriteThrottle, AdminBulkThrottle, ExportThrottle,
+)
 from rest_framework.views import APIView
 
 from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
@@ -106,8 +111,7 @@ class CurrentUserView(APIView):
 class RegisterView(APIView):
     authentication_classes = ()
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = (ScopedRateThrottle,)
-    throttle_scope = 'auth_register'
+    throttle_classes = (AuthRegisterThrottle,)
 
     @transaction.atomic
     def post(self, request):
@@ -122,8 +126,7 @@ class RegisterView(APIView):
 class LoginView(APIView):
     authentication_classes = ()
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = (ScopedRateThrottle,)
-    throttle_scope = 'auth_login'
+    throttle_classes = (AuthLoginThrottle,)
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -184,8 +187,7 @@ class LogoutView(APIView):
 class GoogleLoginView(APIView):
     authentication_classes = ()
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = (ScopedRateThrottle,)
-    throttle_scope = 'auth_google'
+    throttle_classes = (AuthGoogleThrottle,)
 
     @transaction.atomic
     def post(self, request):
@@ -236,6 +238,7 @@ class GoogleLoginView(APIView):
 
 
 class ServiceCategoryList(generics.ListAPIView):
+    throttle_classes = (PublicApiThrottle,)
     permission_classes = (permissions.AllowAny,)
     pagination_class = None
     serializer_class = ServiceCategorySerializer
@@ -248,6 +251,7 @@ class ServiceCategoryList(generics.ListAPIView):
 
 
 class TicketListCreate(generics.ListCreateAPIView):
+    throttle_classes = (TicketCreateThrottle,)
     serializer_class = TicketSerializer
 
     def get_parsers(self):
@@ -388,6 +392,7 @@ class TicketDetail(generics.RetrieveUpdateAPIView):
 
 
 class TicketStatusView(APIView):
+    throttle_classes = (TicketStatusThrottle,)
     """
     POST /api/v1/tickets/{pk}/status/
 
@@ -525,6 +530,7 @@ class TicketAssignView(APIView):
 
 
 class PublicGuideList(generics.ListAPIView):
+    throttle_classes = (PublicApiThrottle,)
     permission_classes = (permissions.AllowAny,)
     pagination_class = None
     serializer_class = GuideArticleSerializer
@@ -537,6 +543,7 @@ class PublicGuideList(generics.ListAPIView):
 
 
 class PublicSoftwareList(generics.ListAPIView):
+    throttle_classes = (PublicApiThrottle,)
     permission_classes = (permissions.AllowAny,)
     pagination_class = None
     serializer_class = SoftwareResourceSerializer
@@ -611,6 +618,7 @@ class AdminUserPagination(PageNumberPagination):
 
 
 class AdminUserList(generics.ListCreateAPIView):
+    throttle_classes = (AdminUserWriteThrottle,)
     permission_classes = (IsAdministrator,)
     pagination_class = AdminUserPagination
     serializer_class = AdminUserSerializer
@@ -675,6 +683,7 @@ class AdminUserList(generics.ListCreateAPIView):
 
 
 class AdminUserDetail(generics.RetrieveUpdateAPIView):
+    throttle_classes = (AdminUserWriteThrottle,)
     permission_classes = (IsAdministrator,)
     serializer_class = AdminUserSerializer
     queryset = get_user_model().objects.all()
@@ -848,6 +857,7 @@ class TicketMessageListCreate(APIView):
     - Staff (including IT NOC intern scoped to ticket) can read all + post replies/notes
     - is_internal messages are never returned to requesters
     """
+    throttle_classes = (TicketMessageThrottle,)
 
     def _get_ticket_and_check_access(self, request, pk):
         """Returns (ticket, is_staff) or raises 404."""
@@ -1265,6 +1275,7 @@ class InternScopeDetailView(APIView):
 # ---------------------------------------------------------------------------
 
 class TicketExportView(APIView):
+    throttle_classes = (ExportThrottle,)
     """
     GET /api/v1/admin/tickets/export/
         ?status=submitted,resolved
@@ -2210,3 +2221,221 @@ class DeleteUserView(APIView):
             {'detail': f'Account for {target_name} has been permanently deleted.'},
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting — admin management views
+# ---------------------------------------------------------------------------
+
+class RateLimitRuleListCreate(generics.ListCreateAPIView):
+    """
+    GET  /api/v1/admin/rate-limits/rules/   — list all rules (admin)
+    POST /api/v1/admin/rate-limits/rules/   — create a new rule (admin)
+    """
+    permission_classes = (IsAdministrator,)
+    pagination_class = None
+
+    def get_serializer_class(self):
+        from .serializers import RateLimitRuleSerializer
+        return RateLimitRuleSerializer
+
+    def get_queryset(self):
+        from .models import RateLimitRule
+        return RateLimitRule.objects.annotate_violation_counts() if hasattr(
+            RateLimitRule.objects, 'annotate_violation_counts'
+        ) else RateLimitRule.objects.all()
+
+
+class RateLimitRuleDetail(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /api/v1/admin/rate-limits/rules/{id}/
+    PATCH  /api/v1/admin/rate-limits/rules/{id}/
+    DELETE /api/v1/admin/rate-limits/rules/{id}/
+    """
+    permission_classes = (IsAdministrator,)
+    http_method_names = ['get', 'patch', 'delete', 'head', 'options']
+
+    def get_serializer_class(self):
+        from .serializers import RateLimitRuleSerializer
+        return RateLimitRuleSerializer
+
+    def get_queryset(self):
+        from .models import RateLimitRule
+        return RateLimitRule.objects.all()
+
+    def perform_destroy(self, instance):
+        from .throttling import _invalidate_rule_cache
+        scope = instance.scope
+        instance.delete()
+        _invalidate_rule_cache(scope)
+
+
+class RateLimitViolationListView(generics.ListAPIView):
+    """
+    GET /api/v1/admin/rate-limits/violations/
+        ?rule=<id>
+        &unresolved=1
+        &identifier=<str>
+        &action=blocked|warned|suspended
+        &from=YYYY-MM-DD
+        &to=YYYY-MM-DD
+        &page=1&page_size=50
+    """
+    permission_classes = (IsAdministrator,)
+
+    def get_serializer_class(self):
+        from .serializers import RateLimitViolationSerializer
+        return RateLimitViolationSerializer
+
+    def get_queryset(self):
+        from .models import RateLimitViolation
+        qs = RateLimitViolation.objects.select_related('rule', 'user', 'resolved_by')
+
+        rule_id = self.request.query_params.get('rule')
+        if rule_id:
+            qs = qs.filter(rule_id=rule_id)
+
+        unresolved = self.request.query_params.get('unresolved')
+        if unresolved == '1':
+            qs = qs.filter(is_resolved=False)
+
+        identifier = self.request.query_params.get('identifier', '').strip()
+        if identifier:
+            qs = qs.filter(identifier__icontains=identifier)
+
+        action = self.request.query_params.get('action', '').strip()
+        if action:
+            qs = qs.filter(action_taken=action)
+
+        from_date = self.request.query_params.get('from')
+        to_date   = self.request.query_params.get('to')
+        if from_date:
+            qs = qs.filter(created_at__date__gte=from_date)
+        if to_date:
+            qs = qs.filter(created_at__date__lte=to_date)
+
+        return qs
+
+
+class RateLimitViolationDetail(generics.RetrieveUpdateAPIView):
+    """
+    GET   /api/v1/admin/rate-limits/violations/{id}/  — view one violation
+    PATCH /api/v1/admin/rate-limits/violations/{id}/  — resolve / add notes
+    """
+    permission_classes = (IsAdministrator,)
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_serializer_class(self):
+        from .serializers import RateLimitViolationSerializer
+        return RateLimitViolationSerializer
+
+    def get_queryset(self):
+        from .models import RateLimitViolation
+        return RateLimitViolation.objects.select_related('rule', 'user', 'resolved_by')
+
+    def perform_update(self, serializer):
+        from django.utils import timezone
+        update_data = {}
+        if serializer.validated_data.get('is_resolved') and not serializer.instance.is_resolved:
+            update_data['resolved_by'] = self.request.user
+            update_data['resolved_at'] = timezone.now()
+        serializer.save(**update_data)
+
+
+class RateLimitViolationBulkResolveView(APIView):
+    """
+    POST /api/v1/admin/rate-limits/violations/resolve-all/
+         { "rule_id": <id>, "identifier": "<str>" }   (both optional filters)
+
+    Marks all matching unresolved violations as resolved.
+    """
+    permission_classes = (IsAdministrator,)
+
+    def post(self, request):
+        from .models import RateLimitViolation
+        from django.utils import timezone
+
+        qs = RateLimitViolation.objects.filter(is_resolved=False)
+
+        rule_id = request.data.get('rule_id')
+        if rule_id:
+            qs = qs.filter(rule_id=rule_id)
+
+        identifier = str(request.data.get('identifier', '')).strip()
+        if identifier:
+            qs = qs.filter(identifier=identifier)
+
+        count = qs.update(
+            is_resolved=True,
+            resolved_by=request.user,
+            resolved_at=timezone.now(),
+        )
+        return Response({'resolved': count}, status=status.HTTP_200_OK)
+
+
+class RateLimitStatsView(APIView):
+    """
+    GET /api/v1/admin/rate-limits/stats/
+    Returns summary statistics used by the admin dashboard widget.
+    """
+    permission_classes = (IsAdministrator,)
+
+    def get(self, request):
+        from .models import RateLimitRule, RateLimitViolation
+        from django.utils import timezone
+        from datetime import timedelta
+
+        now  = timezone.now()
+        day  = now - timedelta(hours=24)
+        week = now - timedelta(days=7)
+
+        total_rules    = RateLimitRule.objects.count()
+        active_rules   = RateLimitRule.objects.filter(is_active=True).count()
+        violations_24h = RateLimitViolation.objects.filter(created_at__gte=day).count()
+        violations_7d  = RateLimitViolation.objects.filter(created_at__gte=week).count()
+        unresolved     = RateLimitViolation.objects.filter(is_resolved=False).count()
+        auto_suspended = RateLimitViolation.objects.filter(
+            action_taken='suspended', is_resolved=False
+        ).count()
+
+        # Top 5 scopes by unresolved violations
+        from django.db.models import Count
+        top_scopes = (
+            RateLimitViolation.objects
+            .filter(is_resolved=False)
+            .values('rule__scope', 'rule__label')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:5]
+        )
+
+        return Response({
+            'total_rules':    total_rules,
+            'active_rules':   active_rules,
+            'violations_24h': violations_24h,
+            'violations_7d':  violations_7d,
+            'unresolved':     unresolved,
+            'auto_suspended': auto_suspended,
+            'top_scopes': [
+                {'scope': r['rule__scope'], 'label': r['rule__label'], 'count': r['count']}
+                for r in top_scopes
+            ],
+        })
+
+
+class RateLimitSeedView(APIView):
+    """
+    POST /api/v1/admin/rate-limits/seed/
+    Creates default rules for any scope that has no rule yet (idempotent).
+    """
+    permission_classes = (IsAdministrator,)
+
+    def post(self, request):
+        from .throttling import seed_default_rules, DEFAULT_RULES
+        from .models import RateLimitRule
+        before = RateLimitRule.objects.count()
+        seed_default_rules()
+        after = RateLimitRule.objects.count()
+        return Response({
+            'created': after - before,
+            'total':   after,
+        }, status=status.HTTP_200_OK)

@@ -2,6 +2,13 @@
 
 from .views import (
     SuspendUserView,
+    RateLimitRuleListCreate,
+    RateLimitRuleDetail,
+    RateLimitViolationListView,
+    RateLimitViolationDetail,
+    RateLimitViolationBulkResolveView,
+    RateLimitStatsView,
+    RateLimitSeedView,
     DeleteUserView,
     ActiveAnnouncementView,
     AdminAnnouncementDetail,
@@ -115,6 +122,15 @@ urlpatterns = [
     re_path(r'^admin/settings/roles/(?P<role>[a-z_]+)/?$',        RoleConfigDetailView.as_view(),    name='settings-role-detail'),
     re_path(r'^admin/settings/intern-scope/?$',                   InternScopeListView.as_view(),     name='settings-intern-scope'),
     re_path(r'^admin/settings/intern-scope/(?P<slug>[a-z0-9-]+)/?$', InternScopeDetailView.as_view(), name='settings-intern-scope-detail'),
+
+    # Rate limiting
+    re_path(r'^admin/rate-limits/stats/?$',                          RateLimitStatsView.as_view(),             name='rate-limit-stats'),
+    re_path(r'^admin/rate-limits/seed/?$',                           RateLimitSeedView.as_view(),              name='rate-limit-seed'),
+    re_path(r'^admin/rate-limits/rules/?$',                          RateLimitRuleListCreate.as_view(),        name='rate-limit-rule-list'),
+    re_path(r'^admin/rate-limits/rules/(?P<pk>[0-9]+)/?$',           RateLimitRuleDetail.as_view(),            name='rate-limit-rule-detail'),
+    re_path(r'^admin/rate-limits/violations/?$',                     RateLimitViolationListView.as_view(),     name='rate-limit-violation-list'),
+    re_path(r'^admin/rate-limits/violations/resolve-all/?$',         RateLimitViolationBulkResolveView.as_view(), name='rate-limit-resolve-all'),
+    re_path(r'^admin/rate-limits/violations/(?P<pk>[0-9]+)/?$',      RateLimitViolationDetail.as_view(),       name='rate-limit-violation-detail'),
 
     # Announcements
     re_path(r'^announcement/?$',                          ActiveAnnouncementView.as_view(),      name='announcement-active'),

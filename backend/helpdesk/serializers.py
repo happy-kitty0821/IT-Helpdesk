@@ -686,3 +686,83 @@ class AnnouncementAdminSerializer(serializers.ModelSerializer):
                 'campaign_id must be a lowercase slug (letters, digits, hyphens).'
             )
         return value
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting serializers
+# ---------------------------------------------------------------------------
+
+from .models import RateLimitRule, RateLimitViolation
+
+
+class RateLimitRuleSerializer(serializers.ModelSerializer):
+    violation_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RateLimitRule
+        fields = (
+            'id', 'scope', 'label', 'description',
+            'limit', 'window', 'violation_action',
+            'violation_threshold', 'is_active',
+            'violation_count', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'violation_count', 'created_at', 'updated_at')
+
+    def get_violation_count(self, obj) -> int:
+        return obj.violations.filter(is_resolved=False).count()
+
+    def validate_limit(self, value):
+        if value < 1:
+            raise serializers.ValidationError('Limit must be at least 1.')
+        if value > 100_000:
+            raise serializers.ValidationError('Limit cannot exceed 100,000.')
+        return value
+
+    def validate_scope(self, value):
+        import re
+        if not re.match(r'^[a-z][a-z0-9_]{1,58}[a-z0-9]$', value):
+            raise serializers.ValidationError(
+                'Scope must be 3–60 lowercase letters, digits, or underscores.'
+            )
+        return value
+
+    def save(self, **kwargs):
+        """Flush the rule cache after any save."""
+        instance = super().save(**kwargs)
+        from .throttling import _invalidate_rule_cache
+        _invalidate_rule_cache(instance.scope)
+        return instance
+
+
+class RateLimitViolationSerializer(serializers.ModelSerializer):
+    rule_scope  = serializers.CharField(source='rule.scope',  read_only=True)
+    rule_label  = serializers.CharField(source='rule.label',  read_only=True)
+    user_name   = serializers.SerializerMethodField()
+    resolved_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RateLimitViolation
+        fields = (
+            'id', 'rule', 'rule_scope', 'rule_label',
+            'identifier', 'user', 'user_name',
+            'request_count', 'action_taken',
+            'request_path', 'request_method', 'user_agent', 'ip_address',
+            'is_resolved', 'resolved_by', 'resolved_by_name', 'resolved_at',
+            'notes', 'created_at',
+        )
+        read_only_fields = (
+            'id', 'rule_scope', 'rule_label', 'user_name', 'resolved_by_name',
+            'identifier', 'user', 'request_count', 'action_taken',
+            'request_path', 'request_method', 'user_agent', 'ip_address',
+            'created_at',
+        )
+
+    def get_user_name(self, obj) -> str:
+        if obj.user:
+            return obj.user.get_full_name() or obj.user.username
+        return ''
+
+    def get_resolved_by_name(self, obj) -> str:
+        if obj.resolved_by:
+            return obj.resolved_by.get_full_name() or obj.resolved_by.username
+        return ''
