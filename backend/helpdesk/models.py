@@ -925,3 +925,180 @@ class EmailVerificationToken(models.Model):
             raise ValueError('Verification link has expired. Please request a new one.')
 
         return token
+
+
+# ---------------------------------------------------------------------------
+# Admin-managed email configuration
+# ---------------------------------------------------------------------------
+
+class EmailConfiguration(models.Model):
+    """
+    Singleton model that allows administrators to override the .env-based
+    MAILERS configuration from Django Admin.
+
+    Precedence
+    ──────────
+    Active DB row → .env fallback → application defaults
+
+    Secret handling
+    ───────────────
+    The SMTP password is stored as plain text in the database (matching the
+    existing NotificationChannel pattern).  The admin UI masks it — the raw
+    value is never returned to the browser.  Use database-level encryption or
+    a secrets manager at the infrastructure layer for additional protection.
+
+    Only one row should exist (enforced via the save() method).
+    """
+
+    class Backend(models.TextChoices):
+        CONSOLE  = 'django.core.mail.backends.console.EmailBackend',  'Console (dev/testing)'
+        SMTP     = 'django.core.mail.backends.smtp.EmailBackend',     'SMTP'
+        DUMMY    = 'django.core.mail.backends.dummy.EmailBackend',    'Dummy (discard all)'
+        FILEBASED = 'django.core.mail.backends.filebased.EmailBackend', 'File-based'
+        LOCMEM   = 'django.core.mail.backends.locmem.EmailBackend',   'In-memory (testing)'
+
+    # ── Is this configuration active? ─────────────────────────────────────
+    is_active = models.BooleanField(
+        default=True,
+        help_text=(
+            'When active, this database configuration overrides .env settings. '
+            'Deactivate to fall back to .env.'
+        ),
+    )
+
+    # ── Backend selection ──────────────────────────────────────────────────
+    backend = models.CharField(
+        max_length=100,
+        choices=Backend.choices,
+        default=Backend.CONSOLE,
+        help_text='Email backend to use. Only SMTP requires the host/credentials below.',
+    )
+
+    # ── SMTP transport (only used when backend == SMTP) ────────────────────
+    host = models.CharField(
+        max_length=253, blank=True, default='localhost',
+        help_text='SMTP server hostname. Required for SMTP backend.',
+    )
+    port = models.PositiveIntegerField(
+        default=587,
+        help_text='SMTP port (25 plain, 465 SSL, 587 STARTTLS).',
+    )
+    use_tls = models.BooleanField(
+        default=True,
+        help_text='Use STARTTLS. Mutually exclusive with use_ssl.',
+    )
+    use_ssl = models.BooleanField(
+        default=False,
+        help_text='Use implicit SSL/TLS. Mutually exclusive with use_tls.',
+    )
+    username = models.CharField(
+        max_length=254, blank=True, default='',
+        help_text='SMTP login username (leave blank if not required).',
+    )
+    # Password stored as plain text — masked in the admin form.
+    # Match the existing NotificationChannel.config pattern.
+    password = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text='SMTP password / app password. Masked in the admin interface.',
+    )
+    timeout = models.PositiveSmallIntegerField(
+        default=30,
+        help_text='SMTP connection timeout in seconds.',
+    )
+
+    # ── Sender identity ────────────────────────────────────────────────────
+    from_email = models.EmailField(
+        default='noreply@iic.edu.np',
+        help_text='The "From:" address on all outgoing emails.',
+    )
+    reply_to = models.EmailField(
+        blank=True, default='',
+        help_text='Optional "Reply-To:" address.',
+    )
+
+    # ── Verification settings (can be overridden here) ─────────────────────
+    verification_enabled = models.BooleanField(
+        default=True,
+        help_text='Enable email verification for new registrations.',
+    )
+    verification_token_expiry_hours = models.PositiveSmallIntegerField(
+        default=24,
+        help_text='Hours before a verification link expires.',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Email configuration'
+        verbose_name_plural = 'Email configuration'
+
+    def __str__(self):
+        status = 'active' if self.is_active else 'inactive'
+        return f'Email configuration ({self.get_backend_display()}, {status})'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        # Cannot enable both TLS and SSL simultaneously for SMTP
+        if self.backend == self.Backend.SMTP:
+            if self.use_tls and self.use_ssl:
+                raise ValidationError(
+                    {'use_ssl': 'use_tls and use_ssl are mutually exclusive. '
+                                'Enable only one.'}
+                )
+            if not self.host:
+                raise ValidationError(
+                    {'host': 'A hostname is required for the SMTP backend.'}
+                )
+
+    def save(self, *args, **kwargs):
+        # Enforce singleton — deactivate other rows when saving an active config
+        if self.is_active:
+            EmailConfiguration.objects.exclude(pk=self.pk).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    # ── Secret masking helpers (follow notifications.py pattern) ──────────
+
+    _SECRET_PLACEHOLDER = '••••••••'
+
+    def password_is_set(self) -> bool:
+        return bool(self.password)
+
+    def apply_password_patch(self, submitted_password: str) -> None:
+        """
+        Update the password only when the admin submits a genuine new value.
+
+        Rules:
+          - Empty string  → keep existing password (blank field = no change)
+          - Placeholder   → keep existing password (unchanged field = no change)
+          - Any other str → replace with new value
+        """
+        if submitted_password and submitted_password != self._SECRET_PLACEHOLDER:
+            self.password = submitted_password
+        # else: keep existing password unchanged
+
+    def to_mailer_dict(self) -> dict:
+        """
+        Return a Django 6.1 MAILERS-compatible dict for this configuration.
+        Only SMTP backends receive transport OPTIONS; others get {}.
+        """
+        smtp_backend = self.Backend.SMTP
+        if self.backend == smtp_backend:
+            options: dict = {
+                'host':    self.host,
+                'port':    self.port,
+                'use_tls': self.use_tls,
+                'use_ssl': self.use_ssl,
+                'timeout': self.timeout,
+            }
+            if self.username:
+                options['username'] = self.username
+            if self.password:
+                options['password'] = self.password
+        else:
+            options = {}
+
+        return {
+            'BACKEND': self.backend,
+            'OPTIONS': options,
+        }

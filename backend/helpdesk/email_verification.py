@@ -3,37 +3,20 @@ helpdesk.email_verification
 ═══════════════════════════
 Utilities for sending and managing email ownership verification.
 
-This module is intentionally separate from notifications.py because:
-  - Verification is transactional (must work even without a NotificationChannel
-    configured in the DB — a cold install must still be able to verify users).
-  - It uses Django's built-in mail machinery (django.core.mail.send_mail)
-    which automatically routes through MAILERS["default"] in Django 6.1.
-  - Tokens must NEVER appear in logs or API responses.
+Email transport is resolved via email_config_service.get_effective_mailer(),
+which applies the DB-override → .env fallback → default precedence chain.
 
-Configuration (settings.py / environment variables)
-─────────────────────────────────────────────────────
-All email transport is configured via the MAILERS setting in settings.py,
-which reads these environment variables (note MAILER_* prefix, not EMAIL_*):
+Token security
+──────────────
+- Raw token (32 random bytes, 64-char hex) is NEVER stored.
+- Only the SHA-256 digest is persisted.
+- The raw token is passed ONLY inside the email body — never logged or returned.
 
-  MAILER_BACKEND          Backend class path
-                          dev default:  django.core.mail.backends.console.EmailBackend
-                          production:   django.core.mail.backends.smtp.EmailBackend
-  MAILER_HOST             SMTP hostname         (default: localhost)
-  MAILER_PORT             SMTP port             (default: 587)
-  MAILER_USE_TLS          true/false            (default: true)
-  MAILER_USERNAME         SMTP login            (default: "")
-  MAILER_PASSWORD         SMTP password — keep secret, never log
-
-Verification-specific variables:
-  VERIFICATION_FROM_EMAIL         Sender address (default: noreply@iic.edu.np)
-  VERIFICATION_TOKEN_EXPIRY_HOURS Token lifetime in hours (default: 24)
-  EMAIL_VERIFICATION_ENABLED      Set to false to skip sending in CI/dev
-
-IMPORTANT — Django 6.1 compatibility:
-  Do NOT set any of the legacy EMAIL_BACKEND / EMAIL_HOST / EMAIL_HOST_USER /
-  EMAIL_HOST_PASSWORD / EMAIL_PORT / EMAIL_USE_TLS environment variables.
-  Django 6.1 raises ImproperlyConfigured if MAILERS and any EMAIL_* setting
-  coexist.  Use the MAILER_* variables defined above instead.
+Django 6.1 compatibility
+────────────────────────
+- Uses django.core.mail.send_mail() which routes through MAILERS["default"].
+- Never references legacy EMAIL_* settings.
+- email_config_service.apply_mailers_override() keeps MAILERS in sync with DB.
 """
 
 import logging
@@ -44,19 +27,35 @@ from django.core.mail import send_mail
 
 logger = logging.getLogger(__name__)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-
 _DEFAULT_FROM = 'noreply@iic.edu.np'
 _SUBJECT      = 'Verify your IIC IT Helpdesk account'
 
 
+# ── Configuration helpers (DB-override aware) ─────────────────────────────────
+
 def _verification_enabled() -> bool:
-    """Return True unless EMAIL_VERIFICATION_ENABLED is explicitly False."""
-    return getattr(settings, 'EMAIL_VERIFICATION_ENABLED', True)
+    """Return True unless verification is explicitly disabled."""
+    try:
+        from .email_config_service import is_verification_enabled
+        return is_verification_enabled()
+    except Exception:
+        return getattr(settings, 'EMAIL_VERIFICATION_ENABLED', True)
 
 
 def _from_email() -> str:
-    return getattr(settings, 'VERIFICATION_FROM_EMAIL', _DEFAULT_FROM)
+    try:
+        from .email_config_service import get_effective_from_email
+        return get_effective_from_email()
+    except Exception:
+        return getattr(settings, 'VERIFICATION_FROM_EMAIL', _DEFAULT_FROM)
+
+
+def _expiry_hours() -> int:
+    try:
+        from .email_config_service import get_verification_expiry_hours
+        return get_verification_expiry_hours()
+    except Exception:
+        return int(getattr(settings, 'VERIFICATION_TOKEN_EXPIRY_HOURS', 24))
 
 
 def _helpdesk_url() -> str:
@@ -137,30 +136,25 @@ def _build_email_body(user, raw_token: str, expires_hours: int) -> tuple:
 def send_verification_email(user) -> None:
     """
     Generate a new EmailVerificationToken for *user* and dispatch the
-    verification email in a daemon thread so callers are never blocked.
+    verification email in a daemon thread so the caller is never blocked.
 
-    Uses django.core.mail.send_mail() which automatically routes through
-    MAILERS["default"] — the Django 6.1-compatible approach.
+    Uses django.core.mail.send_mail() routed through the effective
+    MAILERS["default"] (DB-override or .env fallback).
 
     SECURITY:
-      - The raw token is passed only inside the email body.
-      - It is NEVER logged, stored, or returned to any caller.
-      - Credentials are read from MAILER_PASSWORD env var via settings.py.
-
-    If EMAIL_VERIFICATION_ENABLED is False (e.g. in CI/testing), this is a
-    no-op and a DEBUG log entry is written instead — no email is sent and
-    no token is created.
+      - The raw token is captured only inside the _send() closure.
+      - It is NEVER logged, stored in any attribute, or returned.
+      - Credentials come from the DB/env via settings.MAILERS, not from
+        any argument to this function.
     """
     if not _verification_enabled():
         logger.debug(
-            'Email verification disabled (EMAIL_VERIFICATION_ENABLED=False). '
-            'Skipping verification email for user id=%s.', user.pk
-            # Intentionally not logging the email address to avoid PII in CI logs.
+            'Email verification disabled. Skipping for user id=%s.', user.pk
         )
         return
 
     from .models import EmailVerificationToken
-    expiry_hours = int(getattr(settings, 'VERIFICATION_TOKEN_EXPIRY_HOURS', 24))
+    expiry_hours = _expiry_hours()
     raw_token, _token_obj = EmailVerificationToken.create_for_user(user)
 
     plain, html = _build_email_body(user, raw_token, expiry_hours)
@@ -168,8 +162,6 @@ def send_verification_email(user) -> None:
     from_addr   = _from_email()
 
     def _send():
-        # raw_token is captured in this closure.  It must NOT be referenced
-        # in any log statement inside this function.
         try:
             send_mail(
                 subject=_SUBJECT,
@@ -177,24 +169,17 @@ def send_verification_email(user) -> None:
                 from_email=from_addr,
                 recipient_list=[recipient],
                 html_message=html,
-                # No deprecated `connection` or `fail_silently` arguments —
-                # send_mail() in Django 6.1 uses MAILERS["default"] automatically.
+                # No deprecated connection/fail_silently args (Django 6.1)
             )
-            logger.info(
-                'Verification email dispatched for user id=%s.', user.pk
-                # Not logging the email address here either — avoids PII exposure.
-            )
+            logger.info('Verification email dispatched for user id=%s.', user.pk)
         except Exception as exc:
-            # Log error WITHOUT the token or password.
-            # Registration already succeeded; user can request a resend.
             logger.error(
                 'Failed to send verification email for user id=%s: %s',
                 user.pk, type(exc).__name__,
-                # Intentionally NOT logging exc message — may contain SMTP auth details.
+                # Deliberately NOT logging exc.args — may contain SMTP credentials
             )
 
-    t = threading.Thread(target=_send, daemon=True)
-    t.start()
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def verify_token_and_activate(raw_token: str) -> object:
@@ -203,29 +188,22 @@ def verify_token_and_activate(raw_token: str) -> object:
 
     Returns the User instance on success.
     Raises ValueError with a generic message on any failure.
-
-    The entire activation is wrapped in an atomic transaction so a failure
-    in any step leaves both the token and the user unchanged.
     """
     from django.db import transaction
     from django.utils import timezone
     from .models import EmailVerificationToken
 
     with transaction.atomic():
-        token = EmailVerificationToken.verify(raw_token)  # raises ValueError on failure
-
+        token   = EmailVerificationToken.verify(raw_token)
         user    = token.user
-        profile = user.profile  # UserProfile is always created by signal
+        profile = user.profile
 
-        # Mark token used
         token.verified_at = timezone.now()
         token.save(update_fields=['verified_at'])
 
-        # Activate user
         user.is_active = True
         user.save(update_fields=['is_active'])
 
-        # Mark email verified on profile
         if not profile.email_verified:
             profile.email_verified    = True
             profile.email_verified_at = timezone.now()

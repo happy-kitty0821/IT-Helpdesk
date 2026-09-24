@@ -341,3 +341,21 @@ def ticket_notification_dispatch(sender, instance, created, **kwargs):
 
     except Exception as exc:
         logger.exception('Unexpected error in ticket_notification_dispatch: %s', exc)
+
+
+# ---------------------------------------------------------------------------
+# EmailConfiguration change → update live MAILERS setting
+# ---------------------------------------------------------------------------
+
+@receiver(post_save, sender='helpdesk.EmailConfiguration')
+def sync_mailers_on_config_change(sender, instance, **kwargs):
+    """
+    When an EmailConfiguration row is saved (created or updated), immediately
+    apply the new effective configuration to settings.MAILERS so that the
+    next email sent uses the updated backend without a server restart.
+    """
+    try:
+        from helpdesk.email_config_service import apply_mailers_override
+        apply_mailers_override()
+    except Exception as exc:
+        logger.warning('sync_mailers_on_config_change failed: %s', exc)
