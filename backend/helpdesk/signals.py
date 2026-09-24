@@ -1,4 +1,4 @@
-"""
+﻿"""
 Signal receivers for the IIC IT Helpdesk role system.
 
 Receivers
@@ -67,7 +67,31 @@ def create_profile_and_assign_role(sender, instance, created, **kwargs):
 
     with transaction.atomic():
         # --- Step 1: UserProfile ---
-        UserProfile.objects.get_or_create(user=instance)
+        profile, _ = UserProfile.objects.get_or_create(user=instance)
+
+        # --- Step 1b: Email verification gate ---
+        # Google-authenticated users carry the ``_email_verified_by_google=True``
+        # marker set by GoogleLoginView before calling create_user().  For those
+        # accounts Google has already proved email ownership, so we mark the
+        # profile as verified and leave is_active=True.
+        #
+        # All other new accounts (password registration) start as INACTIVE and
+        # UNVERIFIED until the user clicks the verification link.
+        if getattr(instance, '_email_verified_by_google', False):
+            # Google-verified — mark profile immediately
+            from django.utils import timezone as _tz
+            if not profile.email_verified:
+                profile.email_verified    = True
+                profile.email_verified_at = _tz.now()
+                profile.save(update_fields=['email_verified', 'email_verified_at'])
+            # is_active stays True (set by create_user default)
+            _needs_email_verification = False
+        else:
+            # Password registration — deactivate until email is confirmed
+            if instance.is_active:
+                get_user_model().objects.filter(pk=instance.pk).update(is_active=False)
+                instance.is_active = False  # keep in-memory state consistent
+            _needs_email_verification = True
 
         # --- Step 2: Resolve role from email domain ---
         resolved_role = 'student'
@@ -94,6 +118,20 @@ def create_profile_and_assign_role(sender, instance, created, **kwargs):
             role=resolved_role,
             action=RoleAuditEvent.ACTION_GRANTED,
         )
+
+    # --- Step 5: Dispatch verification email (outside the savepoint) ---
+    # Runs after the transaction commits so the token's FK to the user is
+    # visible to the background thread.  The email dispatch itself is
+    # non-blocking (daemon thread) so registration response time is unaffected.
+    if _needs_email_verification:
+        try:
+            from helpdesk.email_verification import send_verification_email
+            send_verification_email(instance)
+        except Exception as exc:
+            logger.error(
+                'Failed to queue verification email for %s: %s',
+                instance.email, exc,
+            )
 
 
 # ---------------------------------------------------------------------------

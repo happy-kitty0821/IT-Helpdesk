@@ -207,3 +207,19 @@ SPECTACULAR_SETTINGS = {
     'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
     'REDOC_DIST': 'SIDECAR',
 }
+
+# ── Email (Django standard settings used by email_verification.py) ──────────
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',  # safe default for dev
+)
+EMAIL_HOST         = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT         = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS      = os.environ.get('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_HOST_USER    = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+
+# Verification settings
+VERIFICATION_FROM_EMAIL        = os.environ.get('VERIFICATION_FROM_EMAIL', 'noreply@iic.edu.np')
+VERIFICATION_TOKEN_EXPIRY_HOURS = int(os.environ.get('VERIFICATION_TOKEN_EXPIRY_HOURS', '24'))
+EMAIL_VERIFICATION_ENABLED     = os.environ.get('EMAIL_VERIFICATION_ENABLED', 'true').lower() != 'false'

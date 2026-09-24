@@ -184,6 +184,15 @@ class UserProfile(models.Model):
         max_length=500, blank=True, default="",
         help_text="Reason shown to the user when their account is suspended.",
     )
+    # Email ownership verification — set to True once the user clicks their link
+    email_verified    = models.BooleanField(
+        default=False, db_index=True,
+        help_text="True once the user has clicked their verification link.",
+    )
+    email_verified_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when email was first verified.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -782,3 +791,137 @@ class RateLimitViolation(models.Model):
 
     def __str__(self):
         return f'{self.rule.scope} violation by {self.identifier} at {self.created_at}'
+
+
+# ---------------------------------------------------------------------------
+# Email ownership verification
+# ---------------------------------------------------------------------------
+
+import hashlib
+import secrets
+
+
+class EmailVerificationToken(models.Model):
+    """
+    A single-use, time-limited token sent to a newly registered user to prove
+    they control the submitted @iic.edu.np email address.
+
+    Security properties
+    ───────────────────
+    - The raw token (32 random bytes → 64-char hex string) is NEVER stored in
+      the database.  Only a SHA-256 hex digest of it is persisted so that a
+      database compromise cannot be used to activate accounts.
+    - The token is single-use: verified_at is set on first use and subsequent
+      attempts against the same row are rejected.
+    - The token expires after VERIFICATION_TOKEN_EXPIRY_HOURS (default 24 h).
+    - Each user has at most one pending token at a time; creating a new one
+      invalidates previous rows (they are deleted).
+    - The token is bound to exactly one user; it cannot activate a different
+      account.
+
+    Usage
+    ─────
+    # Generate and store:
+    raw, token = EmailVerificationToken.create_for_user(user)
+    # send `raw` in the email — never store it
+
+    # Verify:
+    EmailVerificationToken.verify(raw_token_from_email)
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='verification_tokens',
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text='SHA-256 hex digest of the raw token. Raw token is never stored.',
+    )
+    created_at   = models.DateTimeField(auto_now_add=True)
+    expires_at   = models.DateTimeField(db_index=True)
+    verified_at  = models.DateTimeField(null=True, blank=True)
+    # Track attempt count to support rate-limiting at the model level
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Email verification token'
+        verbose_name_plural = 'Email verification tokens'
+        indexes = [
+            models.Index(fields=['user', 'verified_at'], name='evtoken_user_verified_idx'),
+        ]
+
+    def __str__(self):
+        status_label = 'used' if self.verified_at else ('expired' if self.is_expired() else 'pending')
+        return f'EmailVerificationToken({self.user}, {status_label})'
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    def is_valid(self) -> bool:
+        return self.verified_at is None and not self.is_expired()
+
+    # ── Class-level factory ───────────────────────────────────────────────────
+
+    @classmethod
+    def _token_hash(cls, raw_token: str) -> str:
+        return hashlib.sha256(raw_token.encode()).hexdigest()
+
+    @classmethod
+    def create_for_user(cls, user) -> tuple:
+        """
+        Generate a new verification token for *user*.
+
+        Deletes any previous unverified tokens for this user (so there is
+        always at most one pending token per account).
+
+        Returns (raw_token: str, instance: EmailVerificationToken).
+        The raw_token must be sent to the user's email and MUST NOT be stored
+        or logged anywhere.
+        """
+        from django.conf import settings as _s
+        expiry_hours = int(getattr(_s, 'VERIFICATION_TOKEN_EXPIRY_HOURS', 24))
+
+        # Delete previous pending tokens for this user (not already verified)
+        cls.objects.filter(user=user, verified_at__isnull=True).delete()
+
+        raw_token = secrets.token_hex(32)          # 256 bits of entropy → 64 hex chars
+        token_hash = cls._token_hash(raw_token)
+        expires_at = timezone.now() + timezone.timedelta(hours=expiry_hours)
+
+        instance = cls.objects.create(
+            user=user,
+            token_hash=token_hash,
+            expires_at=expires_at,
+        )
+        return raw_token, instance
+
+    @classmethod
+    def verify(cls, raw_token: str):
+        """
+        Validate *raw_token* and return the matching instance if valid.
+
+        Raises ValueError with a deliberately generic message on any failure
+        to avoid leaking information about token existence or expiry.
+        """
+        token_hash = cls._token_hash(raw_token)
+        try:
+            token = cls.objects.select_related('user').get(token_hash=token_hash)
+        except cls.DoesNotExist:
+            raise ValueError('Verification link is invalid or has already been used.')
+
+        # Increment attempt counter and save regardless of outcome
+        cls.objects.filter(pk=token.pk).update(attempt_count=models.F('attempt_count') + 1)
+        token.refresh_from_db(fields=['attempt_count'])
+
+        if token.verified_at is not None:
+            raise ValueError('Verification link is invalid or has already been used.')
+
+        if token.is_expired():
+            raise ValueError('Verification link has expired. Please request a new one.')
+
+        return token

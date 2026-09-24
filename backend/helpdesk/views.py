@@ -117,9 +117,21 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegistrationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        login(request, user, backend='helpdesk.authentication.EmailOrUsernameBackend')
-        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+        # create_user() fires post_save which sets is_active=False
+        # and dispatches the verification email in a background thread.
+        serializer.save()
+        # DO NOT call login() here — account is inactive until email is verified.
+        return Response(
+            {
+                'detail': (
+                    'Registration successful. A verification email has been sent '
+                    'to your @iic.edu.np address. Please click the link to '
+                    'activate your account.'
+                ),
+                'code': 'email_verification_required',
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 @method_decorator(csrf_protect, name='dispatch')
@@ -146,7 +158,10 @@ class LoginView(APIView):
             candidate = None
 
         if candidate is not None and not candidate.is_active:
-            # Check whether this is a suspension (profile exists with is_suspended=True)
+            # Distinguish three inactive states:
+            #   1. Email not yet verified (email_verified=False, is_suspended=False)
+            #   2. Account suspended by administrator
+            #   3. Generic admin-deactivated account
             try:
                 profile = candidate.profile
                 if profile.is_suspended:
@@ -159,14 +174,24 @@ class LoginView(APIView):
                         },
                         status=status.HTTP_403_FORBIDDEN,
                     )
+                if not profile.email_verified:
+                    return Response(
+                        {
+                            'code': 'email_not_verified',
+                            'detail': (
+                                'Your email address has not been verified. '
+                                'Please check your inbox for the verification '
+                                'link, or request a new one.'
+                            ),
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
             except Exception:
                 pass
-            # is_active=False but not a suspension — generic inactive response
             return Response(
                 {'detail': 'This account is inactive. Contact IT support.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-
         user = authenticate(request, username=identifier, password=password)
         if user is None:
             return Response({'detail': 'Invalid username/email or password.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -222,18 +247,51 @@ class GoogleLoginView(APIView):
             while User.objects.filter(username__iexact=username).exists():
                 suffix += 1
                 username = f'{base}.{suffix}'
-            user = User.objects.create_user(
-                username=username,
-                email=email,
+            # Mark the instance so the post_save signal knows Google already
+            # verified ownership and should NOT set is_active=False.
+            new_user = User(
+                username=username, email=email,
                 first_name=identity.get('given_name', '')[:150],
                 last_name=identity.get('family_name', '')[:150],
             )
-            user.set_unusable_password()
-            user.save(update_fields=('password',))
+            new_user.set_unusable_password()
+            new_user._email_verified_by_google = True  # read by post_save signal
+            new_user.save()
+            user = new_user
+
+        # For existing inactive users: if they registered via password and never
+        # verified, but now log in with Google (same email), treat Google's
+        # identity.email_verified=True as proof of ownership and activate them.
+        if not user.is_active:
+            try:
+                profile = user.profile
+                if profile.is_suspended:
+                    return Response(
+                        {'code': 'account_suspended',
+                         'detail': 'Your account has been suspended.'},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+                if not profile.email_verified:
+                    from django.utils import timezone as _tz
+                    with transaction.atomic():
+                        user.is_active = True
+                        user.save(update_fields=['is_active'])
+                        profile.email_verified    = True
+                        profile.email_verified_at = _tz.now()
+                        profile.save(update_fields=['email_verified', 'email_verified_at'])
+            except Exception:
+                return Response(
+                    {'detail': 'This account is inactive. Contact IT support.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         if not user.is_active:
-            return Response({'detail': 'This account is inactive.'}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {'detail': 'This account is inactive. Contact IT support.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         login(request, user, backend='helpdesk.authentication.EmailOrUsernameBackend')
+        return Response(UserSerializer(user).data)
         return Response(UserSerializer(user).data)
 
 
@@ -2439,3 +2497,129 @@ class RateLimitSeedView(APIView):
             'created': after - before,
             'total':   after,
         }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Email verification views
+# ---------------------------------------------------------------------------
+
+class VerifyEmailView(APIView):
+    """
+    POST /api/v1/auth/verify-email/
+         { "token": "<raw_token_from_email>" }
+
+    Validates the single-use token, activates the account, and marks the
+    email as verified.  Returns 200 with the user's session data so the
+    frontend can log the user in immediately after verification.
+
+    Security properties
+    ───────────────────
+    - All error responses use the same generic message regardless of failure
+      reason (invalid token / expired / already used / wrong user) to prevent
+      information disclosure.
+    - The token is looked up by its SHA-256 hash; the raw token is never
+      stored or logged.
+    - Verification attempts are rate-limited at the throttle layer.
+    - After successful verification a session is established so the user
+      does not have to log in separately.
+    """
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = (AuthLoginThrottle,)   # reuse login rate limit
+
+    @method_decorator(csrf_protect)
+    def post(self, request):
+        raw_token = (request.data.get('token') or '').strip()
+        if not raw_token:
+            return Response(
+                {'detail': 'Verification token is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from .email_verification import verify_token_and_activate
+        try:
+            user = verify_token_and_activate(raw_token)
+        except ValueError as exc:
+            return Response(
+                {'detail': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Log the user in immediately — they just proved email ownership.
+        login(request, user, backend='helpdesk.authentication.EmailOrUsernameBackend')
+        return Response(
+            {
+                'detail': 'Email verified. Your account is now active.',
+                'user': UserSerializer(user).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ResendVerificationView(APIView):
+    """
+    POST /api/v1/auth/resend-verification/
+         { "email": "<user@iic.edu.np>" }
+
+    Generates a fresh verification token and dispatches the verification
+    email.
+
+    Security properties
+    ───────────────────
+    - Response is deliberately generic regardless of whether the email is
+      registered, already verified, or unrecognised — prevents account
+      enumeration.
+    - Rate-limited to prevent email flooding.
+    - The previous token is invalidated when a new one is created.
+    - Does nothing if the account is already verified.
+    """
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = (AuthRegisterThrottle,)  # same 5/hour limit
+
+    @method_decorator(csrf_protect)
+    def post(self, request):
+        from .email_verification import send_verification_email
+
+        # Generic response used in ALL cases to prevent enumeration
+        _generic = Response(
+            {
+                'detail': (
+                    'If that email address is registered and awaiting verification, '
+                    'a new verification email has been sent.'
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+        email = (request.data.get('email') or '').strip().lower()
+        if not email:
+            return _generic
+
+        # Domain check — don't reveal whether the domain matters
+        if not email_domain_allowed(email):
+            return _generic
+
+        User = get_user_model()
+        try:
+            user = User.objects.select_related('profile').get(email__iexact=email)
+        except User.DoesNotExist:
+            return _generic
+
+        # If already verified and active — silently succeed
+        try:
+            if user.profile.email_verified and user.is_active:
+                return _generic
+        except Exception:
+            return _generic
+
+        # If suspended — silently succeed (do not reveal suspension)
+        try:
+            if user.profile.is_suspended:
+                return _generic
+        except Exception:
+            return _generic
+
+        # Re-send verification email (creates new token, invalidates old one)
+        send_verification_email(user)
+        return _generic

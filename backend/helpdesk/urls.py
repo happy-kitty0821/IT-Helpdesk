@@ -58,6 +58,8 @@ from .views import (
     UserRoleDetail,
     UserRoleListCreate,
     health,
+    VerifyEmailView,
+    ResendVerificationView,
 )
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -73,6 +75,8 @@ urlpatterns = [
     re_path(r'^auth/login/?$',     LoginView.as_view(),       name='auth-login'),
     re_path(r'^auth/google/?$',    GoogleLoginView.as_view(), name='auth-google'),
     re_path(r'^auth/logout/?$',    LogoutView.as_view(),      name='auth-logout'),
+    re_path(r'^auth/verify-email/?$',     VerifyEmailView.as_view(),      name='auth-verify-email'),
+    re_path(r'^auth/resend-verification/?$', ResendVerificationView.as_view(), name='auth-resend-verification'),
 
     path('services/', ServiceCategoryList.as_view(), name='service-list'),
 
