@@ -974,9 +974,11 @@ class EmailConfigServiceTests(TestCase):
         self.assertEqual(get_verification_expiry_hours(), 48)
 
     def test_apply_mailers_override_updates_settings(self):
-        """apply_mailers_override() must update settings.MAILERS["default"]."""
+        """apply_mailers_override() must update settings.MAILERS["default"].
+        Django 6.1: only MAILERS is updated — EMAIL_* settings must not be touched.
+        """
         from django.conf import settings
-        original_backend = settings.MAILERS['default']['BACKEND']
+        original = dict(settings.MAILERS['default'])
 
         EmailConfiguration.objects.create(
             backend=_CONSOLE,
@@ -987,15 +989,22 @@ class EmailConfigServiceTests(TestCase):
 
         self.assertEqual(
             settings.MAILERS['default']['BACKEND'], _CONSOLE,
-            'apply_mailers_override must update settings.MAILERS["default"]',
+            'apply_mailers_override must update settings.MAILERS["default"]["BACKEND"]',
         )
         self.assertEqual(
             settings.MAILERS['default']['OPTIONS'], {},
             'Console backend must have empty OPTIONS after override',
         )
+        # Django 6.1: confirm no EMAIL_* attributes were created on settings
+        # (accessing them raises AttributeError when MAILERS is defined)
+        self.assertFalse(
+            hasattr(settings, '_explicit_settings') and 'EMAIL_BACKEND' in
+            getattr(settings, '_explicit_settings', set()),
+            'apply_mailers_override must NOT set EMAIL_BACKEND (Django 6.1 forbids it)',
+        )
 
         # Restore for other tests
-        settings.MAILERS['default']['BACKEND'] = original_backend
+        settings.MAILERS['default'] = original
 
 
 @DISABLE_EMAIL

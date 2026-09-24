@@ -334,29 +334,10 @@ class EmailConfigurationAdmin(admin.ModelAdmin):
 
         # Temporarily apply this configuration for the test send
         from django.conf import settings as _settings
-        # Save originals — Django 5.2 reads EMAIL_* settings, not MAILERS
-        _orig_backend   = getattr(_settings, 'EMAIL_BACKEND', None)
-        _orig_host      = getattr(_settings, 'EMAIL_HOST', None)
-        _orig_port      = getattr(_settings, 'EMAIL_PORT', None)
-        _orig_use_tls   = getattr(_settings, 'EMAIL_USE_TLS', None)
-        _orig_use_ssl   = getattr(_settings, 'EMAIL_USE_SSL', None)
-        _orig_user      = getattr(_settings, 'EMAIL_HOST_USER', None)
-        _orig_password  = getattr(_settings, 'EMAIL_HOST_PASSWORD', None)
-        _orig_timeout   = getattr(_settings, 'EMAIL_TIMEOUT', None)
-        _orig_mailers   = dict(_settings.MAILERS)
-
-        # Apply the test configuration to both Django EMAIL_* and our MAILERS dict
-        effective = cfg.to_mailer_dict()
-        opts = effective.get('OPTIONS', {})
-        _settings.EMAIL_BACKEND       = effective['BACKEND']
-        _settings.EMAIL_HOST          = opts.get('host',    'localhost')
-        _settings.EMAIL_PORT          = opts.get('port',    587)
-        _settings.EMAIL_USE_TLS       = opts.get('use_tls', True)
-        _settings.EMAIL_USE_SSL       = opts.get('use_ssl', False)
-        _settings.EMAIL_HOST_USER     = opts.get('username', '')
-        _settings.EMAIL_HOST_PASSWORD = opts.get('password', '')
-        _settings.EMAIL_TIMEOUT       = opts.get('timeout',  30)
-        _settings.MAILERS['default']  = effective
+        # Save original and temporarily apply test config.
+        # Django 6.1: only MAILERS is modified — never EMAIL_* settings.
+        _orig_mailers = dict(_settings.MAILERS)
+        _settings.MAILERS['default'] = cfg.to_mailer_dict()
 
         try:
             from django.core.mail import send_mail as _send_mail
@@ -404,15 +385,7 @@ class EmailConfigurationAdmin(admin.ModelAdmin):
                 # Deliberately NOT logging exc.args — may contain SMTP auth details
             )
         finally:
-            # Restore all original EMAIL_* settings and MAILERS
-            if _orig_backend  is not None: _settings.EMAIL_BACKEND       = _orig_backend
-            if _orig_host     is not None: _settings.EMAIL_HOST          = _orig_host
-            if _orig_port     is not None: _settings.EMAIL_PORT          = _orig_port
-            if _orig_use_tls  is not None: _settings.EMAIL_USE_TLS       = _orig_use_tls
-            if _orig_use_ssl  is not None: _settings.EMAIL_USE_SSL       = _orig_use_ssl
-            if _orig_user     is not None: _settings.EMAIL_HOST_USER     = _orig_user
-            if _orig_password is not None: _settings.EMAIL_HOST_PASSWORD = _orig_password
-            if _orig_timeout  is not None: _settings.EMAIL_TIMEOUT       = _orig_timeout
+            # Restore original MAILERS (Django 6.1 — no EMAIL_* to restore)
             _settings.MAILERS = _orig_mailers
 
     # ── Singleton: hide "Add another" when one row already exists ─────────
