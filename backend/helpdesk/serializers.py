@@ -331,13 +331,15 @@ class GuideArticleSerializer(serializers.ModelSerializer):
 class AdminUserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
+    is_suspended = serializers.SerializerMethodField()
+    suspension_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = get_user_model()
         fields = (
             'id', 'username', 'email', 'first_name', 'last_name', 'name',
             'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
-            'roles',
+            'roles', 'is_suspended', 'suspension_reason',
         )
         read_only_fields = ('username', 'email', 'name', 'date_joined', 'last_login')
 
@@ -357,6 +359,18 @@ class AdminUserSerializer(serializers.ModelSerializer):
         # Fallback: hit the database directly.
         from helpdesk.permissions import get_user_roles
         return sorted(get_user_roles(obj))
+
+    def get_is_suspended(self, obj):
+        try:
+            return obj.profile.is_suspended
+        except Exception:
+            return False
+
+    def get_suspension_reason(self, obj):
+        try:
+            return obj.profile.suspension_reason if obj.profile.is_suspended else ''
+        except Exception:
+            return ''
 
     def validate(self, attrs):
         request = self.context.get('request')

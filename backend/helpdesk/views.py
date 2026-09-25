@@ -696,7 +696,9 @@ class AdminUserList(generics.ListCreateAPIView):
     serializer_class = AdminUserSerializer
 
     def get_queryset(self):
-        queryset = get_user_model().objects.prefetch_related('rolegrant_set').order_by('-is_superuser', '-is_staff', 'first_name', 'username')
+        queryset = get_user_model().objects.prefetch_related(
+            'rolegrant_set', 'profile',
+        ).order_by('-is_superuser', '-is_staff', 'first_name', 'username')
         query = self.request.query_params.get('q', '').strip()
         if query:
             queryset = queryset.filter(
