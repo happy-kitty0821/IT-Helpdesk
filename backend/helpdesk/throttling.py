@@ -254,6 +254,9 @@ class AdminBulkThrottle(DatabaseScopedThrottle):
 class ExportThrottle(DatabaseScopedThrottle):
     scope = 'export'
 
+class ChangePasswordThrottle(DatabaseScopedThrottle):
+    scope = 'change_password'
+
 
 # ── Seed helper ──────────────────────────────────────────────────────────────
 
@@ -269,6 +272,7 @@ DEFAULT_RULES = [
     ('admin_user_write', 'Admin user management writes',           60,    'hour',   'block',   0),
     ('admin_bulk',       'Admin bulk / write operations',         120,    'hour',   'warn',   10),
     ('export',           'Ticket export downloads',                 5,    'hour',   'block',   0),
+    ('change_password',  'Password change attempts',                5,    'hour',   'block',   0),
 ]
 
 SCOPE_DESCRIPTIONS = {
@@ -282,6 +286,7 @@ SCOPE_DESCRIPTIONS = {
     'admin_user_write': 'Limits write operations on user accounts (create, patch, suspend, delete) per admin.',
     'admin_bulk':       'Limits write operations across all other admin endpoints per staff user.',
     'export':           'Limits how many Excel ticket exports can be downloaded per user per hour.',
+    'change_password':  'Limits password change attempts per authenticated user per hour to prevent brute-force attacks against the current password.',
 }
 
 

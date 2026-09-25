@@ -19,6 +19,7 @@ from .throttling import (
     AuthLoginThrottle, AuthRegisterThrottle, AuthGoogleThrottle,
     TicketCreateThrottle, TicketMessageThrottle, TicketStatusThrottle,
     PublicApiThrottle, AdminUserWriteThrottle, AdminBulkThrottle, ExportThrottle,
+    ChangePasswordThrottle,
 )
 from rest_framework.views import APIView
 
@@ -2863,6 +2864,7 @@ class ChangePasswordView(APIView):
 
     Requires the user to supply their current password as confirmation.
     """
+    throttle_classes = (ChangePasswordThrottle,)
 
     def post(self, request):
         from django.contrib.auth.password_validation import validate_password
