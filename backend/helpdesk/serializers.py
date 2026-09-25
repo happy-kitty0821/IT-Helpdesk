@@ -197,14 +197,31 @@ class TicketSerializer(serializers.ModelSerializer):
 
     def validate_subject(self, value):
         value = value.strip()
-        if len(value) < 5:
-            raise serializers.ValidationError('Use at least 5 characters.')
+        settings = TicketFormSettings.get()
+        if settings.subject_required and len(value) < settings.subject_min_len:
+            raise serializers.ValidationError(
+                f'Use at least {settings.subject_min_len} characters.'
+            )
+        if len(value) > settings.subject_max_len:
+            raise serializers.ValidationError(
+                f'Subject must be {settings.subject_max_len} characters or fewer.'
+            )
         return value
 
     def validate_description(self, value):
         value = value.strip()
-        if len(value) < 20:
-            raise serializers.ValidationError('Describe the issue in at least 20 characters.')
+        settings = TicketFormSettings.get()
+        # If the admin marked description as not required, allow an empty value
+        if not settings.description_required and not value:
+            return value
+        if settings.description_required and len(value) < settings.description_min_len:
+            raise serializers.ValidationError(
+                f'Describe the issue in at least {settings.description_min_len} characters.'
+            )
+        if value and len(value) > settings.description_max_len:
+            raise serializers.ValidationError(
+                f'Description must be {settings.description_max_len} characters or fewer.'
+            )
         return value
 
     def validate(self, attrs):
@@ -238,14 +255,30 @@ class TicketUpdateSerializer(serializers.ModelSerializer):
 
     def validate_subject(self, value):
         value = value.strip()
-        if len(value) < 5:
-            raise serializers.ValidationError('Use at least 5 characters.')
+        settings = TicketFormSettings.get()
+        if settings.subject_required and len(value) < settings.subject_min_len:
+            raise serializers.ValidationError(
+                f'Use at least {settings.subject_min_len} characters.'
+            )
+        if len(value) > settings.subject_max_len:
+            raise serializers.ValidationError(
+                f'Subject must be {settings.subject_max_len} characters or fewer.'
+            )
         return value
 
     def validate_description(self, value):
         value = value.strip()
-        if len(value) < 20:
-            raise serializers.ValidationError('Describe the issue in at least 20 characters.')
+        settings = TicketFormSettings.get()
+        if not settings.description_required and not value:
+            return value
+        if settings.description_required and len(value) < settings.description_min_len:
+            raise serializers.ValidationError(
+                f'Describe the issue in at least {settings.description_min_len} characters.'
+            )
+        if value and len(value) > settings.description_max_len:
+            raise serializers.ValidationError(
+                f'Description must be {settings.description_max_len} characters or fewer.'
+            )
         return value
 
 
