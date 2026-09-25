@@ -142,6 +142,9 @@ class TicketSerializer(serializers.ModelSerializer):
     elapsed = serializers.SerializerMethodField()
     status_reason = serializers.CharField(read_only=True)
     current_stage = serializers.CharField(read_only=True)
+    # Declared explicitly so DRF does not infer allow_blank=False from the model.
+    # Our validate_description() reads TicketFormSettings to decide whether blank is ok.
+    description = serializers.CharField(allow_blank=True, required=False, default='')
 
     class Meta:
         model = Ticket
@@ -248,6 +251,8 @@ class TicketUpdateSerializer(serializers.ModelSerializer):
         allow_null=True,
         required=False,
     )
+    # Allow blank so DRF doesn't reject empty strings before validate_description runs.
+    description = serializers.CharField(allow_blank=True, required=False, default='')
 
     class Meta:
         model = Ticket
