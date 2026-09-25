@@ -22,11 +22,13 @@ class UserSerializer(serializers.ModelSerializer):
     is_suspended = serializers.SerializerMethodField()
     suspension_reason = serializers.SerializerMethodField()
     email_verified = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = get_user_model()
         fields = ('id', 'username', 'email', 'name', 'is_staff', 'is_superuser',
-                  'roles', 'category_scope', 'is_suspended', 'suspension_reason', 'email_verified')
+                  'roles', 'category_scope', 'is_suspended', 'suspension_reason',
+                  'email_verified', 'avatar_url')
 
     def get_name(self, obj):
         return obj.get_full_name() or obj.username
@@ -57,6 +59,12 @@ class UserSerializer(serializers.ModelSerializer):
             return obj.profile.email_verified
         except Exception:
             return False
+
+    def get_avatar_url(self, obj):
+        try:
+            return obj.profile.avatar_url or ''
+        except Exception:
+            return ''
 
 class RegistrationSerializer(serializers.Serializer):
     username = serializers.RegexField(r'^[A-Za-z0-9._-]+$', min_length=3, max_length=150)
@@ -788,6 +796,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     username         = serializers.CharField(read_only=True)
     email            = serializers.CharField(read_only=True)
     email_verified   = serializers.SerializerMethodField()
+    avatar_url       = serializers.SerializerMethodField()
     programme        = serializers.CharField(
         source='profile.programme', allow_blank=True, default='',
         max_length=200,
@@ -803,15 +812,21 @@ class ProfileSerializer(serializers.ModelSerializer):
             'id', 'username', 'email',
             'first_name', 'last_name',
             'programme', 'department',
-            'email_verified',
+            'email_verified', 'avatar_url',
         )
-        read_only_fields = ('id', 'username', 'email', 'email_verified')
+        read_only_fields = ('id', 'username', 'email', 'email_verified', 'avatar_url')
 
     def get_email_verified(self, obj):
         try:
             return obj.profile.email_verified
         except Exception:
             return False
+
+    def get_avatar_url(self, obj):
+        try:
+            return obj.profile.avatar_url or ''
+        except Exception:
+            return ''
 
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('profile', {})

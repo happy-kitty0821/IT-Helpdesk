@@ -21,6 +21,7 @@ interface ProfileData {
   programme: string;
   department: string;
   email_verified: boolean;
+  avatar_url: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -56,6 +57,9 @@ export default function ProfilePage() {
 
   // ── Active tab ────────────────────────────────────────────────────────────
   const [tab, setTab] = useState<"details" | "security">("details");
+
+  // ── Avatar image error fallback (Google picture failed to load) ───────────
+  const [imgError, setImgError] = useState(false);
 
   // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -162,6 +166,7 @@ export default function ProfilePage() {
 
   const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.username;
   const avatar   = initials(fullName, profile.username);
+  const showPicture = !!profile.avatar_url && !imgError;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -179,14 +184,27 @@ export default function ProfilePage() {
           display: "flex", alignItems: "center", gap: 20,
           marginBottom: 36,
         }}>
-          <div style={{
-            width: 72, height: 72, borderRadius: 18,
-            background: "linear-gradient(145deg,#254798,#183474)",
-            color: "#fff", fontSize: "1.5rem", fontWeight: 900,
-            display: "grid", placeItems: "center", flexShrink: 0,
-          }}>
-            {avatar || <User size={32} aria-hidden="true" />}
-          </div>
+          {showPicture ? (
+            <img
+              src={profile.avatar_url}
+              alt={fullName}
+              onError={() => setImgError(true)}
+              style={{
+                width: 72, height: 72, borderRadius: 18,
+                objectFit: "cover", flexShrink: 0,
+                border: "2px solid var(--border)",
+              }}
+            />
+          ) : (
+            <div style={{
+              width: 72, height: 72, borderRadius: 18,
+              background: "linear-gradient(145deg,#254798,#183474)",
+              color: "#fff", fontSize: "1.5rem", fontWeight: 900,
+              display: "grid", placeItems: "center", flexShrink: 0,
+            }}>
+              {avatar || <User size={32} aria-hidden="true" />}
+            </div>
+          )}
           <div>
             <h1 style={{ margin: 0, fontSize: "clamp(1.6rem,3vw,2.4rem)", letterSpacing: "-.03em" }}>
               {fullName}

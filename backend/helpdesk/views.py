@@ -258,6 +258,12 @@ class GoogleLoginView(APIView):
             new_user._email_verified_by_google = True  # read by post_save signal
             new_user.save()
             user = new_user
+            # Persist Google profile picture for newly created users.
+            # The post_save signal already created the UserProfile row.
+            picture = identity.get('picture', '')[:500]
+            if picture:
+                from .models import UserProfile
+                UserProfile.objects.filter(user=user).update(avatar_url=picture)
 
         # For existing inactive users: if they registered via password and never
         # verified, but now log in with Google (same email), treat Google's
@@ -290,8 +296,15 @@ class GoogleLoginView(APIView):
                 {'detail': 'This account is inactive. Contact IT support.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        # Keep avatar_url fresh for returning Google users — Google can rotate
+        # the picture URL, so update it on every successful sign-in.
+        picture = identity.get('picture', '')[:500]
+        if picture:
+            from .models import UserProfile
+            UserProfile.objects.filter(user=user).update(avatar_url=picture)
+
         login(request, user, backend='helpdesk.authentication.EmailOrUsernameBackend')
-        return Response(UserSerializer(user).data)
         return Response(UserSerializer(user).data)
 
 

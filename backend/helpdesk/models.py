@@ -193,6 +193,13 @@ class UserProfile(models.Model):
         null=True, blank=True,
         help_text="Timestamp when email was first verified.",
     )
+    # Google OAuth profile picture — populated when the user signs in via Google.
+    # Stored as a URL so no binary data is kept in the database.
+    avatar_url = models.URLField(
+        blank=True, default='',
+        max_length=500,
+        help_text="Google profile picture URL (empty for password-registered users).",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -16,6 +16,8 @@ export type AuthUser = {
   // Suspension fields — populated by UserSerializer from UserProfile
   is_suspended: boolean;
   suspension_reason: string;
+  // Google OAuth profile picture URL; empty string for password-registered users
+  avatar_url: string;
 };
 
 // Staff roles that get access to the management portal
