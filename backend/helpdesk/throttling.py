@@ -309,3 +309,57 @@ def seed_default_rules() -> None:
                 'is_active':           True,
             },
         )
+
+
+# ── Custom DRF exception handler ─────────────────────────────────────────────
+
+def _format_wait(seconds: int) -> str:
+    """Convert a wait time in seconds to a human-readable string."""
+    if seconds < 60:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours = minutes // 60
+    remaining_minutes = minutes % 60
+    if remaining_minutes == 0:
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return f"{hours} hour{'s' if hours != 1 else ''} and {remaining_minutes} minute{'s' if remaining_minutes != 1 else ''}"
+
+
+def custom_exception_handler(exc, context):
+    """
+    DRF exception handler that replaces the default machine-readable
+    throttle message ("Request was throttled. Expected available in N seconds.")
+    with a clear, user-friendly explanation.
+
+    Register in settings.py under REST_FRAMEWORK:
+        'EXCEPTION_HANDLER': 'helpdesk.throttling.custom_exception_handler'
+    """
+    from rest_framework.views import exception_handler
+    from rest_framework.exceptions import Throttled
+    from rest_framework.response import Response
+    from rest_framework import status
+
+    response = exception_handler(exc, context)
+
+    if isinstance(exc, Throttled):
+        wait = exc.wait  # float | None — seconds until the window resets
+        if wait is not None:
+            wait_secs = max(1, int(wait))
+            wait_str = _format_wait(wait_secs)
+            detail = (
+                f"You've made too many requests. "
+                f"Please wait {wait_str} before trying again."
+            )
+        else:
+            detail = (
+                "You've made too many requests. "
+                "Please wait a moment before trying again."
+            )
+        return Response(
+            {"detail": detail, "code": "throttled"},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    return response
