@@ -1027,7 +1027,8 @@ class AccountRecoveryCodeView(APIView):
         except Ticket.DoesNotExist:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        if ticket.category.slug != 'account-recovery':
+        _RECOVERY_SLUGS = {'account-recovery', 'college-account-recovery'}
+        if ticket.category.slug not in _RECOVERY_SLUGS:
             return Response(
                 {'detail': 'This endpoint is only for account recovery tickets.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1073,6 +1074,191 @@ class AccountRecoveryCodeView(APIView):
             'backup_code': backup_code,
             'temp_password': temp_password,
             'message': f'Recovery code sent to {requester.email}.',
+        })
+
+
+# ---------------------------------------------------------------------------
+# Recovery action dispatcher
+# ---------------------------------------------------------------------------
+
+class RecoveryActionView(APIView):
+    """
+    POST /api/v1/tickets/{pk}/recovery-action/
+
+    Unified endpoint for all admin actions on an account-recovery ticket.
+
+    Body
+    ────
+    {
+      "action": "send_credentials" | "unable_to_verify" | "close_ticket",
+      "close_reason": "...",   // only for close_ticket (optional, max 500 chars)
+    }
+
+    Actions
+    ───────
+    send_credentials
+        • Generates a fresh 8-digit backup code + 12-char temporary password.
+        • Saves them to AccountRecoveryToken (upsert, resets is_used).
+        • Emails them to the requester via the `account_recovery` email template.
+        • Returns { backup_code, temp_password } so the admin can read them out
+          in person / over the counter as a double-check.
+
+    unable_to_verify
+        • Sends a `recovery_unable_to_verify` notification email to the requester
+          explaining that their identity could not be confirmed.
+        • Does NOT close the ticket — the admin can do that separately or later.
+        • Returns { detail } confirmation.
+
+    close_ticket
+        • Sets the ticket status to "closed" with an optional reason.
+        • Does NOT send an email (use a separate message/reply for that).
+        • Returns { detail } confirmation.
+
+    Permission: IsServiceLead (service leads + administrators).
+    """
+    permission_classes = (IsServiceLead,)
+
+    _RECOVERY_SLUGS = frozenset({'account-recovery', 'college-account-recovery'})
+
+    def _get_ticket(self, pk):
+        try:
+            return Ticket.objects.select_related('requester', 'category').get(pk=pk)
+        except Ticket.DoesNotExist:
+            return None
+
+    def _check_is_recovery(self, ticket):
+        return ticket.category.slug in self._RECOVERY_SLUGS
+
+    # ── POST ──────────────────────────────────────────────────────────────────
+
+    def post(self, request, pk):
+        from .notifications import send_event
+        from .signals import get_helpdesk_url
+
+        ticket = self._get_ticket(pk)
+        if ticket is None:
+            return Response({'detail': 'Ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not self._check_is_recovery(ticket):
+            return Response(
+                {'detail': 'This action is only available for account recovery tickets.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        action = str(request.data.get('action', '')).strip()
+        if action not in ('send_credentials', 'unable_to_verify', 'close_ticket'):
+            return Response(
+                {'detail': 'Invalid action. Choose send_credentials, unable_to_verify, or close_ticket.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        requester = ticket.requester
+        if requester is None:
+            return Response({'detail': 'Ticket has no requester.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Action: send_credentials ──────────────────────────────────────────
+        if action == 'send_credentials':
+            return self._send_credentials(request, ticket, requester, send_event, get_helpdesk_url)
+
+        # ── Action: unable_to_verify ──────────────────────────────────────────
+        if action == 'unable_to_verify':
+            return self._unable_to_verify(request, ticket, requester, send_event, get_helpdesk_url)
+
+        # ── Action: close_ticket ──────────────────────────────────────────────
+        return self._close_ticket(request, ticket)
+
+    # ── send_credentials ──────────────────────────────────────────────────────
+
+    def _send_credentials(self, request, ticket, requester, send_event, get_helpdesk_url):
+        import random, string
+        backup_code   = ''.join(random.choices(string.digits, k=8))
+        temp_password = ''.join(
+            random.choices(string.ascii_letters + string.digits + '!@#$', k=12)
+        )
+
+        AccountRecoveryToken.objects.update_or_create(
+            ticket=ticket,
+            defaults={
+                'backup_code':    backup_code,
+                'temp_password':  temp_password,
+                'is_used':        False,
+                'used_at':        None,
+            },
+        )
+
+        ctx = {
+            'ticket_reference': ticket.reference,
+            'ticket_subject':   ticket.subject,
+            'requester_name':   requester.get_full_name() or requester.username,
+            'requester_email':  requester.email,
+            'to_email':         requester.email,
+            'college_email':    requester.email,
+            'support_email':    'support@iic.edu.np',
+            'backup_code':      backup_code,
+            'temp_password':    temp_password,
+            'helpdesk_url':     get_helpdesk_url(),
+        }
+        try:
+            send_event('account_recovery', ctx, ticket=ticket)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception(
+                'RecoveryActionView: error sending account_recovery email: %s', exc
+            )
+
+        return Response({
+            'action':       'send_credentials',
+            'backup_code':  backup_code,
+            'temp_password': temp_password,
+            'message':      f'Credentials emailed to {requester.email}.',
+        })
+
+    # ── unable_to_verify ──────────────────────────────────────────────────────
+
+    def _unable_to_verify(self, request, ticket, requester, send_event, get_helpdesk_url):
+        ctx = {
+            'ticket_reference': ticket.reference,
+            'ticket_subject':   ticket.subject,
+            'requester_name':   requester.get_full_name() or requester.username,
+            'requester_email':  requester.email,
+            'to_email':         requester.email,
+            'college_email':    requester.email,
+            'support_email':    'support@iic.edu.np',
+            'helpdesk_url':     get_helpdesk_url(),
+        }
+        try:
+            send_event('recovery_unable_to_verify', ctx, ticket=ticket)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception(
+                'RecoveryActionView: error sending recovery_unable_to_verify email: %s', exc
+            )
+
+        return Response({
+            'action':  'unable_to_verify',
+            'message': f'Unable-to-verify notification emailed to {requester.email}.',
+        })
+
+    # ── close_ticket ──────────────────────────────────────────────────────────
+
+    def _close_ticket(self, request, ticket):
+        if ticket.status in ('closed', 'cancelled'):
+            return Response(
+                {'detail': f'Ticket is already {ticket.status}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        close_reason = str(request.data.get('close_reason', '')).strip()[:500]
+
+        with transaction.atomic():
+            ticket.status = 'closed'
+            if close_reason:
+                ticket.status_reason = close_reason
+            ticket.save(update_fields=['status', 'status_reason'])
+
+        return Response({
+            'action':  'close_ticket',
+            'status':  'closed',
+            'message': 'Ticket closed.',
         })
 
 

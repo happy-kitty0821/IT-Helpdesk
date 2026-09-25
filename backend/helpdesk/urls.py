@@ -14,6 +14,7 @@ from .views import (
     AdminAnnouncementDetail,
     AdminAnnouncementListCreate,
     AccountRecoveryCodeView,
+    RecoveryActionView,
     CsrfView,
     CurrentUserView,
     AdminGuideDetail,
@@ -96,6 +97,7 @@ urlpatterns = [
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/messages/?$',               TicketMessageListCreate.as_view(), name='ticket-messages'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/attachments/?$',            TicketAttachmentListView.as_view(),name='ticket-attachments'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/recovery-code/?$',          AccountRecoveryCodeView.as_view(), name='ticket-recovery-code'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/recovery-action/?$',        RecoveryActionView.as_view(),      name='ticket-recovery-action'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/?$',                        TicketDetail.as_view(),            name='ticket-detail'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/assign/?$',                 TicketAssignView.as_view(),        name='ticket-assign'),
 

@@ -43,7 +43,8 @@ type EventType =
   | "ticket_resolved"
   | "ticket_assigned"
   | "status_changed"
-  | "account_recovery";
+  | "account_recovery"
+  | "recovery_unable_to_verify";
 
 interface EmailTemplate {
   id: number;
@@ -178,8 +179,20 @@ const EVENT_META: Record<EventType, { label: string; variables: string[] }> = {
     ],
   },
   account_recovery: {
-    label: "Account Recovery",
-    variables: ["requester_name", "college_email", "support_email", "helpdesk_url"],
+    label: "Account Recovery — Send Credentials",
+    variables: [
+      "requester_name", "college_email",
+      "backup_code", "temp_password",
+      "support_email", "helpdesk_url",
+    ],
+  },
+  recovery_unable_to_verify: {
+    label: "Account Recovery — Unable to Verify",
+    variables: [
+      "requester_name", "college_email",
+      "ticket_reference", "ticket_subject",
+      "support_email", "helpdesk_url",
+    ],
   },
 };
 

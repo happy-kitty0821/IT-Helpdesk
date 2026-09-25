@@ -340,7 +340,8 @@ class EmailTemplate(models.Model):
         TICKET_RESOLVED = 'ticket_resolved', 'Ticket Resolved'
         TICKET_ASSIGNED = 'ticket_assigned', 'Ticket Assigned'
         STATUS_CHANGED = 'status_changed', 'Status Changed'
-        ACCOUNT_RECOVERY = 'account_recovery', 'Account Recovery'
+        ACCOUNT_RECOVERY = 'account_recovery', 'Account Recovery — Send Credentials'
+        RECOVERY_UNABLE_TO_VERIFY = 'recovery_unable_to_verify', 'Account Recovery — Unable to Verify'
 
     event_type = models.CharField(max_length=30, choices=EventType.choices)
     name = models.CharField(max_length=200)
