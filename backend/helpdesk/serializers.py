@@ -202,8 +202,9 @@ class TicketSerializer(serializers.ModelSerializer):
     def validate_subject(self, value):
         value = value.strip()
         settings = TicketFormSettings.get()
-        # When the subject field is hidden, blank is fine — perform_create auto-fills it.
-        if not settings.subject_visible:
+        # Blank subject is always allowed here — perform_create auto-fills it
+        # from the category name when the field is hidden or empty.
+        if not value:
             return value
         if settings.subject_required and len(value) < settings.subject_min_len:
             raise serializers.ValidationError(
@@ -218,14 +219,14 @@ class TicketSerializer(serializers.ModelSerializer):
     def validate_description(self, value):
         value = value.strip()
         settings = TicketFormSettings.get()
-        # If the admin marked description as not required, allow an empty value
-        if not settings.description_required and not value:
+        # If description is not required or is blank, allow it through.
+        if not settings.description_required or not value:
             return value
-        if settings.description_required and len(value) < settings.description_min_len:
+        if len(value) < settings.description_min_len:
             raise serializers.ValidationError(
                 f'Describe the issue in at least {settings.description_min_len} characters.'
             )
-        if value and len(value) > settings.description_max_len:
+        if len(value) > settings.description_max_len:
             raise serializers.ValidationError(
                 f'Description must be {settings.description_max_len} characters or fewer.'
             )

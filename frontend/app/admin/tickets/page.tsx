@@ -967,56 +967,73 @@ export default function AdminTicketsPage() {
 
                       {/* ── Action selector buttons ── */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
-                        {(
-                          [
-                            { key: "send_credentials",  label: "Send credentials",   desc: "Email backup code + temp password", color: "#16a34a", bg: "#f0fdf4", border: "#86efac" },
-                            { key: "unable_to_verify",   label: "Unable to verify",   desc: "Notify student we can't confirm ID", color: "#b45309", bg: "#fffbeb", border: "#fcd34d" },
-                            { key: "close_ticket",       label: "Close ticket",        desc: "Mark this ticket as closed",        color: "#6b7280", bg: "#f9fafb", border: "#d1d5db" },
-                          ] as const
-                        ).map((opt) => (
-                          <button
-                            key={opt.key}
-                            type="button"
-                            onClick={() => { setRecoveryAction(opt.key); setRecoveryResult(null); setShowCloseForm(opt.key === "close_ticket"); }}
-                            style={{
-                              border: `1.5px solid ${recoveryAction === opt.key ? opt.border : "#e2e8f0"}`,
-                              borderRadius: 9, padding: "9px 10px", cursor: "pointer", textAlign: "left",
-                              background: recoveryAction === opt.key ? opt.bg : "#fff",
-                              transition: "border-color 120ms, background 120ms",
-                              display: "flex", flexDirection: "column", gap: 3,
-                            }}
-                            aria-pressed={recoveryAction === opt.key}
-                          >
-                            <span style={{ fontWeight: 800, fontSize: ".76rem", color: recoveryAction === opt.key ? opt.color : "#374151", lineHeight: 1.2 }}>
-                              {opt.label}
-                            </span>
-                            <span style={{ fontSize: ".68rem", color: "#64748b", lineHeight: 1.35 }}>{opt.desc}</span>
-                          </button>
-                        ))}
+
+                        {/* Send credentials */}
+                        <button
+                          type="button"
+                          onClick={() => { setRecoveryAction("send_credentials"); setRecoveryResult(null); setShowCloseForm(false); }}
+                          style={{
+                            border: `1.5px solid ${recoveryAction === "send_credentials" ? "#86efac" : "#e2e8f0"}`,
+                            borderRadius: 9, padding: "9px 10px", cursor: "pointer", textAlign: "left",
+                            background: recoveryAction === "send_credentials" ? "#f0fdf4" : "#fff",
+                            display: "flex", flexDirection: "column", gap: 3, fontFamily: "inherit",
+                            transition: "border-color 120ms, background 120ms",
+                          }}
+                        >
+                          <span style={{ fontWeight: 800, fontSize: ".76rem", color: recoveryAction === "send_credentials" ? "#16a34a" : "#374151", lineHeight: 1.2 }}>Send credentials</span>
+                          <span style={{ fontSize: ".68rem", color: "#64748b", lineHeight: 1.35 }}>Email backup code + temp password</span>
+                        </button>
+
+                        {/* Unable to verify */}
+                        <button
+                          type="button"
+                          onClick={() => { setRecoveryAction("unable_to_verify"); setRecoveryResult(null); setShowCloseForm(false); }}
+                          style={{
+                            border: `1.5px solid ${recoveryAction === "unable_to_verify" ? "#fcd34d" : "#e2e8f0"}`,
+                            borderRadius: 9, padding: "9px 10px", cursor: "pointer", textAlign: "left",
+                            background: recoveryAction === "unable_to_verify" ? "#fffbeb" : "#fff",
+                            display: "flex", flexDirection: "column", gap: 3, fontFamily: "inherit",
+                            transition: "border-color 120ms, background 120ms",
+                          }}
+                        >
+                          <span style={{ fontWeight: 800, fontSize: ".76rem", color: recoveryAction === "unable_to_verify" ? "#b45309" : "#374151", lineHeight: 1.2 }}>Unable to verify</span>
+                          <span style={{ fontSize: ".68rem", color: "#64748b", lineHeight: 1.35 }}>Notify student we can&apos;t confirm ID</span>
+                        </button>
+
+                        {/* Close ticket */}
+                        <button
+                          type="button"
+                          onClick={() => { setRecoveryAction("close_ticket"); setRecoveryResult(null); setShowCloseForm(true); }}
+                          style={{
+                            border: `1.5px solid ${recoveryAction === "close_ticket" ? "#d1d5db" : "#e2e8f0"}`,
+                            borderRadius: 9, padding: "9px 10px", cursor: "pointer", textAlign: "left",
+                            background: recoveryAction === "close_ticket" ? "#f9fafb" : "#fff",
+                            display: "flex", flexDirection: "column", gap: 3, fontFamily: "inherit",
+                            transition: "border-color 120ms, background 120ms",
+                          }}
+                        >
+                          <span style={{ fontWeight: 800, fontSize: ".76rem", color: recoveryAction === "close_ticket" ? "#4b5563" : "#374151", lineHeight: 1.2 }}>Close ticket</span>
+                          <span style={{ fontSize: ".68rem", color: "#64748b", lineHeight: 1.35 }}>Mark this ticket as closed</span>
+                        </button>
+
                       </div>
 
-                      {/* ── Close reason input (shown only for close_ticket) ── */}
-                      <AnimatePresence>
-                        {showCloseForm && (
-                          <motion.div
-                            key="close-form"
-                            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }} style={{ overflow: "hidden" }}
-                          >
-                            <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: ".8rem", fontWeight: 700, color: "#374151", marginTop: 4 }}>
-                              Close reason <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span>
-                              <textarea
-                                rows={2}
-                                maxLength={500}
-                                value={closeReason}
-                                onChange={(e) => setCloseReason(e.target.value)}
-                                placeholder="e.g. Student verified in person — credentials issued."
-                                style={{ border: "1px solid #d1d5db", borderRadius: 8, padding: "8px 10px", fontSize: ".82rem", fontFamily: "inherit", resize: "vertical", background: "#fff" }}
-                              />
-                            </label>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                      {/* ── Close reason input ── */}
+                      {showCloseForm && (
+                        <div>
+                          <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: ".8rem", fontWeight: 700, color: "#374151" }}>
+                            Close reason <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span>
+                            <textarea
+                              rows={2}
+                              maxLength={500}
+                              value={closeReason}
+                              onChange={(e) => setCloseReason(e.target.value)}
+                              placeholder="e.g. Student verified in person — credentials issued."
+                              style={{ border: "1px solid #d1d5db", borderRadius: 8, padding: "8px 10px", fontSize: ".82rem", fontFamily: "inherit", resize: "vertical", background: "#fff" }}
+                            />
+                          </label>
+                        </div>
+                      )}
 
                       {/* ── Dispatch button ── */}
                       <button
@@ -1027,7 +1044,8 @@ export default function AdminTicketsPage() {
                         )}
                         disabled={sendingRecovery}
                         style={{
-                          border: 0, borderRadius: 9, padding: "9px 16px", cursor: sendingRecovery ? "wait" : "pointer",
+                          border: 0, borderRadius: 9, padding: "9px 16px",
+                          cursor: sendingRecovery ? "wait" : "pointer",
                           fontWeight: 750, fontSize: ".83rem", fontFamily: "inherit",
                           background: recoveryAction === "send_credentials" ? "#16a34a"
                             : recoveryAction === "unable_to_verify" ? "#d97706"
@@ -1037,50 +1055,44 @@ export default function AdminTicketsPage() {
                           transition: "opacity 120ms",
                         }}
                       >
-                        {sendingRecovery ? (
-                          <><Loader2 size={14} className="spin" aria-hidden="true" /> Processing…</>
-                        ) : recoveryAction === "send_credentials" ? "Send credentials"
+                        {sendingRecovery
+                          ? <><Loader2 size={14} className="spin" aria-hidden="true" /> Processing…</>
+                          : recoveryAction === "send_credentials" ? "Send credentials"
                           : recoveryAction === "unable_to_verify"  ? "Send unable-to-verify email"
                           : "Close ticket"}
                       </button>
 
                       {/* ── Result display ── */}
-                      <AnimatePresence>
-                        {recoveryResult && (
-                          <motion.div
-                            key="recovery-result"
-                            initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                            style={{
-                              background: "#fff", border: "1px solid #bbf7d0", borderRadius: 9,
-                              padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8,
-                            }}
-                          >
-                            <p style={{ margin: 0, fontWeight: 700, fontSize: ".8rem", color: "#15803d", display: "flex", alignItems: "center", gap: 6 }}>
-                              <CheckCircle2 size={14} aria-hidden="true" />
-                              {recoveryResult.message}
-                            </p>
-                            {recoveryResult.backup_code && (
-                              <div style={{ display: "grid", gap: 5, fontSize: ".8rem" }}>
-                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                  <span style={{ color: "#64748b", minWidth: 108, fontWeight: 600 }}>Backup code:</span>
-                                  <code style={{ fontWeight: 800, letterSpacing: ".12em", background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontSize: ".85rem" }}>
-                                    {recoveryResult.backup_code}
-                                  </code>
-                                </div>
-                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                  <span style={{ color: "#64748b", minWidth: 108, fontWeight: 600 }}>Temp password:</span>
-                                  <code style={{ fontWeight: 700, background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontSize: ".82rem" }}>
-                                    {recoveryResult.temp_password}
-                                  </code>
-                                </div>
-                                <p style={{ margin: 0, fontSize: ".71rem", color: "#94a3b8", marginTop: 2 }}>
-                                  Verify these details with the student in person before sharing.
-                                </p>
+                      {recoveryResult && (
+                        <div style={{
+                          background: "#fff", border: "1px solid #bbf7d0", borderRadius: 9,
+                          padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8,
+                        }}>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: ".8rem", color: "#15803d", display: "flex", alignItems: "center", gap: 6 }}>
+                            <CheckCircle2 size={14} aria-hidden="true" />
+                            {recoveryResult.message}
+                          </p>
+                          {recoveryResult.backup_code && (
+                            <div style={{ display: "grid", gap: 5, fontSize: ".8rem" }}>
+                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <span style={{ color: "#64748b", minWidth: 108, fontWeight: 600 }}>Backup code:</span>
+                                <code style={{ fontWeight: 800, letterSpacing: ".12em", background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontSize: ".85rem" }}>
+                                  {recoveryResult.backup_code}
+                                </code>
                               </div>
-                            )}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <span style={{ color: "#64748b", minWidth: 108, fontWeight: 600 }}>Temp password:</span>
+                                <code style={{ fontWeight: 700, background: "#f1f5f9", padding: "2px 8px", borderRadius: 5, fontSize: ".82rem" }}>
+                                  {recoveryResult.temp_password}
+                                </code>
+                              </div>
+                              <p style={{ margin: 0, fontSize: ".71rem", color: "#94a3b8", marginTop: 2 }}>
+                                Verify these details with the student in person before sharing.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                     </div>
                   </div>
