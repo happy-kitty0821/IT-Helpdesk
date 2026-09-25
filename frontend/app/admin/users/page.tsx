@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import React from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight,
@@ -26,6 +27,43 @@ interface PagedUsers {
 function initials(user: ManagedUser) {
   const v = user.name || user.username;
   return v.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("");
+}
+
+// ── UserAvatar — Google picture with initials fallback ────────────────────────
+
+function UserAvatar({
+  user, size = 38, radius = 11,
+}: { user: ManagedUser; size?: number; radius?: number }) {
+  const [err, setErr] = React.useState(false);
+  const ini = initials(user);
+  const suspended = user.is_suspended;
+  const showImg = !!user.avatar_url && !err;
+
+  const base: React.CSSProperties = {
+    width: size, height: size, borderRadius: radius,
+    flexShrink: 0, display: "grid", placeItems: "center",
+    overflow: "hidden",
+  };
+
+  if (showImg) {
+    return (
+      <span className={`user-avatar${suspended ? " user-avatar--suspended" : ""}`}
+        style={{ ...base, background: "transparent", padding: 0 }}>
+        <img
+          src={user.avatar_url}
+          alt={user.name}
+          onError={() => setErr(true)}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className={`user-avatar${suspended ? " user-avatar--suspended" : ""}`} style={base}>
+      {ini || <UserRound size={Math.round(size * 0.47)} aria-hidden="true" />}
+    </span>
+  );
 }
 
 function formatDate(value: string | null) {
@@ -330,9 +368,7 @@ export default function UserManagement() {
           >
             {/* Identity */}
             <div className="user-identity">
-              <span className={`user-avatar${user.is_suspended ? " user-avatar--suspended" : ""}`}>
-                {initials(user) || <UserRound size={18} aria-hidden="true" />}
-              </span>
+              <UserAvatar user={user} />
               <div className="user-identity-info">
                 <span className="user-identity-name">{user.name}</span>
                 <span className="user-identity-email">{user.email}</span>
@@ -585,12 +621,18 @@ export default function UserManagement() {
 
             {/* Header */}
             <header>
-              <div>
-                <span>Account controls</span>
-                <h2>
-                  {editing.name}
-                  {editing.is_suspended && <span className="user-suspended-pill">Suspended</span>}
-                </h2>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                <UserAvatar user={editing} size={44} radius={13} />
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: ".72rem", fontWeight: 700,
+                    textTransform: "uppercase", letterSpacing: ".1em", color: "#64748b",
+                    marginBottom: 2 }}>Account controls</span>
+                  <h2 style={{ margin: 0, fontSize: "1rem", fontWeight: 800,
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {editing.name}
+                    {editing.is_suspended && <span className="user-suspended-pill" style={{ marginLeft: 8 }}>Suspended</span>}
+                  </h2>
+                </div>
               </div>
               <button className="user-editor-close" aria-label="Close" onClick={closeEditor}>
                 <X aria-hidden="true" />

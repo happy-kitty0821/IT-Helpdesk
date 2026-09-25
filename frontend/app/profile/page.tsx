@@ -1,8 +1,9 @@
-"use client";
+﻿"use client";
 
 import { motion, AnimatePresence } from "motion/react";
 import {
-  CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Save, User,
+  CheckCircle2, Clock, Eye, EyeOff, KeyRound, Loader2,
+  Save, Ticket, User, XCircle,
 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,7 +11,7 @@ import { SiteHeader } from "@/components/site-header";
 import { csrfToken, type AuthUser } from "@/lib/auth";
 import { staggerContainer, staggerItem, fadeUp } from "@/lib/animations";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface ProfileData {
   id: number;
@@ -24,44 +25,111 @@ interface ProfileData {
   avatar_url: string;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+interface TicketSummary {
+  total: number;
+  open: number;       // submitted | triaged | in_progress
+  resolved: number;
+  closed: number;
+  cancelled: number;
+  latest: { id: string; reference: string; subject: string; status: string; created_at: string } | null;
+}
+
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function initials(name: string, username: string) {
   const v = name || username;
   return v.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("");
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+const STATUS_OPEN = new Set(["submitted", "triaged", "in_progress"]);
+
+function buildSummary(tickets: { id: string; reference: string; subject: string; status: string; created_at: string }[]): TicketSummary {
+  let open = 0, resolved = 0, closed = 0, cancelled = 0;
+  for (const t of tickets) {
+    if (STATUS_OPEN.has(t.status))    open++;
+    else if (t.status === "resolved") resolved++;
+    else if (t.status === "closed")   closed++;
+    else if (t.status === "cancelled") cancelled++;
+  }
+  const latest = tickets.length > 0
+    ? tickets.reduce((a, b) => new Date(a.created_at) > new Date(b.created_at) ? a : b)
+    : null;
+  return { total: tickets.length, open, resolved, closed, cancelled, latest };
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  submitted:   "Submitted",
+  triaged:     "Triaged",
+  in_progress: "In progress",
+  resolved:    "Resolved",
+  closed:      "Closed",
+  cancelled:   "Cancelled",
+};
+
+const STATUS_COLOR: Record<string, { bg: string; color: string }> = {
+  submitted:   { bg: "#eff6ff", color: "#1d4ed8" },
+  triaged:     { bg: "#f0f9ff", color: "#0369a1" },
+  in_progress: { bg: "#fef9c3", color: "#854d0e" },
+  resolved:    { bg: "#f0fdf4", color: "#15803d" },
+  closed:      { bg: "#f8fafc", color: "#475569" },
+  cancelled:   { bg: "#fef2f2", color: "#b91c1c" },
+};
+
+// â”€â”€ Ticket stat card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+function StatCard({
+  value, label, icon, bg, color,
+}: { value: number; label: string; icon: React.ReactNode; bg: string; color: string }) {
+  return (
+    <motion.div
+      variants={fadeUp}
+      style={{
+        background: bg, borderRadius: 14, padding: "16px 18px",
+        display: "flex", alignItems: "center", gap: 14,
+        border: `1px solid color-mix(in srgb, ${color} 20%, transparent)`,
+      }}
+    >
+      <div style={{
+        width: 40, height: 40, borderRadius: 11, background: color,
+        display: "grid", placeItems: "center", flexShrink: 0, opacity: 0.9,
+      }}>
+        <span style={{ color: "#fff" }}>{icon}</span>
+      </div>
+      <div>
+        <div style={{ fontSize: "1.6rem", fontWeight: 900, lineHeight: 1, color }}>{value}</div>
+        <div style={{ fontSize: ".78rem", fontWeight: 700, color: "var(--muted)", marginTop: 2 }}>{label}</div>
+      </div>
+    </motion.div>
+  );
+}
+
+// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function ProfilePage() {
   const router = useRouter();
 
-  // ── Auth check ────────────────────────────────────────────────────────────
   const [authChecked, setAuthChecked] = useState(false);
-
-  // ── Profile state ─────────────────────────────────────────────────────────
   const [profile,        setProfile]        = useState<ProfileData | null>(null);
   const [loading,        setLoading]        = useState(true);
   const [profileNotice,  setProfileNotice]  = useState("");
   const [profileError,   setProfileError]   = useState("");
   const [savingProfile,  setSavingProfile]  = useState(false);
 
-  // ── Password state ────────────────────────────────────────────────────────
-  const [currentPw,     setCurrentPw]     = useState("");
-  const [newPw,         setNewPw]         = useState("");
-  const [confirmPw,     setConfirmPw]     = useState("");
-  const [showPw,        setShowPw]        = useState(false);
-  const [pwNotice,      setPwNotice]      = useState("");
-  const [pwError,       setPwError]       = useState<Record<string, string>>({});
-  const [savingPw,      setSavingPw]      = useState(false);
+  const [currentPw,  setCurrentPw]  = useState("");
+  const [newPw,      setNewPw]      = useState("");
+  const [confirmPw,  setConfirmPw]  = useState("");
+  const [showPw,     setShowPw]     = useState(false);
+  const [pwNotice,   setPwNotice]   = useState("");
+  const [pwError,    setPwError]    = useState<Record<string, string>>({});
+  const [savingPw,   setSavingPw]   = useState(false);
 
-  // ── Active tab ────────────────────────────────────────────────────────────
-  const [tab, setTab] = useState<"details" | "security">("details");
+  const [tab, setTab] = useState<"details" | "security" | "tickets">("details");
 
-  // ── Avatar image error fallback (Google picture failed to load) ───────────
-  const [imgError, setImgError] = useState(false);
+  const [imgError,       setImgError]       = useState(false);
+  const [ticketSummary,  setTicketSummary]  = useState<TicketSummary | null>(null);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
 
-  // ── Load ──────────────────────────────────────────────────────────────────
+  // â”€â”€ Auth check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     fetch("/api/v1/auth/me/", { credentials: "include", cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
@@ -72,6 +140,7 @@ export default function ProfilePage() {
       .catch(() => { router.replace("/login"); });
   }, [router]);
 
+  // â”€â”€ Load profile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!authChecked) return;
     fetch("/api/v1/auth/profile/", { credentials: "include", cache: "no-store" })
@@ -80,7 +149,21 @@ export default function ProfilePage() {
       .finally(() => setLoading(false));
   }, [authChecked]);
 
-  // ── Save profile ──────────────────────────────────────────────────────────
+  // â”€â”€ Load tickets when tab opens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  useEffect(() => {
+    if (tab !== "tickets" || ticketSummary !== null) return;
+    setTicketsLoading(true);
+    fetch("/api/v1/tickets/?page_size=200", { credentials: "include", cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { results?: unknown[] } | null) => {
+        const list = (d?.results ?? []) as { id: string; reference: string; subject: string; status: string; created_at: string }[];
+        setTicketSummary(buildSummary(list));
+      })
+      .catch(() => setTicketSummary(buildSummary([])))
+      .finally(() => setTicketsLoading(false));
+  }, [tab, ticketSummary]);
+
+  // â”€â”€ Save profile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function saveProfile(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!profile) return;
@@ -114,7 +197,7 @@ export default function ProfilePage() {
     }
   }
 
-  // ── Change password ───────────────────────────────────────────────────────
+  // â”€â”€ Change password â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function changePassword(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setPwError({}); setPwNotice("");
@@ -152,7 +235,7 @@ export default function ProfilePage() {
     }
   }
 
-  // ── Loading ───────────────────────────────────────────────────────────────
+  // â”€â”€ Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (loading || !profile) {
     return (
       <>
@@ -164,11 +247,10 @@ export default function ProfilePage() {
     );
   }
 
-  const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.username;
-  const avatar   = initials(fullName, profile.username);
+  const fullName    = [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.username;
+  const avatar      = initials(fullName, profile.username);
   const showPicture = !!profile.avatar_url && !imgError;
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
       <SiteHeader />
@@ -179,11 +261,8 @@ export default function ProfilePage() {
         initial="hidden"
         animate="show"
       >
-        {/* ── Hero strip ── */}
-        <motion.div variants={fadeUp} style={{
-          display: "flex", alignItems: "center", gap: 20,
-          marginBottom: 36,
-        }}>
+        {/* â”€â”€ Hero strip â”€â”€ */}
+        <motion.div variants={fadeUp} style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 36 }}>
           {showPicture ? (
             <img
               src={profile.avatar_url}
@@ -210,7 +289,7 @@ export default function ProfilePage() {
               {fullName}
             </h1>
             <p style={{ margin: "3px 0 0", color: "var(--muted)", fontSize: ".9rem" }}>
-              @{profile.username} · {profile.email}
+              @{profile.username} Â· {profile.email}
               {!profile.email_verified && (
                 <span style={{
                   marginLeft: 10, fontSize: ".75rem", fontWeight: 700,
@@ -224,24 +303,23 @@ export default function ProfilePage() {
           </div>
         </motion.div>
 
-        {/* ── Tab bar ── */}
+        {/* â”€â”€ Tab bar â”€â”€ */}
         <motion.div variants={fadeUp} className="svc-tab-bar" style={{ marginBottom: 28 }}>
-          <button
-            className={`svc-tab${tab === "details" ? " active" : ""}`}
-            onClick={() => setTab("details")}
-          >
+          <button className={`svc-tab${tab === "details"  ? " active" : ""}`} onClick={() => setTab("details")}>
             <User size={14} aria-hidden="true" /> Profile details
           </button>
-          <button
-            className={`svc-tab${tab === "security" ? " active" : ""}`}
-            onClick={() => setTab("security")}
-          >
+          <button className={`svc-tab${tab === "security" ? " active" : ""}`} onClick={() => setTab("security")}>
             <KeyRound size={14} aria-hidden="true" /> Security
+          </button>
+          <button className={`svc-tab${tab === "tickets"  ? " active" : ""}`} onClick={() => setTab("tickets")}>
+            <Ticket size={14} aria-hidden="true" /> My tickets
           </button>
         </motion.div>
 
-        {/* ── Details tab ── */}
+        {/* â”€â”€ Tab content â”€â”€ */}
         <AnimatePresence mode="wait">
+
+          {/* â”€â”€ Details â”€â”€ */}
           {tab === "details" && (
             <motion.div
               key="details"
@@ -286,25 +364,23 @@ export default function ProfilePage() {
                 </label>
                 <label>
                   Programme
-                  <input name="programme" defaultValue={profile.programme} maxLength={200}
-                    placeholder="e.g. BCA, BIT, BBA" />
+                  <input name="programme" defaultValue={profile.programme} maxLength={200} placeholder="e.g. BCA, BIT, BBA" />
                 </label>
                 <label>
                   Department
-                  <input name="department" defaultValue={profile.department} maxLength={200}
-                    placeholder="e.g. IT Department" />
+                  <input name="department" defaultValue={profile.department} maxLength={200} placeholder="e.g. IT Department" />
                 </label>
                 <button className="primary-button full-field" type="submit" disabled={savingProfile}
                   style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                   {savingProfile
-                    ? <><Loader2 size={15} className="spin" aria-hidden="true" /> Saving…</>
+                    ? <><Loader2 size={15} className="spin" aria-hidden="true" /> Savingâ€¦</>
                     : <><Save size={15} aria-hidden="true" /> Save changes</>}
                 </button>
               </form>
             </motion.div>
           )}
 
-          {/* ── Security tab ── */}
+          {/* â”€â”€ Security â”€â”€ */}
           {tab === "security" && (
             <motion.div
               key="security"
@@ -355,48 +431,140 @@ export default function ProfilePage() {
                   </div>
                   {pwError.detail && <span className="field-error" role="alert">{pwError.detail}</span>}
                 </label>
-
                 <label>
                   New password
-                  <input
-                    type={showPw ? "text" : "password"}
-                    value={newPw}
-                    onChange={(e) => setNewPw(e.target.value)}
-                    minLength={8}
-                    autoComplete="new-password"
-                    required
-                  />
+                  <input type={showPw ? "text" : "password"} value={newPw}
+                    onChange={(e) => setNewPw(e.target.value)} minLength={8} autoComplete="new-password" required />
                   {pwError.new_password && <span className="field-error" role="alert">{pwError.new_password}</span>}
                 </label>
-
                 <label>
                   Confirm new password
-                  <input
-                    type={showPw ? "text" : "password"}
-                    value={confirmPw}
-                    onChange={(e) => setConfirmPw(e.target.value)}
-                    minLength={8}
-                    autoComplete="new-password"
-                    required
-                  />
+                  <input type={showPw ? "text" : "password"} value={confirmPw}
+                    onChange={(e) => setConfirmPw(e.target.value)} minLength={8} autoComplete="new-password" required />
                   {pwError.confirm_password && <span className="field-error" role="alert">{pwError.confirm_password}</span>}
                 </label>
-
                 <button className="primary-button" type="submit" disabled={savingPw}
                   style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {savingPw
-                    ? <><Loader2 size={15} className="spin" aria-hidden="true" /> Saving…</>
+                    ? <><Loader2 size={15} className="spin" aria-hidden="true" /> Savingâ€¦</>
                     : <><KeyRound size={15} aria-hidden="true" /> Change password</>}
                 </button>
               </form>
 
-              {/* Forgot password link for users who can't remember current password */}
               <p style={{ marginTop: 20, fontSize: ".85rem", color: "var(--muted)" }}>
                 Forgot your current password?{" "}
                 <a href="/forgot-password" style={{ color: "var(--brand)", fontWeight: 700 }}>
                   Reset it by email
                 </a>
               </p>
+            </motion.div>
+          )}
+
+          {/* â”€â”€ Tickets â”€â”€ */}
+          {tab === "tickets" && (
+            <motion.div
+              key="tickets"
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.22 }}
+              style={{ maxWidth: 720 }}
+            >
+              {ticketsLoading || !ticketSummary ? (
+                <div style={{ display: "flex", justifyContent: "center", paddingBlock: 48 }}>
+                  <Loader2 size={28} className="spin" style={{ color: "var(--brand)" }} aria-label="Loading tickets" />
+                </div>
+              ) : (
+                <motion.div variants={staggerContainer} initial="hidden" animate="show">
+
+                  {/* â”€â”€ Stat grid â”€â”€ */}
+                  <motion.div variants={fadeUp} style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))",
+                    gap: 12, marginBottom: 28,
+                  }}>
+                    <StatCard value={ticketSummary.total}     label="Total tickets"  icon={<Ticket     size={18} />} bg="#f8fafc" color="#334155" />
+                    <StatCard value={ticketSummary.open}      label="Open"           icon={<Clock      size={18} />} bg="#eff6ff" color="#1d4ed8" />
+                    <StatCard value={ticketSummary.resolved}  label="Resolved"       icon={<CheckCircle2 size={18} />} bg="#f0fdf4" color="#15803d" />
+                    <StatCard value={ticketSummary.closed}    label="Closed"         icon={<CheckCircle2 size={18} />} bg="#f8fafc" color="#475569" />
+                    <StatCard value={ticketSummary.cancelled} label="Cancelled"      icon={<XCircle    size={18} />} bg="#fef2f2" color="#b91c1c" />
+                  </motion.div>
+
+                  {/* â”€â”€ Latest ticket â”€â”€ */}
+                  {ticketSummary.latest && (
+                    <motion.div variants={fadeUp}>
+                      <h3 style={{ fontSize: ".78rem", fontWeight: 800, textTransform: "uppercase",
+                        letterSpacing: ".1em", color: "var(--muted)", marginBottom: 10 }}>
+                        Most recent ticket
+                      </h3>
+                      <a
+                        href={`/tickets/${ticketSummary.latest.id}`}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 14,
+                          background: "var(--surface)", border: "1px solid var(--border)",
+                          borderRadius: 14, padding: "14px 18px",
+                          textDecoration: "none", color: "inherit",
+                          transition: "box-shadow 150ms, transform 150ms",
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 20px rgba(15,23,42,.08)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; (e.currentTarget as HTMLElement).style.transform = "none"; }}
+                      >
+                        <div style={{
+                          width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+                          background: "var(--brand-soft)", display: "grid", placeItems: "center",
+                        }}>
+                          <Ticket size={18} style={{ color: "var(--brand)" }} aria-hidden="true" />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 750, fontSize: ".9rem",
+                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {ticketSummary.latest.subject}
+                          </div>
+                          <div style={{ fontSize: ".78rem", color: "var(--muted)", marginTop: 2 }}>
+                            {ticketSummary.latest.reference} Â·{" "}
+                            {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" })
+                              .format(new Date(ticketSummary.latest.created_at))}
+                          </div>
+                        </div>
+                        <span style={{
+                          flexShrink: 0, fontSize: ".72rem", fontWeight: 800, borderRadius: 999,
+                          padding: "3px 10px",
+                          background: STATUS_COLOR[ticketSummary.latest.status]?.bg ?? "#f1f5f9",
+                          color:      STATUS_COLOR[ticketSummary.latest.status]?.color ?? "#475569",
+                        }}>
+                          {STATUS_LABEL[ticketSummary.latest.status] ?? ticketSummary.latest.status}
+                        </span>
+                      </a>
+                    </motion.div>
+                  )}
+
+                  {/* â”€â”€ Empty state â”€â”€ */}
+                  {ticketSummary.total === 0 && (
+                    <motion.div variants={fadeUp} style={{
+                      textAlign: "center", padding: "40px 24px",
+                      background: "var(--surface)", border: "1px dashed var(--border)",
+                      borderRadius: 16,
+                    }}>
+                      <Ticket size={36} style={{ color: "var(--muted)", marginBottom: 12 }} aria-hidden="true" />
+                      <p style={{ fontWeight: 700, marginBottom: 6 }}>No tickets yet</p>
+                      <p style={{ color: "var(--muted)", fontSize: ".9rem", marginBottom: 20 }}>
+                        Submit a support request and it will appear here.
+                      </p>
+                      <a href="/" className="primary-button" style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: ".88rem" }}>
+                        <Ticket size={14} aria-hidden="true" /> Browse services
+                      </a>
+                    </motion.div>
+                  )}
+
+                  {/* â”€â”€ View all link â”€â”€ */}
+                  {ticketSummary.total > 0 && (
+                    <motion.div variants={fadeUp} style={{ marginTop: 18, textAlign: "right" }}>
+                      <a href="/my-tickets" style={{ color: "var(--brand)", fontWeight: 750, fontSize: ".88rem" }}>
+                        View all {ticketSummary.total} ticket{ticketSummary.total !== 1 ? "s" : ""} â†’
+                      </a>
+                    </motion.div>
+                  )}
+
+                </motion.div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

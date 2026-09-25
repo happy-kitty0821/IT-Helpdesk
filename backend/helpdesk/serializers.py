@@ -333,13 +333,14 @@ class AdminUserSerializer(serializers.ModelSerializer):
     roles = serializers.SerializerMethodField()
     is_suspended = serializers.SerializerMethodField()
     suspension_reason = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = get_user_model()
         fields = (
             'id', 'username', 'email', 'first_name', 'last_name', 'name',
             'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
-            'roles', 'is_suspended', 'suspension_reason',
+            'roles', 'is_suspended', 'suspension_reason', 'avatar_url',
         )
         read_only_fields = ('username', 'email', 'name', 'date_joined', 'last_login')
 
@@ -369,6 +370,12 @@ class AdminUserSerializer(serializers.ModelSerializer):
     def get_suspension_reason(self, obj):
         try:
             return obj.profile.suspension_reason if obj.profile.is_suspended else ''
+        except Exception:
+            return ''
+
+    def get_avatar_url(self, obj):
+        try:
+            return obj.profile.avatar_url or ''
         except Exception:
             return ''
 

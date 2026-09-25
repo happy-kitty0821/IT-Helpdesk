@@ -47,6 +47,8 @@ export type ManagedUser = {
   // Suspension fields from UserProfile
   is_suspended: boolean;
   suspension_reason: string;
+  // Google OAuth profile picture — empty string for password-registered users
+  avatar_url: string;
 };
 
 export type ServiceStage = {
