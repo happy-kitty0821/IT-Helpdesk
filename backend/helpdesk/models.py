@@ -69,7 +69,7 @@ class Ticket(models.Model):
     reference = models.CharField(max_length=20, unique=True, editable=False)
     requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='tickets')
     category = models.ForeignKey(ServiceCategory, on_delete=models.PROTECT, related_name='tickets')
-    subject = models.CharField(max_length=150)
+    subject = models.CharField(max_length=150, blank=True, default='')
     description = models.TextField(max_length=5000, blank=True, default='')
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.SUBMITTED)
     priority = models.CharField(max_length=2, choices=Priority.choices, default=Priority.NORMAL)

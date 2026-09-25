@@ -390,6 +390,22 @@ class TicketListCreate(generics.ListCreateAPIView):
                     detail='Your role is not eligible for this service category.',
                     code='audience_not_eligible',
                 )
+
+        # If the admin has hidden the subject field, auto-generate it from the
+        # category name so the ticket always has a meaningful subject.
+        from .models import TicketFormSettings
+        fs = TicketFormSettings.get()
+        subject = serializer.validated_data.get('subject', '').strip()
+        if not subject:
+            if not fs.subject_visible or not fs.subject_required:
+                # Build a sensible default: "College account recovery request" etc.
+                auto_subject = (
+                    f'{category.name} request' if category else 'Support request'
+                )
+                serializer.validated_data['subject'] = auto_subject
+            # If subject IS required + visible but still blank, validate_subject
+            # will have already raised an error before reaching here.
+
         # Auto-set current_stage to the first stage key if the category has stages defined.
         first_stage = ''
         if category and isinstance(category.stages, list) and category.stages:

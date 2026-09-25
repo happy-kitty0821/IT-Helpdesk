@@ -145,6 +145,7 @@ class TicketSerializer(serializers.ModelSerializer):
     # Declared explicitly so DRF does not infer allow_blank=False from the model.
     # Our validate_description() reads TicketFormSettings to decide whether blank is ok.
     description = serializers.CharField(allow_blank=True, required=False, default='')
+    subject = serializers.CharField(allow_blank=True, required=False, default='')
 
     class Meta:
         model = Ticket
@@ -201,6 +202,9 @@ class TicketSerializer(serializers.ModelSerializer):
     def validate_subject(self, value):
         value = value.strip()
         settings = TicketFormSettings.get()
+        # When the subject field is hidden, blank is fine — perform_create auto-fills it.
+        if not settings.subject_visible:
+            return value
         if settings.subject_required and len(value) < settings.subject_min_len:
             raise serializers.ValidationError(
                 f'Use at least {settings.subject_min_len} characters.'
@@ -253,6 +257,7 @@ class TicketUpdateSerializer(serializers.ModelSerializer):
     )
     # Allow blank so DRF doesn't reject empty strings before validate_description runs.
     description = serializers.CharField(allow_blank=True, required=False, default='')
+    subject = serializers.CharField(allow_blank=True, required=False, default='')
 
     class Meta:
         model = Ticket
