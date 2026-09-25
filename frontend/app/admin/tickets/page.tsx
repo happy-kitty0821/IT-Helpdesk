@@ -954,9 +954,8 @@ export default function AdminTicketsPage() {
                 </div>
 
                 {/* ── Account recovery action panel ── */}
-                {(() => { console.log('[Recovery] isAccountRecovery:', isAccountRecovery, '| category_slug:', selected?.category_slug, '| recoveryAction:', recoveryAction, '| showCloseForm:', showCloseForm); return null; })()}
                 {isAccountRecovery && (
-                  <div style={{ marginBottom: 14, border: "1px solid #fed7aa", borderRadius: 12, overflow: "hidden" }}>
+                  <div style={{ marginBottom: 14, border: "1px solid #fed7aa", borderRadius: 12 }}>
 
                     {/* Header */}
                     <div style={{ background: "#fff7ed", padding: "12px 16px", borderBottom: "1px solid #fed7aa", display: "flex", alignItems: "center", gap: 8 }}>
@@ -964,13 +963,7 @@ export default function AdminTicketsPage() {
                       <strong style={{ fontSize: ".85rem", color: "#9a3412" }}>Account Recovery Actions</strong>
                     </div>
 
-                    {(() => { console.log('[Recovery] rendering inner body'); return null; })()}
                     <div style={{ padding: "14px 16px", background: "#fffbf5", display: "flex", flexDirection: "column", gap: 10 }}>
-                      {(() => { console.log('[Recovery] rendering buttons, recoveryAction=', recoveryAction); return null; })()}
-                      {/* DEBUG — remove after fix */}
-                      <p style={{ margin: 0, fontSize: ".72rem", color: "#9a3412", background: "#fed7aa", padding: "4px 8px", borderRadius: 4 }}>
-                        DEBUG: slug={selected?.category_slug} action={recoveryAction}
-                      </p>
 
                       {/* ── Action selector buttons ── */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 7 }}>
