@@ -249,6 +249,8 @@ export default function AdminTicketsPage() {
   const [recoveryAction,  setRecoveryAction]    = useState<"send_credentials" | "unable_to_verify" | "close_ticket">("send_credentials");
   const [closeReason,     setCloseReason]       = useState("");
   const [showCloseForm,   setShowCloseForm]     = useState(false);
+  const [manualBackupCode,   setManualBackupCode]   = useState("");
+  const [manualTempPassword, setManualTempPassword] = useState("");
 
   // SSE connection state for the open panel
   const [streamConnected, setStreamConnected] = useState(false);
@@ -358,6 +360,8 @@ export default function AdminTicketsPage() {
     setRecoveryAction("send_credentials");
     setCloseReason("");
     setShowCloseForm(false);
+    setManualBackupCode("");
+    setManualTempPassword("");
     setCategoryStages([]);
     setStreamConnected(false);
 
@@ -1018,6 +1022,41 @@ export default function AdminTicketsPage() {
 
                       </div>
 
+                      {/* ── Send credentials form ── */}
+                      {recoveryAction === "send_credentials" && (
+                        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 9, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                          <p style={{ margin: 0, fontSize: ".78rem", fontWeight: 700, color: "#15803d" }}>
+                            Enter credentials to send — leave blank to auto-generate
+                          </p>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: ".78rem", fontWeight: 700, color: "#374151" }}>
+                              Backup code <span style={{ fontWeight: 400, color: "#94a3b8" }}>(8 digits, optional)</span>
+                              <input
+                                type="text"
+                                value={manualBackupCode}
+                                onChange={(e) => setManualBackupCode(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                                placeholder="e.g. 12345678"
+                                maxLength={8}
+                                style={{ border: "1px solid #d1d5db", borderRadius: 7, padding: "7px 10px", fontSize: ".85rem", fontFamily: "monospace", letterSpacing: ".1em", background: "#fff" }}
+                              />
+                            </label>
+                            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: ".78rem", fontWeight: 700, color: "#374151" }}>
+                              Temporary password <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span>
+                              <input
+                                type="text"
+                                value={manualTempPassword}
+                                onChange={(e) => setManualTempPassword(e.target.value.slice(0, 100))}
+                                placeholder="e.g. TempPass#2026"
+                                style={{ border: "1px solid #d1d5db", borderRadius: 7, padding: "7px 10px", fontSize: ".85rem", fontFamily: "monospace", background: "#fff" }}
+                              />
+                            </label>
+                          </div>
+                          <p style={{ margin: 0, fontSize: ".71rem", color: "#64748b" }}>
+                            Empty fields will be auto-generated and shown as <strong>N/A</strong> in the email if you intentionally leave them blank after typing then clearing.
+                          </p>
+                        </div>
+                      )}
+
                       {/* ── Close reason input ── */}
                       {showCloseForm && (
                         <div>
@@ -1040,7 +1079,11 @@ export default function AdminTicketsPage() {
                         type="button"
                         onClick={() => dispatchRecoveryAction(
                           recoveryAction,
-                          recoveryAction === "close_ticket" ? { close_reason: closeReason } : {},
+                          recoveryAction === "close_ticket"
+                            ? { close_reason: closeReason }
+                            : recoveryAction === "send_credentials"
+                            ? { backup_code: manualBackupCode, temp_password: manualTempPassword }
+                            : {},
                         )}
                         disabled={sendingRecovery}
                         style={{

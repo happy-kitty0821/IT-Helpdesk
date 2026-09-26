@@ -1186,18 +1186,38 @@ class RecoveryActionView(APIView):
 
     def _send_credentials(self, request, ticket, requester, send_event, get_helpdesk_url):
         import random, string
-        backup_code   = ''.join(random.choices(string.digits, k=8))
-        temp_password = ''.join(
-            random.choices(string.ascii_letters + string.digits + '!@#$', k=12)
-        )
 
+        # Admin can type their own values in the form.
+        # Empty string → "N/A" in the email (admin deliberately left it blank).
+        # Key absent from request → auto-generate.
+        raw_backup   = request.data.get('backup_code',   None)   # None = not sent
+        raw_password = request.data.get('temp_password', None)
+
+        if raw_backup is None:
+            # Key not in body at all → auto-generate
+            backup_code = ''.join(random.choices(string.digits, k=8))
+            email_backup_code = backup_code
+        else:
+            backup_code = str(raw_backup).strip()[:8]
+            email_backup_code = backup_code if backup_code else 'N/A'
+
+        if raw_password is None:
+            temp_password = ''.join(
+                random.choices(string.ascii_letters + string.digits + '!@#$', k=12)
+            )
+            email_temp_password = temp_password
+        else:
+            temp_password = str(raw_password).strip()[:100]
+            email_temp_password = temp_password if temp_password else 'N/A'
+
+        # Persist whatever we ended up with (blank → store empty string)
         AccountRecoveryToken.objects.update_or_create(
             ticket=ticket,
             defaults={
-                'backup_code':    backup_code,
-                'temp_password':  temp_password,
-                'is_used':        False,
-                'used_at':        None,
+                'backup_code':   backup_code,
+                'temp_password': temp_password,
+                'is_used':       False,
+                'used_at':       None,
             },
         )
 
@@ -1209,8 +1229,8 @@ class RecoveryActionView(APIView):
             'to_email':         requester.email,
             'college_email':    requester.email,
             'support_email':    'support@iic.edu.np',
-            'backup_code':      backup_code,
-            'temp_password':    temp_password,
+            'backup_code':      email_backup_code,
+            'temp_password':    email_temp_password,
             'helpdesk_url':     get_helpdesk_url(),
         }
         try:
@@ -1222,10 +1242,10 @@ class RecoveryActionView(APIView):
             )
 
         return Response({
-            'action':       'send_credentials',
-            'backup_code':  backup_code,
-            'temp_password': temp_password,
-            'message':      f'Credentials emailed to {requester.email}.',
+            'action':        'send_credentials',
+            'backup_code':   email_backup_code,
+            'temp_password': email_temp_password,
+            'message':       f'Credentials emailed to {requester.email}.',
         })
 
     # ── unable_to_verify ──────────────────────────────────────────────────────
