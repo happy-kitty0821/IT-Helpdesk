@@ -53,6 +53,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -103,6 +104,13 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Optional: compresses files and caches them
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
@@ -201,7 +209,7 @@ HELPDESK_INTERN_SCOPE_SLUGS = ['device-support', 'wifi-issue', 'general-support'
 HELPDESK_URL = os.environ.get('HELPDESK_URL', 'http://localhost:3000')
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'IIC-IT Help Desk Application',
+    'TITLE': 'IIC IT-NOC Help Desk Application',
     'DESCRIPTION': 'API documentation generated automatically',
     'VERSION': '0.0.1',
     'SERVE_INCLUDE_SCHEMA': False,
