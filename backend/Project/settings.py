@@ -107,8 +107,13 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Optional: compresses files and caches them
 STORAGES = {
+    # 1. Required for media uploads / models.FileField
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    # 2. WhiteNoise storage without strict manifest requirement during tests
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
     },
 }
 MEDIA_URL = '/media/'
