@@ -1,0 +1,76 @@
+{% extends "email/base.html" %}
+
+{% block title %}Account Recovery Update — IIC IT Helpdesk{% endblock %}
+
+{% block header_style %}background:linear-gradient(135deg,#7c2d12,#b45309);{% endblock %}
+{% block header_eyebrow_color %}#fde68a{% endblock %}
+
+{% block heading %}Unable to Verify Identity{% endblock %}
+
+{% block header_meta %}
+  <p style="margin:8px 0 0;color:#fef3c7;font-size:.88rem;">
+    Reference: <strong>{{ ticket_reference }}</strong>
+  </p>
+{% endblock %}
+
+{% block body %}
+  <p style="margin:0 0 20px;color:#475569;line-height:1.65;font-size:.95rem;">
+    Hi <strong style="color:#0f172a;">{{ name }}</strong>,
+  </p>
+  <p style="margin:0 0 20px;color:#475569;line-height:1.65;font-size:.95rem;">
+    Thank you for submitting an account recovery request. Our IT team has reviewed your
+    request but was <strong>unable to verify your identity</strong> using the information
+    provided. Your request cannot be processed remotely at this time.
+  </p>
+  <p style="margin:0 0 16px;color:#475569;line-height:1.65;font-size:.95rem;">
+    To complete the verification process, please visit the
+    <strong>IIC IT &amp; NOC department in person</strong> with one of the following:
+  </p>
+  <ul style="margin:0 0 24px;padding-left:22px;color:#475569;font-size:.92rem;line-height:1.85;">
+    <li>Valid IIC student / staff ID card</li>
+    <li>National ID card or passport</li>
+    <li>Any other approved college identification</li>
+  </ul>
+
+  {# ── Office info box ── #}
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;margin-bottom:28px;">
+    <tr><td style="padding:16px 18px;">
+      <p style="margin:0 0 6px;font-size:.85rem;font-weight:800;color:#1e40af;">
+        &#128205; Office information
+      </p>
+      <table cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:3px 12px 3px 0;font-size:.83rem;font-weight:700;color:#1e3a8a;white-space:nowrap;">Location</td>
+          <td style="padding:3px 0;font-size:.83rem;color:#1e3a8a;">IIC IT &amp; NOC Department</td>
+        </tr>
+        <tr>
+          <td style="padding:3px 12px 3px 0;font-size:.83rem;font-weight:700;color:#1e3a8a;white-space:nowrap;">Hours</td>
+          <td style="padding:3px 0;font-size:.83rem;color:#1e3a8a;">Sunday &ndash; Friday, 10:00 AM &ndash; 4:00 PM</td>
+        </tr>
+        <tr>
+          <td style="padding:3px 12px 3px 0;font-size:.83rem;font-weight:700;color:#1e3a8a;white-space:nowrap;">Email</td>
+          <td style="padding:3px 0;font-size:.83rem;">
+            <a href="mailto:{{ support_email }}"
+               style="color:#1e40af;text-decoration:none;">{{ support_email }}</a>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+
+  <p style="margin:0 0 28px;color:#64748b;font-size:.85rem;line-height:1.65;">
+    Your ticket remains open. Once you visit us in person, our team will assist you promptly.
+    If you believe this decision is an error, please reply to this email or contact us directly.
+  </p>
+{% endblock %}
+
+{% block cta %}
+  <p style="margin:0;text-align:center;">
+    <a href="{{ helpdesk_url }}"
+       style="display:inline-block;background:#234395;color:#ffffff;font-weight:750;
+              padding:12px 28px;border-radius:10px;text-decoration:none;font-size:.95rem;">
+      View your ticket
+    </a>
+  </p>
+{% endblock %}
