@@ -1185,32 +1185,29 @@ class RecoveryActionView(APIView):
     # ── send_credentials ──────────────────────────────────────────────────────
 
     def _send_credentials(self, request, ticket, requester, send_event, get_helpdesk_url):
-        import random, string
+        import random, string, threading, logging
+        from django.core.mail import send_mail
+        from .email_config_service import get_effective_from_email
 
-        # Admin can type their own values in the form.
-        # Empty string → "N/A" in the email (admin deliberately left it blank).
-        # Key absent from request → auto-generate.
-        raw_backup   = request.data.get('backup_code',   None)   # None = not sent
+        _log = logging.getLogger(__name__)
+
+        raw_backup   = request.data.get('backup_code',   None)
         raw_password = request.data.get('temp_password', None)
 
         if raw_backup is None:
-            # Key not in body at all → auto-generate
-            backup_code = ''.join(random.choices(string.digits, k=8))
+            backup_code       = ''.join(random.choices(string.digits, k=8))
             email_backup_code = backup_code
         else:
-            backup_code = str(raw_backup).strip()[:8]
+            backup_code       = str(raw_backup).strip()[:8]
             email_backup_code = backup_code if backup_code else 'N/A'
 
         if raw_password is None:
-            temp_password = ''.join(
-                random.choices(string.ascii_letters + string.digits + '!@#$', k=12)
-            )
+            temp_password       = ''.join(random.choices(string.ascii_letters + string.digits + '!@#$', k=12))
             email_temp_password = temp_password
         else:
-            temp_password = str(raw_password).strip()[:100]
+            temp_password       = str(raw_password).strip()[:100]
             email_temp_password = temp_password if temp_password else 'N/A'
 
-        # Persist whatever we ended up with (blank → store empty string)
         AccountRecoveryToken.objects.update_or_create(
             ticket=ticket,
             defaults={
@@ -1221,25 +1218,80 @@ class RecoveryActionView(APIView):
             },
         )
 
-        ctx = {
-            'ticket_reference': ticket.reference,
-            'ticket_subject':   ticket.subject,
-            'requester_name':   requester.get_full_name() or requester.username,
-            'requester_email':  requester.email,
-            'to_email':         requester.email,
-            'college_email':    requester.email,
-            'support_email':    'support@iic.edu.np',
-            'backup_code':      email_backup_code,
-            'temp_password':    email_temp_password,
-            'helpdesk_url':     get_helpdesk_url(),
-        }
-        try:
-            send_event('account_recovery', ctx, ticket=ticket)
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).exception(
-                'RecoveryActionView: error sending account_recovery email: %s', exc
-            )
+        name         = requester.get_full_name() or requester.username
+        ref          = ticket.reference
+        helpdesk_url = get_helpdesk_url()
+        from_addr    = get_effective_from_email()
+
+        plain = (
+            f"Hi {name},\n\n"
+            f"Your IIC college account recovery credentials are ready (ref: {ref}).\n\n"
+            f"  College email     : {requester.email}\n"
+            f"  Backup code       : {email_backup_code}\n"
+            f"  Temporary password: {email_temp_password}\n\n"
+            f"Please change your password immediately after signing in.\n"
+            f"These credentials are single-use and should not be shared.\n\n"
+            f"If you did not request this, contact us at support@iic.edu.np immediately.\n\n"
+            f"Helpdesk: {helpdesk_url}\n\n"
+            f"\u2014 IIC IT & NOC Department"
+        )
+
+        html_parts = [
+            '<!DOCTYPE html>',
+            '<html lang="en">',
+            '<head><meta charset="UTF-8"><title>Account Recovery Credentials</title></head>',
+            '<body style="font-family:Inter,ui-sans-serif,sans-serif;background:#f8fafc;margin:0;padding:32px 0;">',
+            '  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">',
+            '    <table width="580" cellpadding="0" cellspacing="0"',
+            '           style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">',
+            '      <tr><td style="background:linear-gradient(135deg,#183474,#234395);padding:32px 40px;">',
+            '        <p style="margin:0 0 6px;font-size:.72rem;font-weight:800;color:#93c5fd;text-transform:uppercase;letter-spacing:.14em;">IIC IT &amp; NOC Helpdesk</p>',
+            '        <h1 style="margin:0;font-size:1.55rem;color:#fff;letter-spacing:-.03em;line-height:1.2;">Account Recovery Credentials</h1>',
+            f'        <p style="margin:8px 0 0;color:#bfdbfe;font-size:.9rem;">Reference: <strong>{ref}</strong></p>',
+            '      </td></tr>',
+            '      <tr><td style="padding:36px 40px;">',
+            f'        <p style="margin:0 0 20px;color:#475569;line-height:1.65;font-size:.95rem;">Hi <strong style="color:#0f172a;">{name}</strong>,</p>',
+            '        <p style="margin:0 0 24px;color:#475569;line-height:1.65;font-size:.95rem;">Your account recovery request has been verified by the IIC IT team. Your credentials are listed below. Please use them to sign in and <strong>change your password immediately</strong>.</p>',
+            '        <table width="100%" cellpadding="0" cellspacing="0" style="border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;margin-bottom:28px;">',
+            '          <tr style="background:#f8fafc;"><td style="padding:11px 16px;font-size:.8rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;width:42%;">Field</td><td style="padding:11px 16px;font-size:.8rem;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #e2e8f0;">Value</td></tr>',
+            f'          <tr><td style="padding:13px 16px;font-size:.88rem;font-weight:700;color:#374151;border-bottom:1px solid #f1f5f9;">College email</td><td style="padding:13px 16px;font-size:.88rem;color:#0f172a;border-bottom:1px solid #f1f5f9;">{requester.email}</td></tr>',
+            f'          <tr style="background:#f0fdf4;"><td style="padding:13px 16px;font-size:.88rem;font-weight:700;color:#374151;border-bottom:1px solid #f1f5f9;">Backup code</td><td style="padding:13px 16px;font-size:1.1rem;font-family:ui-monospace,monospace;font-weight:800;color:#166534;letter-spacing:.18em;border-bottom:1px solid #f1f5f9;">{email_backup_code}</td></tr>',
+            f'          <tr style="background:#eff6ff;"><td style="padding:13px 16px;font-size:.88rem;font-weight:700;color:#374151;">Temporary password</td><td style="padding:13px 16px;font-family:ui-monospace,monospace;font-size:.95rem;font-weight:700;color:#1e40af;">{email_temp_password}</td></tr>',
+            '        </table>',
+            '        <table width="100%" cellpadding="0" cellspacing="0" style="background:#fef9c3;border:1px solid #fde047;border-radius:10px;margin-bottom:28px;">',
+            '          <tr><td style="padding:14px 18px;"><p style="margin:0 0 4px;font-size:.85rem;font-weight:800;color:#713f12;">⚠ Important</p>',
+            '          <ul style="margin:6px 0 0;padding-left:18px;color:#78350f;font-size:.83rem;line-height:1.7;">',
+            '            <li>Change your password <strong>immediately</strong> after signing in.</li>',
+            '            <li>These credentials are <strong>single-use</strong> and must not be shared.</li>',
+            '            <li>IIC IT staff will <strong>never</strong> ask you to share these codes.</li>',
+            '          </ul></td></tr>',
+            '        </table>',
+            f'        <p style="margin:0 0 28px;color:#475569;font-size:.88rem;line-height:1.65;">If you did not request account recovery, contact us immediately at <a href="mailto:support@iic.edu.np" style="color:#234395;font-weight:700;">support@iic.edu.np</a>.</p>',
+            f'        <p style="margin:0;text-align:center;"><a href="{helpdesk_url}" style="display:inline-block;background:#234395;color:#fff;font-weight:750;padding:12px 28px;border-radius:10px;text-decoration:none;font-size:.95rem;">Go to Helpdesk</a></p>',
+            '      </td></tr>',
+            '      <tr><td style="padding:20px 40px;border-top:1px solid #e2e8f0;background:#f8fafc;">',
+            '        <p style="margin:0;font-size:.75rem;color:#94a3b8;text-align:center;">Itahari International College &middot; IT &amp; NOC Department &middot; <a href="mailto:support@iic.edu.np" style="color:#94a3b8;">support@iic.edu.np</a></p>',
+            '      </td></tr>',
+            '    </table>',
+            '  </td></tr></table>',
+            '</body></html>',
+        ]
+        html = '\n'.join(html_parts)
+
+        def _send():
+            try:
+                send_mail(
+                    subject=f'[IIC IT Helpdesk] Account recovery credentials \u2014 {ref}',
+                    message=plain,
+                    from_email=from_addr,
+                    recipient_list=[requester.email],
+                    html_message=html,
+                )
+                _log.info('Recovery credentials email sent for ticket %s', ref)
+            except Exception as exc:
+                _log.error('Failed to send recovery credentials for ticket %s: %s', ref, type(exc).__name__)
+
+        threading.Thread(target=_send, daemon=True).start()
 
         return Response({
             'action':        'send_credentials',
@@ -1251,23 +1303,82 @@ class RecoveryActionView(APIView):
     # ── unable_to_verify ──────────────────────────────────────────────────────
 
     def _unable_to_verify(self, request, ticket, requester, send_event, get_helpdesk_url):
-        ctx = {
-            'ticket_reference': ticket.reference,
-            'ticket_subject':   ticket.subject,
-            'requester_name':   requester.get_full_name() or requester.username,
-            'requester_email':  requester.email,
-            'to_email':         requester.email,
-            'college_email':    requester.email,
-            'support_email':    'support@iic.edu.np',
-            'helpdesk_url':     get_helpdesk_url(),
-        }
-        try:
-            send_event('recovery_unable_to_verify', ctx, ticket=ticket)
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).exception(
-                'RecoveryActionView: error sending recovery_unable_to_verify email: %s', exc
-            )
+        import threading, logging
+        from django.core.mail import send_mail
+        from .email_config_service import get_effective_from_email
+
+        _log         = logging.getLogger(__name__)
+        name         = requester.get_full_name() or requester.username
+        ref          = ticket.reference
+        helpdesk_url = get_helpdesk_url()
+        from_addr    = get_effective_from_email()
+
+        plain = (
+            f"Hi {name},\n\n"
+            f"Thank you for submitting an account recovery request (ref: {ref}).\n\n"
+            f"Unfortunately, the IIC IT team was unable to verify your identity with the "
+            f"information provided. Your request cannot be processed at this time.\n\n"
+            f"Please visit the IIC IT & NOC department in person with a valid college ID "
+            f"or other approved identification.\n\n"
+            f"Office hours: Sunday\u2013Friday, 10:00 AM \u2013 4:00 PM\n\n"
+            f"Questions? Contact us at support@iic.edu.np.\n\n"
+            f"Helpdesk: {helpdesk_url}\n\n"
+            f"\u2014 IIC IT & NOC Department"
+        )
+
+        html_parts = [
+            '<!DOCTYPE html>',
+            '<html lang="en">',
+            '<head><meta charset="UTF-8"><title>Account Recovery \u2014 Unable to Verify</title></head>',
+            '<body style="font-family:Inter,ui-sans-serif,sans-serif;background:#f8fafc;margin:0;padding:32px 0;">',
+            '  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">',
+            '    <table width="580" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">',
+            '      <tr><td style="background:linear-gradient(135deg,#7c2d12,#b45309);padding:32px 40px;">',
+            '        <p style="margin:0 0 6px;font-size:.72rem;font-weight:800;color:#fde68a;text-transform:uppercase;letter-spacing:.14em;">IIC IT &amp; NOC Helpdesk</p>',
+            '        <h1 style="margin:0;font-size:1.45rem;color:#fff;letter-spacing:-.03em;line-height:1.2;">Unable to Verify Identity</h1>',
+            f'        <p style="margin:8px 0 0;color:#fef3c7;font-size:.9rem;">Reference: <strong>{ref}</strong></p>',
+            '      </td></tr>',
+            '      <tr><td style="padding:36px 40px;">',
+            f'        <p style="margin:0 0 20px;color:#475569;line-height:1.65;font-size:.95rem;">Hi <strong style="color:#0f172a;">{name}</strong>,</p>',
+            '        <p style="margin:0 0 20px;color:#475569;line-height:1.65;font-size:.95rem;">Thank you for submitting an account recovery request. Our IT team has reviewed your request but was <strong>unable to verify your identity</strong> using the information provided.</p>',
+            '        <p style="margin:0 0 16px;color:#475569;line-height:1.65;font-size:.95rem;">To complete verification, please visit the <strong>IIC IT &amp; NOC department in person</strong> with one of the following:</p>',
+            '        <ul style="margin:0 0 24px;padding-left:22px;color:#475569;font-size:.92rem;line-height:1.8;">',
+            '          <li>Valid IIC student/staff ID card</li>',
+            '          <li>National ID or passport</li>',
+            '          <li>Any other approved college identification</li>',
+            '        </ul>',
+            '        <table width="100%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;margin-bottom:28px;">',
+            '          <tr><td style="padding:14px 18px;">',
+            '            <p style="margin:0 0 4px;font-size:.85rem;font-weight:800;color:#1e40af;">\U0001f4cd Office information</p>',
+            '            <p style="margin:4px 0 0;color:#1e3a8a;font-size:.83rem;line-height:1.7;"><strong>Location:</strong> IIC IT &amp; NOC Department<br><strong>Hours:</strong> Sunday\u2013Friday, 10:00 AM \u2013 4:00 PM<br><strong>Email:</strong> <a href="mailto:support@iic.edu.np" style="color:#1e40af;">support@iic.edu.np</a></p>',
+            '          </td></tr>',
+            '        </table>',
+            '        <p style="margin:0 0 28px;color:#64748b;font-size:.85rem;line-height:1.65;">Your ticket remains open. Once you visit us in person, our team will assist you promptly.</p>',
+            f'        <p style="margin:0;text-align:center;"><a href="{helpdesk_url}" style="display:inline-block;background:#234395;color:#fff;font-weight:750;padding:12px 28px;border-radius:10px;text-decoration:none;font-size:.95rem;">View your ticket</a></p>',
+            '      </td></tr>',
+            '      <tr><td style="padding:20px 40px;border-top:1px solid #e2e8f0;background:#f8fafc;">',
+            '        <p style="margin:0;font-size:.75rem;color:#94a3b8;text-align:center;">Itahari International College &middot; IT &amp; NOC Department &middot; <a href="mailto:support@iic.edu.np" style="color:#94a3b8;">support@iic.edu.np</a></p>',
+            '      </td></tr>',
+            '    </table>',
+            '  </td></tr></table>',
+            '</body></html>',
+        ]
+        html = '\n'.join(html_parts)
+
+        def _send():
+            try:
+                send_mail(
+                    subject=f'[IIC IT Helpdesk] Account recovery update \u2014 {ref}',
+                    message=plain,
+                    from_email=from_addr,
+                    recipient_list=[requester.email],
+                    html_message=html,
+                )
+                _log.info('Unable-to-verify email sent for ticket %s', ref)
+            except Exception as exc:
+                _log.error('Failed to send unable-to-verify email for ticket %s: %s', ref, type(exc).__name__)
+
+        threading.Thread(target=_send, daemon=True).start()
 
         return Response({
             'action':  'unable_to_verify',
