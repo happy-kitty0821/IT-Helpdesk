@@ -208,6 +208,7 @@ MAILERS = {
 VERIFICATION_FROM_EMAIL         = os.environ.get('VERIFICATION_FROM_EMAIL', 'noreply@iic.edu.np')
 VERIFICATION_TOKEN_EXPIRY_HOURS = int(os.environ.get('VERIFICATION_TOKEN_EXPIRY_HOURS', '24'))
 EMAIL_VERIFICATION_ENABLED      = _bool(os.environ.get('EMAIL_VERIFICATION_ENABLED', ''), True)
+PASSWORD_RESET_TOKEN_EXPIRY_HOURS = int(os.environ.get('PASSWORD_RESET_TOKEN_EXPIRY_HOURS', '24'))
 
 # ── Misc ───────────────────────────────────────────────────────────────────────
 HELPDESK_INTERN_SCOPE_SLUGS = ['device-support', 'wifi-issue', 'general-support']

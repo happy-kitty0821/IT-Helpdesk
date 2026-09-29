@@ -1183,13 +1183,23 @@ class PasswordResetToken(models.Model):
         Look up by hash, check validity, return instance.
         Raises ValueError with a generic message on any failure.
         """
+        import logging
+        _log = logging.getLogger(__name__)
+
         token_hash = cls._hash(raw_token)
         try:
             token = cls.objects.select_related('user').get(token_hash=token_hash)
         except cls.DoesNotExist:
+            _log.warning('PasswordResetToken.verify: token not found (hash=%s...)', token_hash[:12])
             raise ValueError('Reset link is invalid or has already been used.')
         if token.used_at is not None:
+            _log.warning('PasswordResetToken.verify: token already used (pk=%s)', token.pk)
             raise ValueError('Reset link is invalid or has already been used.')
         if token.is_expired():
+            from django.utils import timezone
+            _log.warning(
+                'PasswordResetToken.verify: token expired (pk=%s, expires_at=%s, now=%s)',
+                token.pk, token.expires_at, timezone.now(),
+            )
             raise ValueError('Reset link has expired. Please request a new one.')
         return token
