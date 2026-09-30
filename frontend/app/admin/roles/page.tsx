@@ -360,7 +360,7 @@ export default function RolesPage() {
                   <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: ".82rem", fontWeight: 700, color: isGrantable ? "#166534" : "#6b7280", flexShrink: 0 }}
                     title={isGrantable ? "Disable granting this role" : "Allow granting this role"}>
                     <input type="checkbox" checked={isGrantable}
-                      disabled={isSavingThis || role === "administrator"}
+                      disabled={isSavingThis}
                       onChange={() => toggleGrantable(role, isGrantable)}
                       style={{ width: 15, height: 15 }} />
                     {isGrantable ? "Grantable" : "Disabled"}
@@ -404,6 +404,18 @@ export default function RolesPage() {
                               <div style={{ display: "flex", alignItems: "flex-start", gap: 6, background: "#fef3c7", borderRadius: 7, padding: "6px 10px", fontSize: ".78rem", color: "#92400e" }}>
                                 <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
                                 Role is disabled — cannot be assigned to new users.
+                              </div>
+                            )}
+                            {role === "administrator" && (
+                              <div style={{ display: "flex", alignItems: "flex-start", gap: 6, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 7, padding: "8px 12px", fontSize: ".78rem", color: "#1e40af" }}>
+                                <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+                                <span>
+                                  Granting the <strong>Administrator</strong> role automatically sets{" "}
+                                  <code style={{ fontFamily: "ui-monospace,monospace", background: "#dbeafe", padding: "1px 4px", borderRadius: 3 }}>is_staff</code> and{" "}
+                                  <code style={{ fontFamily: "ui-monospace,monospace", background: "#dbeafe", padding: "1px 4px", borderRadius: 3 }}>is_superuser</code> on
+                                  the user&apos;s account. Revoking the role clears both flags. Manage administrators by
+                                  granting or revoking this role from the Users page.
+                                </span>
                               </div>
                             )}
                             <div style={{ marginLeft: "auto" }}>

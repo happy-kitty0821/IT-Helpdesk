@@ -5,9 +5,74 @@ import {
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface OfficeHourRow { day: string; hours: string; }
+
+interface SiteSettings {
+  support_email:         string;
+  office_location:       string;
+  office_phone:          string;
+  office_hours:          OfficeHourRow[];
+  walk_in_note:          string;
+  accessibility_note:    string;
+  account_recovery_note: string;
+  institution_name:      string;
+  department_name:       string;
+}
+
+// ── Hardcoded fallback (used when API is unreachable or DB row not seeded) ────
+
+const FALLBACK: SiteSettings = {
+  support_email:         "support@iic.edu.np",
+  office_location:       "IT & NOC Department, Itahari International College, ING, Itahari, Sunsari, Nepal",
+  office_phone:          "",
+  office_hours: [
+    { day: "Sunday",    hours: "10:00 AM – 4:00 PM" },
+    { day: "Monday",    hours: "10:00 AM – 4:00 PM" },
+    { day: "Tuesday",   hours: "10:00 AM – 4:00 PM" },
+    { day: "Wednesday", hours: "10:00 AM – 4:00 PM" },
+    { day: "Thursday",  hours: "10:00 AM – 4:00 PM" },
+    { day: "Friday",    hours: "10:00 AM – 4:00 PM" },
+    { day: "Saturday",  hours: "Closed" },
+  ],
+  walk_in_note: "Walk-in support is available during office hours for urgent device issues, hardware drop-offs, and ID card replacements. We recommend submitting a ticket in advance for faster service.",
+  accessibility_note: "",
+  account_recovery_note: "If you are locked out of your IIC college account, please visit us in person with a valid college ID. Identity must be verified by staff before any account changes are made.",
+  institution_name: "Itahari International College",
+  department_name:  "IT & NOC Department",
+};
+
+// ── Server-side data fetch ────────────────────────────────────────────────────
+
+async function getSiteSettings(): Promise<SiteSettings> {
+  try {
+    const res = await fetch("http://127.0.0.1:8000/api/v1/settings/site/", {
+      cache: "no-store",
+    });
+    if (!res.ok) return FALLBACK;
+    const data = await res.json() as Partial<SiteSettings>;
+    // Merge with fallback so missing fields always have a value
+    return {
+      ...FALLBACK,
+      ...data,
+      // If office_hours is an empty array, fall back to hardcoded schedule
+      office_hours:
+        Array.isArray(data.office_hours) && data.office_hours.length > 0
+          ? data.office_hours
+          : FALLBACK.office_hours,
+    };
+  } catch {
+    return FALLBACK;
+  }
+}
+
+// ── Metadata ──────────────────────────────────────────────────────────────────
+
 export const metadata: Metadata = {
   title: "Contact IT & NOC Support",
-  description: "Visit the IIC IT & NOC department in person, email us, or submit a support ticket online. Office hours, location, and direct contact details.",
+  description:
+    "Visit the IIC IT & NOC department in person, email us, or submit a support ticket online. Office hours, location, and direct contact details.",
   openGraph: {
     title:       "Contact · IIC IT & NOC Helpdesk",
     description: "Office hours, location, email and walk-in details for the IIC IT & NOC support team.",
@@ -16,21 +81,36 @@ export const metadata: Metadata = {
   alternates: { canonical: "/contact" },
 };
 
-// ── Data ──────────────────────────────────────────────────────────────────────
+// ── Card wrapper ──────────────────────────────────────────────────────────────
 
-const HOURS = [
-  { day: "Sunday",    hours: "10:00 AM – 4:00 PM" },
-  { day: "Monday",    hours: "10:00 AM – 4:00 PM" },
-  { day: "Tuesday",   hours: "10:00 AM – 4:00 PM" },
-  { day: "Wednesday", hours: "10:00 AM – 4:00 PM" },
-  { day: "Thursday",  hours: "10:00 AM – 4:00 PM" },
-  { day: "Friday",    hours: "10:00 AM – 4:00 PM" },
-  { day: "Saturday",  hours: "Closed" },
-];
+function InfoCard({
+  icon, heading, children,
+}: { icon: React.ReactNode; heading: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: 16, padding: "28px 28px 24px",
+    }}>
+      <div style={{
+        width: 44, height: 44, borderRadius: 12,
+        background: "var(--brand-soft)", display: "grid", placeItems: "center", marginBottom: 18,
+      }}>
+        {icon}
+      </div>
+      <h2 style={{ fontSize: "1rem", fontWeight: 800, margin: "0 0 8px" }}>{heading}</h2>
+      {children}
+    </div>
+  );
+}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const s = await getSiteSettings();
+
+  // Split multi-line location into separate lines for rendering
+  const locationLines = s.office_location.split(",").map((l) => l.trim()).filter(Boolean);
+
   return (
     <>
       <SiteHeader />
@@ -47,7 +127,7 @@ export default function ContactPage() {
           </p>
         </div>
 
-        {/* ── Grid ── */}
+        {/* ── Top cards ── */}
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
@@ -56,59 +136,37 @@ export default function ContactPage() {
         }}>
 
           {/* Location */}
-          <div style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 16, padding: "28px 28px 24px",
-          }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 12,
-              background: "var(--brand-soft)", display: "grid", placeItems: "center", marginBottom: 18,
-            }}>
-              <MapPin size={20} style={{ color: "var(--brand)" }} aria-hidden="true" />
-            </div>
-            <h2 style={{ fontSize: "1rem", fontWeight: 800, margin: "0 0 8px" }}>Office location</h2>
-            <p style={{ color: "var(--muted)", margin: "0 0 6px", fontSize: ".95rem", lineHeight: 1.65 }}>
-              IT &amp; NOC Department<br />
-              Itahari International College, ING<br />
-              Itahari, Sunsari, Nepal
-            </p>
-          </div>
+          <InfoCard icon={<MapPin size={20} style={{ color: "var(--brand)" }} aria-hidden="true" />} heading="Office location">
+            <address style={{ fontStyle: "normal", color: "var(--muted)", fontSize: ".95rem", lineHeight: 1.65 }}>
+              {locationLines.map((line, i) => (
+                <span key={i}>
+                  {line}
+                  {i < locationLines.length - 1 && <br />}
+                </span>
+              ))}
+            </address>
+          </InfoCard>
 
-          {/* Email */}
-          <div style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 16, padding: "28px 28px 24px",
-          }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 12,
-              background: "var(--brand-soft)", display: "grid", placeItems: "center", marginBottom: 18,
-            }}>
-              <Mail size={20} style={{ color: "var(--brand)" }} aria-hidden="true" />
-            </div>
-            <h2 style={{ fontSize: "1rem", fontWeight: 800, margin: "0 0 8px" }}>Email</h2>
+          {/* Email + optional phone */}
+          <InfoCard icon={<Mail size={20} style={{ color: "var(--brand)" }} aria-hidden="true" />} heading="Email">
             <a
-              href="mailto:support@iic.edu.np"
+              href={`mailto:${s.support_email}`}
               style={{ color: "var(--brand)", fontWeight: 700, fontSize: ".95rem", textDecoration: "none" }}
             >
-              support@iic.edu.np
+              {s.support_email}
             </a>
             <p style={{ color: "var(--muted)", margin: "8px 0 0", fontSize: ".88rem" }}>
               For general IT enquiries and follow-ups.
             </p>
-          </div>
+            {s.office_phone && (
+              <p style={{ margin: "10px 0 0", display: "flex", alignItems: "center", gap: 6, fontSize: ".88rem", color: "var(--muted)" }}>
+                <Phone size={14} aria-hidden="true" /> {s.office_phone}
+              </p>
+            )}
+          </InfoCard>
 
-          {/* Ticket */}
-          <div style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 16, padding: "28px 28px 24px",
-          }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 12,
-              background: "var(--brand-soft)", display: "grid", placeItems: "center", marginBottom: 18,
-            }}>
-              <MessageSquare size={20} style={{ color: "var(--brand)" }} aria-hidden="true" />
-            </div>
-            <h2 style={{ fontSize: "1rem", fontWeight: 800, margin: "0 0 8px" }}>Submit a ticket</h2>
+          {/* Submit ticket */}
+          <InfoCard icon={<MessageSquare size={20} style={{ color: "var(--brand)" }} aria-hidden="true" />} heading="Submit a ticket">
             <p style={{ color: "var(--muted)", margin: "0 0 14px", fontSize: ".88rem", lineHeight: 1.6 }}>
               The fastest way to get help. Track progress, reply, and receive email updates.
             </p>
@@ -117,7 +175,7 @@ export default function ContactPage() {
             }}>
               <MessageSquare size={15} aria-hidden="true" /> Open a request
             </Link>
-          </div>
+          </InfoCard>
 
         </div>
 
@@ -141,7 +199,7 @@ export default function ContactPage() {
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <tbody>
-                {HOURS.map(({ day, hours }) => (
+                {s.office_hours.map(({ day, hours }) => (
                   <tr key={day} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "11px 24px", fontSize: ".88rem", fontWeight: 700, color: "var(--foreground)" }}>
                       {day}
@@ -162,60 +220,59 @@ export default function ContactPage() {
             </p>
           </div>
 
-          {/* Notes */}
+          {/* Notes column */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-            <div style={{
-              background: "#eff6ff", border: "1px solid #bfdbfe",
-              borderRadius: 14, padding: "20px 22px",
-            }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                <ShieldCheck size={20} style={{ color: "#1d4ed8", flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
-                <div>
-                  <h3 style={{ margin: "0 0 6px", fontSize: ".92rem", fontWeight: 800, color: "#1e3a8a" }}>
-                    Account recovery — visit in person
-                  </h3>
-                  <p style={{ margin: 0, fontSize: ".85rem", color: "#1e40af", lineHeight: 1.65 }}>
-                    If you are locked out of your IIC college account, please visit us in person
-                    with a valid college ID. Identity must be verified by staff before any account
-                    changes are made.
-                  </p>
+            {/* Account recovery note */}
+            {s.account_recovery_note && (
+              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 14, padding: "20px 22px" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <ShieldCheck size={20} style={{ color: "#1d4ed8", flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+                  <div>
+                    <h3 style={{ margin: "0 0 6px", fontSize: ".92rem", fontWeight: 800, color: "#1e3a8a" }}>
+                      Account recovery — visit in person
+                    </h3>
+                    <p style={{ margin: 0, fontSize: ".85rem", color: "#1e40af", lineHeight: 1.65 }}>
+                      {s.account_recovery_note}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            <div style={{
-              background: "#fef9c3", border: "1px solid #fde047",
-              borderRadius: 14, padding: "20px 22px",
-            }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                <Phone size={20} style={{ color: "#854d0e", flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
-                <div>
-                  <h3 style={{ margin: "0 0 6px", fontSize: ".92rem", fontWeight: 800, color: "#713f12" }}>
-                    Walk-in support
-                  </h3>
-                  <p style={{ margin: 0, fontSize: ".85rem", color: "#78350f", lineHeight: 1.65 }}>
-                    Walk-in support is available during office hours for urgent device issues,
-                    hardware drop-offs, and ID card replacements.
-                    We recommend submitting a ticket in advance for faster service.
-                  </p>
+            {/* Walk-in note */}
+            {s.walk_in_note && (
+              <div style={{ background: "#fef9c3", border: "1px solid #fde047", borderRadius: 14, padding: "20px 22px" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <Phone size={20} style={{ color: "#854d0e", flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+                  <div>
+                    <h3 style={{ margin: "0 0 6px", fontSize: ".92rem", fontWeight: 800, color: "#713f12" }}>
+                      Walk-in support
+                    </h3>
+                    <p style={{ margin: 0, fontSize: ".85rem", color: "#78350f", lineHeight: 1.65 }}>
+                      {s.walk_in_note}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            <div style={{
-              background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: 14, padding: "20px 22px",
-            }}>
+            {/* Accessibility note */}
+            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "20px 22px" }}>
               <h3 style={{ margin: "0 0 8px", fontSize: ".92rem", fontWeight: 800 }}>
                 Accessibility support
               </h3>
               <p style={{ margin: 0, fontSize: ".85rem", color: "var(--muted)", lineHeight: 1.65 }}>
-                If you need assistance accessing this service, please email{" "}
-                <a href="mailto:support@iic.edu.np" style={{ color: "var(--brand)", fontWeight: 700 }}>
-                  support@iic.edu.np
-                </a>{" "}
-                or visit the IT &amp; NOC office directly.
+                {s.accessibility_note
+                  ? s.accessibility_note
+                  : <>
+                      If you need assistance accessing this service, please email{" "}
+                      <a href={`mailto:${s.support_email}`} style={{ color: "var(--brand)", fontWeight: 700 }}>
+                        {s.support_email}
+                      </a>{" "}
+                      or visit the {s.department_name} office directly.
+                    </>
+                }
               </p>
             </div>
 
