@@ -726,37 +726,38 @@ class AnnouncementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Announcement
         fields = (
-            'id', 'campaign_id', 'title', 'image_url',
-            'alt_text', 'link_url', 'is_active', 'updated_at',
+            'id', 'campaign_id', 'title', 'body', 'image_url',
+            'alt_text', 'link_url', 'audience', 'priority',
+            'is_active', 'scheduled_start', 'scheduled_end', 'updated_at',
         )
         read_only_fields = fields
 
     def get_image_url(self, obj):
-        # Return raw Django /media/ path — proxied by Next.js rewrite.
         return obj.image.url if obj.image else None
-
-
-
 
 
 class AnnouncementAdminSerializer(serializers.ModelSerializer):
     """Full read/write serializer for the admin panel."""
     image_url = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Announcement
         fields = (
-            'id', 'campaign_id', 'title', 'image', 'image_url',
-            'alt_text', 'link_url', 'is_active', 'created_at', 'updated_at',
+            'id', 'campaign_id', 'title', 'body', 'image', 'image_url',
+            'alt_text', 'link_url', 'audience', 'priority', 'owner', 'owner_name',
+            'is_active', 'scheduled_start', 'scheduled_end',
+            'created_at', 'updated_at',
         )
-        read_only_fields = ('id', 'image_url', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'image_url', 'owner_name', 'created_at', 'updated_at')
 
     def get_image_url(self, obj):
-        # Return raw Django /media/ path — proxied by Next.js rewrite.
         return obj.image.url if obj.image else None
 
-
-
+    def get_owner_name(self, obj):
+        if obj.owner:
+            return obj.owner.get_full_name() or obj.owner.username
+        return None
 
     def validate_campaign_id(self, value):
         import re

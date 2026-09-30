@@ -2326,10 +2326,17 @@ class ActiveAnnouncementView(APIView):
     permission_classes = (permissions.AllowAny,)
 
     def get(self, request):
+        now = timezone.now()
         ann = (
             Announcement.objects
             .filter(is_active=True)
-            .order_by('-updated_at')
+            .filter(
+                Q(scheduled_start__isnull=True) | Q(scheduled_start__lte=now)
+            )
+            .filter(
+                Q(scheduled_end__isnull=True) | Q(scheduled_end__gt=now)
+            )
+            .order_by('-priority', '-updated_at')
             .first()
         )
         if ann is None:

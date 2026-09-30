@@ -602,6 +602,18 @@ class Announcement(models.Model):
     always returns the most-recently-updated active announcement so admins
     can swap campaigns by creating a new row and activating it.
     """
+    class Audience(models.TextChoices):
+        ALL     = 'all',     'Everyone'
+        PUBLIC  = 'public',  'Visitors (unauthenticated)'
+        STUDENT = 'student', 'Students'
+        STAFF   = 'staff',   'Faculty & staff'
+
+    class Priority(models.IntegerChoices):
+        LOW    = 0, 'Low'
+        NORMAL = 1, 'Normal'
+        HIGH   = 2, 'High'
+        URGENT = 3, 'Urgent'
+
     campaign_id = models.SlugField(
         max_length=80, unique=True,
         help_text='Short unique slug identifying this campaign, e.g. "orientation-2026". '
@@ -609,21 +621,49 @@ class Announcement(models.Model):
     )
     title = models.CharField(max_length=160, blank=True, default='',
                              help_text='Internal label — not shown publicly.')
+    body = models.TextField(
+        blank=True, default='',
+        help_text='Optional announcement body text or short HTML shown in the modal.',
+    )
     image = models.ImageField(
         upload_to=announcement_image_path,
+        blank=True,
         help_text='Banner/flyer image (JPEG, PNG, WebP). Recommended: 800 × 600 px.',
     )
     alt_text = models.CharField(
-        max_length=300,
+        max_length=300, blank=True, default='',
         help_text='Descriptive alt text for screen readers.',
     )
     link_url = models.URLField(
         blank=True, default='',
         help_text='Optional URL the banner links to (leave blank for image-only).',
     )
+    audience = models.CharField(
+        max_length=10, choices=Audience.choices, default=Audience.ALL,
+        help_text='Which users should see this announcement.',
+    )
+    priority = models.PositiveSmallIntegerField(
+        choices=Priority.choices, default=Priority.NORMAL,
+        help_text='Higher priority announcements are shown first when multiple are active.',
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='owned_announcements',
+        help_text='Administrator responsible for this announcement.',
+    )
     is_active = models.BooleanField(
         default=False,
         help_text='Only active announcements are served to the public home page.',
+    )
+    scheduled_start = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Optional: announcement becomes visible after this UTC datetime.',
+    )
+    scheduled_end = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Optional: announcement is hidden after this UTC datetime.',
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1203,3 +1243,77 @@ class PasswordResetToken(models.Model):
             )
             raise ValueError('Reset link has expired. Please request a new one.')
         return token
+
+
+# ---------------------------------------------------------------------------
+# Ticket event audit log
+# ---------------------------------------------------------------------------
+
+class TicketEvent(models.Model):
+    """
+    Immutable record of every meaningful change to a ticket.
+
+    Each row captures who did what, when, and what changed — providing an
+    auditable history of status transitions, priority changes, assignments,
+    stage moves, and cancellations/closures.
+
+    Records are append-only; never update or delete a TicketEvent.
+
+    Action constants
+    ────────────────
+    STATUS_CHANGED     — status field changed (old_value / new_value)
+    PRIORITY_CHANGED   — priority field changed
+    ASSIGNED           — assigned_to changed (new_value is assignee name or "unassigned")
+    STAGE_CHANGED      — current_stage changed
+    SUBJECT_CHANGED    — subject edited by staff
+    TEAM_CHANGED       — team field changed
+    CREATED            — ticket first submitted (actor = requester)
+    """
+
+    class Action(models.TextChoices):
+        CREATED          = 'created',          'Ticket created'
+        STATUS_CHANGED   = 'status_changed',   'Status changed'
+        PRIORITY_CHANGED = 'priority_changed', 'Priority changed'
+        ASSIGNED         = 'assigned',         'Assigned / reassigned'
+        STAGE_CHANGED    = 'stage_changed',    'Stage changed'
+        SUBJECT_CHANGED  = 'subject_changed',  'Subject edited'
+        TEAM_CHANGED     = 'team_changed',     'Team changed'
+
+    ticket = models.ForeignKey(
+        'Ticket',
+        on_delete=models.CASCADE,
+        related_name='events',
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='ticket_events',
+        help_text='User who triggered the change. Null for system-generated events.',
+    )
+    action = models.CharField(max_length=20, choices=Action.choices)
+    old_value = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text='Value before the change (human-readable label, not a raw key).',
+    )
+    new_value = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text='Value after the change.',
+    )
+    note = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text='Optional context note (e.g. status reason).',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ('created_at',)
+        verbose_name = 'Ticket event'
+        verbose_name_plural = 'Ticket events'
+        indexes = [
+            models.Index(fields=['ticket', 'created_at'], name='ticket_event_ticket_time_idx'),
+            models.Index(fields=['action'],                name='ticket_event_action_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.ticket.reference} — {self.action} at {self.created_at}'

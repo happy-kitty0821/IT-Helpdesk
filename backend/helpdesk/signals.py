@@ -272,21 +272,33 @@ def _ticket_context(ticket, extra: dict | None = None) -> dict:
 def capture_ticket_old_values(sender, instance, **kwargs):
     """
     Pre-save receiver for Ticket.
-    Captures old status and old assigned_to before the update
-    so post_save can detect changes.
+    Captures old field values before the update so post_save receivers can
+    detect changes for notifications and TicketEvent audit logging.
     """
     if instance.pk:
         try:
             from helpdesk.models import Ticket  # noqa: PLC0415
             old = Ticket.objects.get(pk=instance.pk)
-            instance._old_status = old.status
+            instance._old_status      = old.status
             instance._old_assigned_to = old.assigned_to_id
+            instance._old_priority    = old.priority
+            instance._old_stage       = old.current_stage
+            instance._old_subject     = old.subject
+            instance._old_team        = old.team
         except Exception:
-            instance._old_status = None
+            instance._old_status      = None
             instance._old_assigned_to = None
+            instance._old_priority    = None
+            instance._old_stage       = None
+            instance._old_subject     = None
+            instance._old_team        = None
     else:
-        instance._old_status = None
+        instance._old_status      = None
         instance._old_assigned_to = None
+        instance._old_priority    = None
+        instance._old_stage       = None
+        instance._old_subject     = None
+        instance._old_team        = None
 
 
 @receiver(post_save, sender='helpdesk.Ticket')
@@ -359,3 +371,117 @@ def sync_mailers_on_config_change(sender, instance, **kwargs):
         apply_mailers_override()
     except Exception as exc:
         logger.warning('sync_mailers_on_config_change failed: %s', exc)
+
+
+# ---------------------------------------------------------------------------
+# TicketEvent audit log — immutable record of every ticket change
+# ---------------------------------------------------------------------------
+
+@receiver(post_save, sender='helpdesk.Ticket')
+def record_ticket_event(sender, instance, created, **kwargs):
+    """
+    Post-save receiver that appends an immutable TicketEvent row for every
+    meaningful change to a Ticket.  Runs entirely in-process; never blocks
+    the save on failure.
+
+    Events recorded
+    ───────────────
+    - CREATED       : on first save (created=True)
+    - STATUS_CHANGED: when status differs from _old_status
+    - ASSIGNED      : when assigned_to changes
+    - PRIORITY_CHANGED, STAGE_CHANGED, SUBJECT_CHANGED, TEAM_CHANGED are
+      recorded when the corresponding captured old value differs from new.
+
+    Old values are captured by capture_ticket_old_values (pre_save, above).
+    The actor is taken from instance._event_actor when explicitly set by a
+    view (e.g. TicketDetail PATCH), otherwise left null (system change).
+    """
+    from helpdesk.models import TicketEvent  # noqa: PLC0415
+
+    try:
+        actor = getattr(instance, '_event_actor', None)
+        note  = (instance.status_reason or '').strip()[:500]
+
+        if created:
+            TicketEvent.objects.create(
+                ticket    = instance,
+                actor     = instance.requester,
+                action    = TicketEvent.Action.CREATED,
+                old_value = '',
+                new_value = instance.status,
+            )
+            return
+
+        # ── Detect field changes from pre_save snapshot ───────────────────
+
+        old_status      = getattr(instance, '_old_status',      None)
+        old_assigned_id = getattr(instance, '_old_assigned_to', None)
+        old_priority    = getattr(instance, '_old_priority',    None)
+        old_stage       = getattr(instance, '_old_stage',       None)
+        old_subject     = getattr(instance, '_old_subject',     None)
+        old_team        = getattr(instance, '_old_team',        None)
+
+        events = []
+
+        if old_status is not None and old_status != instance.status:
+            events.append(TicketEvent(
+                ticket    = instance,
+                actor     = actor,
+                action    = TicketEvent.Action.STATUS_CHANGED,
+                old_value = old_status,
+                new_value = instance.status,
+                note      = note,
+            ))
+
+        if old_assigned_id != instance.assigned_to_id:
+            assignee = instance.assigned_to
+            new_val = (assignee.get_full_name() or assignee.username) if assignee else 'Unassigned'
+            events.append(TicketEvent(
+                ticket    = instance,
+                actor     = actor,
+                action    = TicketEvent.Action.ASSIGNED,
+                old_value = '',
+                new_value = new_val,
+            ))
+
+        if old_priority is not None and old_priority != instance.priority:
+            events.append(TicketEvent(
+                ticket    = instance,
+                actor     = actor,
+                action    = TicketEvent.Action.PRIORITY_CHANGED,
+                old_value = old_priority,
+                new_value = instance.priority,
+            ))
+
+        if old_stage is not None and old_stage != instance.current_stage:
+            events.append(TicketEvent(
+                ticket    = instance,
+                actor     = actor,
+                action    = TicketEvent.Action.STAGE_CHANGED,
+                old_value = old_stage or '',
+                new_value = instance.current_stage or '',
+            ))
+
+        if old_subject is not None and old_subject != instance.subject:
+            events.append(TicketEvent(
+                ticket    = instance,
+                actor     = actor,
+                action    = TicketEvent.Action.SUBJECT_CHANGED,
+                old_value = old_subject[:200],
+                new_value = instance.subject[:200],
+            ))
+
+        if old_team is not None and old_team != instance.team:
+            events.append(TicketEvent(
+                ticket    = instance,
+                actor     = actor,
+                action    = TicketEvent.Action.TEAM_CHANGED,
+                old_value = old_team or '',
+                new_value = instance.team or '',
+            ))
+
+        if events:
+            TicketEvent.objects.bulk_create(events)
+
+    except Exception as exc:
+        logger.exception('record_ticket_event failed for ticket %s: %s', getattr(instance, 'reference', '?'), exc)
