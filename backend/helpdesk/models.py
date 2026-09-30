@@ -1317,3 +1317,93 @@ class TicketEvent(models.Model):
 
     def __str__(self):
         return f'{self.ticket.reference} — {self.action} at {self.created_at}'
+
+
+# ---------------------------------------------------------------------------
+# Site-wide contact & office settings
+# ---------------------------------------------------------------------------
+
+class SiteSettings(models.Model):
+    """
+    Singleton model storing editable site-wide contact and office information.
+
+    One row only (enforced by get()).  Administrators edit this via
+    GET/PATCH /api/v1/admin/settings/site/ and the values are served
+    publicly at GET /api/v1/settings/site/ so pages like /contact can
+    render live data without hardcoding.
+    """
+
+    # ── Contact information ────────────────────────────────────────────────
+    support_email = models.EmailField(
+        default='support@iic.edu.np',
+        help_text='Primary support email shown on the contact page and in emails.',
+    )
+    office_location = models.CharField(
+        max_length=300,
+        default='IT & NOC Department, Itahari International College, ING, Itahari, Sunsari, Nepal',
+        help_text='Full office address shown on the contact page.',
+    )
+    office_phone = models.CharField(
+        max_length=60, blank=True, default='',
+        help_text='Optional office phone number.',
+    )
+
+    # ── Office hours ────────────────────────────────────────────────────────
+    # Stored as a JSON array: [{"day": "Monday", "hours": "10:00 AM – 4:00 PM"}, ...]
+    # Empty list = use frontend defaults.
+    office_hours = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            'Office hours as a JSON array of {"day": "...", "hours": "..."} objects. '
+            'Use "Closed" for hours to mark a closed day. '
+            'Leave empty to use the frontend defaults.'
+        ),
+    )
+
+    # ── Additional notes shown on the contact page ──────────────────────────
+    walk_in_note = models.TextField(
+        blank=True, default='',
+        help_text='Walk-in support note shown on the contact page.',
+    )
+    accessibility_note = models.TextField(
+        blank=True, default='',
+        help_text='Accessibility support note shown on the contact page.',
+    )
+    account_recovery_note = models.TextField(
+        blank=True, default='',
+        help_text='Account recovery walk-in note shown on the contact page.',
+    )
+
+    # ── Footer / general ───────────────────────────────────────────────────
+    institution_name = models.CharField(
+        max_length=160,
+        default='Itahari International College',
+        help_text='Full institution name used in emails and the footer.',
+    )
+    department_name = models.CharField(
+        max_length=160,
+        default='IT & NOC Department',
+        help_text='Department name used in emails and the footer.',
+    )
+    helpdesk_tagline = models.CharField(
+        max_length=200,
+        blank=True,
+        default='Your first point of contact for IT support, account help, and self-service resources at IIC.',
+        help_text='Short tagline shown in the site footer.',
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Site settings'
+        verbose_name_plural = 'Site settings'
+
+    def __str__(self):
+        return 'Site settings'
+
+    @classmethod
+    def get(cls) -> 'SiteSettings':
+        """Return the singleton row, creating it with defaults if absent."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

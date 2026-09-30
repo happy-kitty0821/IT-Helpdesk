@@ -23,7 +23,7 @@ from .throttling import (
 )
 from rest_framework.views import APIView
 
-from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
+from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, ServiceCategory, SiteSettings, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
 from .permissions import IsAdministrator, IsContentEditor, IsITAgent, IsServiceLead
 from .serializers import (
     AnnouncementAdminSerializer,
@@ -33,6 +33,7 @@ from .serializers import (
     EmailTemplateSerializer,
     GoogleCredentialSerializer,
     RoleConfigSerializer,
+    SiteSettingsSerializer,
     TicketFormSettingsSerializer,
     LoginSerializer,
     NotificationChannelSerializer,
@@ -1472,6 +1473,32 @@ class TicketFormSettingsView(APIView):
     def patch(self, request):
         obj = TicketFormSettings.get()
         serializer = TicketFormSettingsSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class SiteSettingsView(APIView):
+    """
+    GET   /api/v1/settings/site/        — public read (no auth required)
+    PATCH /api/v1/admin/settings/site/  — admin write
+
+    Contact info, office hours, and footer copy are stored here so they
+    can be updated without a code change or redeployment.
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [permissions.AllowAny()]
+        return [IsAdministrator()]
+
+    def get(self, request):
+        obj = SiteSettings.get()
+        return Response(SiteSettingsSerializer(obj).data)
+
+    def patch(self, request):
+        obj = SiteSettings.get()
+        serializer = SiteSettingsSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)

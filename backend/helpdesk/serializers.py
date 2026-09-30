@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, RoleGrant, ServiceCategory, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
+from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, RoleGrant, ServiceCategory, SiteSettings, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
 
 
 def email_domain_allowed(email):
@@ -713,6 +713,50 @@ class TicketFormSettingsSerializer(serializers.ModelSerializer):
                     {max_key: f'{field} max length must be greater than min length.'}
                 )
         return attrs
+
+
+# ---------------------------------------------------------------------------
+# Site settings serializer
+# ---------------------------------------------------------------------------
+
+class SiteSettingsSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the SiteSettings singleton.
+
+    The public endpoint exposes all fields read-only.
+    The admin PATCH endpoint allows updating all writable fields.
+    """
+
+    class Meta:
+        model = SiteSettings
+        fields = (
+            'support_email', 'office_location', 'office_phone',
+            'office_hours',
+            'walk_in_note', 'accessibility_note', 'account_recovery_note',
+            'institution_name', 'department_name', 'helpdesk_tagline',
+            'updated_at',
+        )
+        read_only_fields = ('updated_at',)
+
+    def validate_office_hours(self, value):
+        """
+        Validate that office_hours is a list of {day: str, hours: str} dicts.
+        Allows an empty list (meaning: use frontend defaults).
+        """
+        if not isinstance(value, list):
+            raise serializers.ValidationError('office_hours must be a list.')
+        for i, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise serializers.ValidationError(f'Item {i} must be an object.')
+            if 'day' not in item or 'hours' not in item:
+                raise serializers.ValidationError(
+                    f'Item {i} must have "day" and "hours" keys.'
+                )
+            if not isinstance(item['day'], str) or not isinstance(item['hours'], str):
+                raise serializers.ValidationError(
+                    f'Item {i}: "day" and "hours" must be strings.'
+                )
+        return value
 
 
 # ---------------------------------------------------------------------------
