@@ -154,13 +154,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ q
         </ResourceStripAnimated>
       </main>
 
-      <footer>
-        <div className="shell">
-          <span>© 2026 Itahari International College · IT &amp; NOC Department</span>
-          <span>Support contact and office hours pending confirmation</span>
-        </div>
-      </footer>
-
       {/* Announcement modal — only mounts on /, rendered client-side */}
       <AnnouncementModal />
     </>

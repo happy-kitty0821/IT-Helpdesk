@@ -1,5 +1,6 @@
 ﻿import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ConditionalFooter } from "@/components/conditional-footer";
 
 // ── Site constants ─────────────────────────────────────────────────────────────
 const SITE_URL  = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_DJANGO_URL ?? "https://ithelpdesk-iic.cloud-dev.tech";
@@ -94,7 +95,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        {children}
+        <ConditionalFooter />
+      </body>
     </html>
   );
 }
