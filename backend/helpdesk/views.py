@@ -2353,7 +2353,8 @@ class ActiveAnnouncementView(APIView):
     permission_classes = (permissions.AllowAny,)
 
     def get(self, request):
-        now = timezone.now()
+        from django.utils import timezone as _tz
+        now = _tz.now()
         ann = (
             Announcement.objects
             .filter(is_active=True)
