@@ -184,10 +184,11 @@ def sync_superuser_flag(sender, instance, **kwargs):
     grant_is_active = (instance.expires_at is None) or (instance.expires_at > now)
 
     if grant_is_active:
-        # Set is_superuser and is_staff atomically (no signal loop because
-        # we are updating User, not RoleGrant).
+        # Grant the user application-admin access (is_staff=True) so they can
+        # access the Next.js /admin/* panel.  is_superuser is intentionally NOT
+        # set here — Django backend (/admin/) access requires a separate
+        # explicit promotion by an existing superuser via SetSuperuserView.
         User.objects.filter(pk=instance.user_id).update(
-            is_superuser=True,
             is_staff=True,
         )
         return
@@ -217,9 +218,10 @@ def sync_superuser_flag(sender, instance, **kwargs):
     )
 
     if any_admin_grant_ever:
-        # The flag was managed by the role system — clear it.
+        # The flag was managed by the role system — clear both.
         User.objects.filter(pk=instance.user_id).update(
             is_superuser=False,
+            is_staff=False,
         )
     else:
         # is_superuser was set outside the role system; preserve and warn.

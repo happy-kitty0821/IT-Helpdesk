@@ -759,11 +759,12 @@ class AdminUserList(generics.ListCreateAPIView):
                         actor=request.user, target=user,
                         role=role_name, action=RoleAuditEvent.ACTION_GRANTED,
                     )
-            # Sync Django flags
+            # Sync Django flags — grant is_staff for any staff-level role;
+            # is_superuser is intentionally NOT set here (requires explicit
+            # promotion by a superuser via SetSuperuserView).
             if 'administrator' in initial_roles:
-                user.is_superuser = True
                 user.is_staff = True
-                user.save(update_fields=['is_superuser', 'is_staff'])
+                user.save(update_fields=['is_staff'])
             elif any(r in initial_roles for r in ('service_lead', 'it_agent', 'it_noc_intern',
                                                     'content_editor', 'designated_approver', 'faculty_staff')):
                 user.is_staff = True
@@ -837,9 +838,10 @@ class UserRoleListCreate(APIView):
                 role=grant.role,
                 action=RoleAuditEvent.ACTION_GRANTED,
             )
-            # Sync Django flags
+            # Sync Django flags — is_staff only; is_superuser requires explicit
+            # promotion via SetSuperuserView (superuser-only action).
             if grant.role == 'administrator':
-                get_user_model().objects.filter(pk=target.pk).update(is_superuser=True, is_staff=True)
+                get_user_model().objects.filter(pk=target.pk).update(is_staff=True)
             elif grant.role in ('service_lead', 'it_agent', 'it_noc_intern', 'content_editor',
                                 'designated_approver', 'faculty_staff'):
                 get_user_model().objects.filter(pk=target.pk).update(is_staff=True)
@@ -881,11 +883,12 @@ class UserRoleDetail(APIView):
                 role=role,
                 action=RoleAuditEvent.ACTION_REVOKED,
             )
-            # Sync flags for administrator revocation
+            # Sync flags for administrator revocation: clear both is_staff and
+            # is_superuser only when no active administrator grant remains.
             if role == 'administrator':
                 remaining = RoleGrant.objects.active_for(target).filter(role='administrator').exists()
                 if not remaining:
-                    User.objects.filter(pk=target.pk).update(is_superuser=False)
+                    User.objects.filter(pk=target.pk).update(is_superuser=False, is_staff=False)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2582,6 +2585,105 @@ class DeleteUserView(APIView):
             {'detail': f'Account for {target_name} has been permanently deleted.'},
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# Django backend access — superuser-only toggle
+# ---------------------------------------------------------------------------
+
+class SetSuperuserView(APIView):
+    """
+    PATCH /api/v1/admin/users/{pk}/set-superuser/
+          { "is_superuser": true | false }
+
+    Grants or revokes Django backend (is_superuser) access for a user.
+
+    Rules
+    ─────
+    - Only a request from a user who is themselves a superuser may call this.
+      Application-only administrators (is_superuser=False) are blocked.
+    - A superuser cannot demote themselves — this prevents accidental lock-out.
+    - Setting is_superuser=True also ensures is_staff=True (required for Django admin).
+    - Setting is_superuser=False clears is_superuser but preserves is_staff so
+      the user retains application-admin access if they still hold the role.
+    - Target user must hold the 'administrator' role grant. It makes no sense
+      to give Django backend access to a non-administrator.
+    """
+    permission_classes = (IsAdministrator,)
+
+    def patch(self, request, pk):
+        # ── Caller must be a superuser, not just an application admin ──────
+        if not request.user.is_superuser:
+            return Response(
+                {
+                    'code': 'superuser_required',
+                    'detail': (
+                        'Only a superuser can promote or demote Django backend access. '
+                        'Application administrators cannot grant this privilege.'
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        User = get_user_model()
+        try:
+            target = User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # ── Self-demotion guard ────────────────────────────────────────────
+        if target.pk == request.user.pk:
+            return Response(
+                {
+                    'code': 'self_demotion_denied',
+                    'detail': 'You cannot change your own superuser status.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # ── Validate payload ───────────────────────────────────────────────
+        value = request.data.get('is_superuser')
+        if value is None or not isinstance(value, bool):
+            return Response(
+                {'detail': 'Provide { "is_superuser": true } or { "is_superuser": false }.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Require the target to hold the administrator role ──────────────
+        from .permissions import get_user_roles
+        if value is True and 'administrator' not in get_user_roles(target):
+            return Response(
+                {
+                    'code': 'role_required',
+                    'detail': (
+                        'Django backend access can only be granted to users who '
+                        'already hold the Administrator role.'
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Apply the change ───────────────────────────────────────────────
+        with transaction.atomic():
+            if value is True:
+                # Promote: both flags required for Django admin access
+                User.objects.filter(pk=target.pk).update(
+                    is_superuser=True,
+                    is_staff=True,
+                )
+            else:
+                # Demote: clear superuser but keep is_staff (app admin stays intact)
+                User.objects.filter(pk=target.pk).update(
+                    is_superuser=False,
+                )
+
+        target.refresh_from_db(fields=['is_superuser', 'is_staff'])
+        action = 'granted' if value else 'revoked'
+        return Response({
+            'detail': f'Django backend access {action} for {target.get_full_name() or target.username}.',
+            'is_superuser': target.is_superuser,
+            'is_staff':     target.is_staff,
+        })
 
 
 # ---------------------------------------------------------------------------

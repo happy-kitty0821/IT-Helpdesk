@@ -12,7 +12,7 @@ import {
   adminSave, getUserRoles, grantRole, revokeRole,
   ALL_ROLES, type ManagedUser, type RoleGrant, type RoleValue,
 } from "@/lib/admin-api";
-import { csrfToken } from "@/lib/auth";
+import { csrfToken, type AuthUser } from "@/lib/auth";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -131,6 +131,10 @@ export default function UserManagement() {
   const [suspendReason, setSuspendReason]      = useState("");
   const [showSuspendForm, setShowSuspendForm]  = useState(false);
 
+  // ── Django backend access (superuser-only) ────────────────────────────────
+  const [viewerIsSuperuser,  setViewerIsSuperuser]  = useState(false);
+  const [settingSuperuser,   setSettingSuperuser]   = useState(false);
+
   // ── Delete ────────────────────────────────────────────────────────────────
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting]                   = useState(false);
@@ -169,6 +173,14 @@ export default function UserManagement() {
   }, []);
 
   useEffect(() => { loadPage(page, pageSize, dq); }, [page, pageSize, dq, loadPage]);
+
+  // Load viewer's own superuser flag once on mount
+  useEffect(() => {
+    fetch("/api/v1/auth/me/", { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: AuthUser | null) => { if (d) setViewerIsSuperuser(d.is_superuser ?? false); })
+      .catch(() => {});
+  }, []);
 
   const activeRoles = useMemo<Set<RoleValue>>(
     () => new Set(grants.map((g) => g.role as RoleValue)), [grants]
@@ -226,6 +238,32 @@ export default function UserManagement() {
       closeEditor(); loadPage(page, pageSize, dq);
     } catch (e) { setError(e instanceof Error ? e.message : "Suspension could not be updated."); }
     finally { setSuspending(false); }
+  }
+
+  // ── Set / clear Django backend access (superuser-only) ────────────────────
+  async function handleSetSuperuser(grant: boolean) {
+    if (!editing) return;
+    setSettingSuperuser(true); setError(""); setNotice("");
+    try {
+      const token = await csrfToken();
+      const res = await fetch(`/api/v1/admin/users/${editing.id}/set-superuser/`, {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify({ is_superuser: grant }),
+      });
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (!res.ok) {
+        setError(typeof data.detail === "string" ? data.detail : "Could not update Django backend access.");
+      } else {
+        const updated = { ...editing, is_superuser: grant };
+        setEditing(updated);
+        setUsers((prev) => prev.map((u) => u.id === editing.id ? { ...u, is_superuser: grant } : u));
+        setNotice(grant
+          ? `${editing.name} can now access the Django backend panel.`
+          : `Django backend access removed from ${editing.name}.`);
+      }
+    } catch { setError("A network error occurred."); }
+    finally { setSettingSuperuser(false); }
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -753,6 +791,64 @@ export default function UserManagement() {
                     )}
                   </AnimatePresence>
                 </div>
+
+                {/* ── Django backend access (visible only to superusers) ── */}
+                {viewerIsSuperuser && activeRoles.has("administrator") && editing.id !== undefined && (
+                  <div className="perm-section">
+                    <div className="perm-section-header" style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <ShieldCheck size={13} style={{ color: "#7c3aed" }} aria-hidden="true" />
+                      Django backend access
+                    </div>
+
+                    <div style={{
+                      background: editing.is_superuser ? "#f5f3ff" : "#f8fafc",
+                      border: `1px solid ${editing.is_superuser ? "#ddd6fe" : "#e2e8f0"}`,
+                      borderRadius: 9, padding: "12px 14px",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                        <div>
+                          <p style={{ margin: "0 0 3px", fontWeight: 750, fontSize: ".84rem",
+                            color: editing.is_superuser ? "#5b21b6" : "#374151" }}>
+                            {editing.is_superuser ? "Superuser — Django /admin/ access granted" : "Application admin only"}
+                          </p>
+                          <p style={{ margin: 0, fontSize: ".76rem", color: "#64748b", lineHeight: 1.55 }}>
+                            {editing.is_superuser
+                              ? "This user can access the Django backend panel at /admin/."
+                              : "This user can use the Next.js admin panel but cannot access the Django backend."}
+                          </p>
+                        </div>
+                        {editing.id !== undefined && (
+                          <button
+                            type="button"
+                            disabled={settingSuperuser}
+                            onClick={() => handleSetSuperuser(!editing.is_superuser)}
+                            style={{
+                              flexShrink: 0, border: `1px solid ${editing.is_superuser ? "#ddd6fe" : "#e2e8f0"}`,
+                              borderRadius: 8, padding: "6px 11px", fontFamily: "inherit",
+                              background: editing.is_superuser ? "#ede9fe" : "#f1f5f9",
+                              color: editing.is_superuser ? "#6d28d9" : "#475569",
+                              cursor: settingSuperuser ? "wait" : "pointer",
+                              fontSize: ".78rem", fontWeight: 700,
+                              display: "flex", alignItems: "center", gap: 5,
+                              opacity: settingSuperuser ? 0.6 : 1,
+                            }}
+                          >
+                            {settingSuperuser
+                              ? <><Loader2 size={12} className="spin" aria-hidden="true" /> Updating…</>
+                              : editing.is_superuser
+                              ? <><ShieldOff size={12} aria-hidden="true" /> Revoke backend access</>
+                              : <><ShieldCheck size={12} aria-hidden="true" /> Grant backend access</>
+                            }
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <p style={{ margin: "7px 0 0", fontSize: ".72rem", color: "#94a3b8", lineHeight: 1.55 }}>
+                      Only superusers can change this setting. The user must hold the Administrator role.
+                    </p>
+                  </div>
+                )}
 
               </div>
 
