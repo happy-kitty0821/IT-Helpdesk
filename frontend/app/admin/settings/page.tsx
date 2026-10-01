@@ -36,6 +36,7 @@ interface SiteSettings {
   institution_name:      string;
   department_name:       string;
   helpdesk_tagline:      string;
+  recovery_credentials_destination: "college" | "alternative";
   updated_at:            string;
 }
 
@@ -66,6 +67,7 @@ const SITE_DEFAULTS: SiteSettings = {
   institution_name:      "Itahari International College",
   department_name:       "IT & NOC Department",
   helpdesk_tagline:      "Your first point of contact for IT support, account help, and self-service resources at IIC.",
+  recovery_credentials_destination: "college" as const,
   updated_at:            "",
 };
 
@@ -469,13 +471,80 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              {/* ── Account recovery email destination ── */}
+              <div style={{ background: "#fff", border: "1px solid #dbe2ee", borderRadius: 14, padding: "20px 22px" }}>
+                <h2 style={{ margin: "0 0 6px", fontSize: ".95rem", fontWeight: 800 }}>
+                  Account recovery — credentials destination
+                </h2>
+                <p style={{ margin: "0 0 16px", fontSize: ".83rem", color: "#64748b", lineHeight: 1.55 }}>
+                  Choose where to send the backup code and temporary password when an admin
+                  dispatches credentials for a college account recovery ticket.
+                </p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {(
+                    [
+                      {
+                        value: "college" as const,
+                        label: "College email address",
+                        desc:  "Send to the requester\u2019s @iic.edu.np account (the locked account). Requires the student to have another way to access it, or for staff to hand credentials over in person.",
+                        border: "#bfdbfe", bg: "#eff6ff", color: "#1e40af",
+                      },
+                      {
+                        value: "alternative" as const,
+                        label: "Alternative contact email",
+                        desc:  "Send to the personal / backup email the student provided on the account recovery form. Recommended when the college account is inaccessible.",
+                        border: "#bbf7d0", bg: "#f0fdf4", color: "#15803d",
+                      },
+                    ] as const
+                  ).map((opt) => {
+                    const selected = siteSettings.recovery_credentials_destination === opt.value;
+                    return (
+                      <label
+                        key={opt.value}
+                        style={{
+                          display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer",
+                          border: `1.5px solid ${selected ? opt.border : "#e2e8f0"}`,
+                          borderRadius: 10, padding: "13px 15px",
+                          background: selected ? opt.bg : "#fff",
+                          transition: "border-color 120ms, background 120ms",
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="recovery_destination"
+                          value={opt.value}
+                          checked={selected}
+                          onChange={() => patchSite("recovery_credentials_destination", opt.value)}
+                          style={{ marginTop: 3, flexShrink: 0, accentColor: opt.color }}
+                        />
+                        <div>
+                          <p style={{ margin: "0 0 3px", fontWeight: 750, fontSize: ".88rem",
+                            color: selected ? opt.color : "#374151" }}>
+                            {opt.label}
+                          </p>
+                          <p style={{ margin: 0, fontSize: ".78rem", color: "#64748b", lineHeight: 1.55 }}>
+                            {opt.desc}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <p style={{ margin: "10px 0 0", fontSize: ".75rem", color: "#94a3b8", lineHeight: 1.55 }}>
+                  If &ldquo;Alternative contact&rdquo; is selected but the requester did not fill
+                  in that field, the system falls back to the college email automatically.
+                </p>
+              </div>
+
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button className="primary-button" onClick={saveSite} disabled={siteSaving}
                   style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 22px" }}>
                   {siteSaving ? "Saving…" : <><Save size={16} aria-hidden="true" /> Save contact settings</>}
                 </button>
               </div>
-            </section>
+          </section>
           )}
         </>
       )}

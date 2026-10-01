@@ -243,6 +243,7 @@ export default function AdminTicketsPage() {
     action: string;
     backup_code?: string;
     temp_password?: string;
+    sent_to?: string;
     message: string;
   } | null>(null);
   const [sendingRecovery, setSendingRecovery]   = useState(false);
@@ -482,6 +483,7 @@ export default function AdminTicketsPage() {
           action,
           backup_code:   typeof data.backup_code   === "string" ? data.backup_code   : undefined,
           temp_password: typeof data.temp_password === "string" ? data.temp_password : undefined,
+          sent_to:       typeof data.sent_to       === "string" ? data.sent_to       : undefined,
           message:       typeof data.message       === "string" ? data.message       : "Done.",
         });
         // Refresh the ticket in the list if it was closed
@@ -1115,6 +1117,11 @@ export default function AdminTicketsPage() {
                             <CheckCircle2 size={14} aria-hidden="true" />
                             {recoveryResult.message}
                           </p>
+                          {recoveryResult.sent_to && (
+                            <p style={{ margin: "5px 0 0", fontSize: ".75rem", color: "#475569" }}>
+                              Sent to: <strong style={{ fontFamily: "ui-monospace,monospace" }}>{recoveryResult.sent_to}</strong>
+                            </p>
+                          )}
                           {recoveryResult.backup_code && (
                             <div style={{ display: "grid", gap: 5, fontSize: ".8rem" }}>
                               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -1192,6 +1192,7 @@ class RecoveryActionView(APIView):
         import random, string
         from .email_config_service import get_effective_from_email
         from .email_utils import render_email, send_email_async
+        from .models import SiteSettings
 
         raw_backup   = request.data.get('backup_code',   None)
         raw_password = request.data.get('temp_password', None)
@@ -1224,6 +1225,30 @@ class RecoveryActionView(APIView):
         ref          = ticket.reference
         helpdesk_url = get_helpdesk_url()
 
+        # ── Resolve destination email ──────────────────────────────────────
+        # Read the admin-configured preference from SiteSettings.
+        site = SiteSettings.get()
+        destination = site.recovery_credentials_destination  # 'college' or 'alternative'
+
+        to_email = requester.email  # default: college email
+        destination_label = 'college email'
+
+        if destination == 'alternative':
+            # Pull the personal/alternative email from ticket extra_fields.
+            # Key matches the account-recovery form schema field "alternative_contact".
+            alt = str(ticket.extra_fields.get('alternative_contact', '') or '').strip()
+            if alt:
+                to_email = alt
+                destination_label = f'alternative email ({alt})'
+            else:
+                # Field not filled in — fall back to college email and log a warning
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    'RecoveryActionView: alternative_contact empty for ticket %s; '
+                    'falling back to college email %s.',
+                    ref, requester.email,
+                )
+
         plain = (
             f"Hi {name},\n\n"
             f"Your IIC college account recovery credentials are ready (ref: {ref}).\n\n"
@@ -1251,16 +1276,17 @@ class RecoveryActionView(APIView):
             subject    = f'[IIC IT Helpdesk] Account recovery credentials \u2014 {ref}',
             plain      = plain,
             html       = html,
-            to         = requester.email,
+            to         = to_email,
             from_email = get_effective_from_email(),
-            log_tag    = f'recovery_credentials ticket={ref}',
+            log_tag    = f'recovery_credentials ticket={ref} dest={destination_label}',
         )
 
         return Response({
             'action':        'send_credentials',
             'backup_code':   email_backup_code,
             'temp_password': email_temp_password,
-            'message':       f'Credentials emailed to {requester.email}.',
+            'sent_to':       to_email,
+            'message':       f'Credentials emailed to {to_email}.',
         })
 
     # ── unable_to_verify ──────────────────────────────────────────────────────

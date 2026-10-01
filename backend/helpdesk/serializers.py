@@ -734,6 +734,7 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
             'office_hours',
             'walk_in_note', 'accessibility_note', 'account_recovery_note',
             'institution_name', 'department_name', 'helpdesk_tagline',
+            'recovery_credentials_destination',
             'updated_at',
         )
         read_only_fields = ('updated_at',)

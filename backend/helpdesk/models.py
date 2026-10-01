@@ -1393,6 +1393,22 @@ class SiteSettings(models.Model):
         help_text='Short tagline shown in the site footer.',
     )
 
+    # ── Account recovery email destination ────────────────────────────────────
+    class RecoveryDestination(models.TextChoices):
+        COLLEGE     = 'college',     'College email (requester account email)'
+        ALTERNATIVE = 'alternative', 'Alternative contact email (from ticket form)'
+
+    recovery_credentials_destination = models.CharField(
+        max_length=15,
+        choices=RecoveryDestination.choices,
+        default=RecoveryDestination.COLLEGE,
+        help_text=(
+            'Where to send account recovery credentials. '
+            '"College email" sends to the requester\'s @iic.edu.np address. '
+            '"Alternative contact" sends to the personal email they provided on the form.'
+        ),
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
