@@ -992,7 +992,7 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .ann-image {
   width: 100%; height: auto;
   max-height: calc(100vh - 80px);
-  object-fit: cover; display: block;
+  object-fit: contain; display: block;
 }
 
 /* Dismiss footer */
@@ -1003,10 +1003,20 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 }
 
 @media (max-width: 640px) {
-  .ann-card { width: calc(100vw - 16px); border-radius: 12px; }
+  .ann-card {
+    width: calc(100vw - 16px); border-radius: 12px;
+    max-height: 96vh; /* tall enough for any portrait image */
+    overflow-y: auto;
+  }
   .ann-centering { padding: 8px; }
   .ann-hint { padding: 6px 12px; font-size: .72rem; }
-  .ann-image { max-height: calc(100vh - 60px); }
+  /* On small screens let the image flow at its natural aspect ratio —
+     no clipping, no letterboxing, the whole image always shows. */
+  .ann-image {
+    max-height: none;
+    object-fit: unset;
+    height: auto;
+  }
 }
 
 /* ── Skeleton shimmer (used for service-section loading state) ───────────── */
