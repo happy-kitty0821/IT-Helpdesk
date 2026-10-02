@@ -318,8 +318,6 @@ export default function AdminTicketsPage() {
   });
 
   // ── Server-side ticket fetch ─────────────────────────────────────────────
-  // Builds the API URL from current filter state, fetches page_size=50,
-  // appends results (for load-more) or replaces (for fresh filter change).
 
   const buildUrl = useCallback((search: string, status: string, priority: string, assignee: string) => {
     const params = new URLSearchParams();
@@ -335,22 +333,25 @@ export default function AdminTicketsPage() {
     return `/api/v1/tickets/?${params}`;
   }, []);
 
+  // Pass `appendUrl` explicitly so fetchTickets never reads nextUrl from closure
+  // (reading nextUrl from closure would put it in deps → recreate on every fetch → infinite loop)
   const fetchTickets = useCallback(async (
     search: string, status: string, priority: string, assignee: string,
-    append = false,
+    appendUrl: string | null = null,   // non-null = load-more; null = fresh fetch
   ) => {
-    if (!append) setLoading(true);
+    const isLoadMore = appendUrl !== null;
+    if (!isLoadMore) setLoading(true);
     else setLoadingMore(true);
     setError("");
     try {
-      const url = append && nextUrl ? nextUrl : buildUrl(search, status, priority, assignee);
+      const url = appendUrl ?? buildUrl(search, status, priority, assignee);
       const res = await fetch(url, { credentials: "include", cache: "no-store" });
       if (!res.ok) throw new Error("Could not load tickets.");
       const data = await res.json() as { results: AdminTicket[]; count: number; next: string | null };
       const results = Array.isArray(data) ? data : (data.results ?? []);
       const count   = typeof data.count === "number" ? data.count : results.length;
       const next    = typeof data.next  === "string"  ? data.next  : null;
-      setTickets((prev) => append ? [...prev, ...results] : results);
+      setTickets((prev) => isLoadMore ? [...prev, ...results] : results);
       setTotalCount(count);
       setNextUrl(next);
     } catch (e) {
@@ -359,30 +360,36 @@ export default function AdminTicketsPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [buildUrl, nextUrl]);
+  }, [buildUrl]);  // ← no nextUrl dep = stable reference, no infinite loop
 
   // ── Initial data load ────────────────────────────────────────────────────
 
+  const initialLoadDone = useRef(false);
+
   useEffect(() => {
-    // Fetch tickets + assignable staff in parallel on mount
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
     Promise.all([
-      fetchTickets(searchQuery, statusFilter, priorityFilter, assigneeFilter),
+      fetchTickets("", "", "", ""),
       fetch("/api/v1/tickets/assignable-staff/", { credentials: "include" })
         .then((r) => (r.ok ? (r.json() as Promise<StaffUser[]>) : []))
         .catch(() => [] as StaffUser[]),
     ]).then(([, staffData]) => {
       setStaffUsers(Array.isArray(staffData) ? staffData : []);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchTickets]);
 
-  // ── Re-fetch when filters change (debounce search) ────────────────────────
+  // ── Re-fetch when filters change (skip mount run) ─────────────────────────
+
+  const filtersInitialized = useRef(false);
 
   useEffect(() => {
-    // Instant refetch for select filters
+    // Skip the first run (mount) — initial load already handles it
+    if (!filtersInitialized.current) { filtersInitialized.current = true; return; }
     setNextUrl(null);
     fetchTickets(searchQuery, statusFilter, priorityFilter, assigneeFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, priorityFilter, assigneeFilter]);
 
   function handleSearchChange(value: string) {
@@ -391,7 +398,7 @@ export default function AdminTicketsPage() {
     searchDebounceRef.current = setTimeout(() => {
       setNextUrl(null);
       fetchTickets(value, statusFilter, priorityFilter, assigneeFilter);
-    }, 350);
+    }, 400);
   }
 
   // ── Auto-scroll messages to bottom ──────────────────────────────────────
@@ -639,7 +646,7 @@ export default function AdminTicketsPage() {
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
           <div className="user-summary">
-            <span><TicketCheck aria-hidden="true" /><strong>{tickets.length}</strong> total</span>
+            <span><TicketCheck aria-hidden="true" /><strong>{totalCount.toLocaleString()}</strong> total</span>
             <span><CircleDot aria-hidden="true" /><strong>{openCount}</strong> open</span>
             <span><Clock aria-hidden="true" /><strong>{pendingCount}</strong> pending</span>
             {unassignedCount > 0 && (
@@ -829,7 +836,7 @@ export default function AdminTicketsPage() {
           {nextUrl && (
             <div style={{ display: "flex", justifyContent: "center", padding: "16px 0 4px" }}>
               <button
-                onClick={() => fetchTickets(searchQuery, statusFilter, priorityFilter, assigneeFilter, true)}
+                onClick={() => fetchTickets(searchQuery, statusFilter, priorityFilter, assigneeFilter, nextUrl)}
                 disabled={loadingMore}
                 style={{
                   border: "1.5px solid #e2e8f0", background: "#fff", borderRadius: 10,
