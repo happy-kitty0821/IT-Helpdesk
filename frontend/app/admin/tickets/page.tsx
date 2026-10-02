@@ -255,6 +255,8 @@ export default function AdminTicketsPage() {
 
   // SSE connection state for the open panel
   const [streamConnected, setStreamConnected] = useState(false);
+  // Subtle "just updated" pulse — separate from panelNotice to avoid panel re-layout
+  const [sseUpdated, setSseUpdated] = useState(false);
 
   // ── SSE stream callbacks ──────────────────────────────────────────────────
 
@@ -288,8 +290,9 @@ export default function AdminTicketsPage() {
         updated_at:    snapshot.updated_at ?? prev.updated_at,
       };
     });
-    setPanelNotice("Updated just now ✓");
-    setTimeout(() => setPanelNotice(""), 3000);
+    // Briefly pulse the live indicator instead of a notice banner
+    setSseUpdated(true);
+    setTimeout(() => setSseUpdated(false), 2000);
   }, []);
 
   const handleNewMessage = useCallback((msg: StreamMessage) => {
@@ -748,13 +751,10 @@ export default function AdminTicketsPage() {
                   : "No tickets in the queue yet."}</p>
               </div>
             ) : (
-              visibleTickets.map((ticket, i) => (
-                <motion.div
+              visibleTickets.map((ticket) => (
+                <div
                   key={ticket.id}
                   className={`atq-row${selected?.id === ticket.id ? " atq-row--active" : ""}`}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(i * 0.02, 0.15) }}
                   onClick={() => openPanel(ticket)}
                   role="button"
                   tabIndex={0}
@@ -776,7 +776,7 @@ export default function AdminTicketsPage() {
                   <span className={ticket.assignee_name ? "atq-assignee" : "atq-unassigned"}>
                     {ticket.assignee_name ?? "Unassigned"}
                   </span>
-                </motion.div>
+                </div>
               ))
             )}
           </div>
@@ -803,20 +803,21 @@ export default function AdminTicketsPage() {
                 <StatusBadge status={selected.status} />
                 {/* SSE live indicator */}
                 <span
-                  title={streamConnected ? "Live updates active" : "Connecting…"}
+                  title={streamConnected ? (sseUpdated ? "Updated just now" : "Live updates active") : "Connecting…"}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 4,
                     fontSize: ".68rem", fontWeight: 700, borderRadius: 999, padding: "2px 7px",
-                    background: streamConnected ? "#f0fdf4" : "#f8fafc",
-                    color:      streamConnected ? "#166534" : "#94a3b8",
-                    border:     `1px solid ${streamConnected ? "#bbf7d0" : "#e2e8f0"}`,
+                    background: sseUpdated ? "#dcfce7" : streamConnected ? "#f0fdf4" : "#f8fafc",
+                    color:      sseUpdated ? "#15803d" : streamConnected ? "#166534" : "#94a3b8",
+                    border:     `1px solid ${sseUpdated ? "#86efac" : streamConnected ? "#bbf7d0" : "#e2e8f0"}`,
+                    transition: "background 300ms, color 300ms, border-color 300ms",
                   }}
                   aria-live="polite"
                 >
                   {streamConnected
                     ? <Wifi size={9} aria-hidden="true" />
                     : <WifiOff size={9} aria-hidden="true" />}
-                  {streamConnected ? "Live" : "…"}
+                  {sseUpdated ? "Updated" : streamConnected ? "Live" : "…"}
                 </span>
               </div>
               <button className="atq-close" onClick={() => setSelected(null)} aria-label="Close panel">

@@ -295,6 +295,7 @@ function MessageThread({
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <AnimatePresence initial={false}>
             {messages.map((msg) => {
               const isMe = msg.sender === myId;
               const isStaff = msg.is_staff_reply;
@@ -302,8 +303,9 @@ function MessageThread({
               return (
                 <motion.div
                   key={msg.id}
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
                   style={{
                     alignSelf: isMe ? "flex-end" : "flex-start",
                     maxWidth: "85%",
@@ -341,6 +343,7 @@ function MessageThread({
                 </motion.div>
               );
             })}
+            </AnimatePresence>
           </div>
         )}
         <div ref={threadEndRef} />
