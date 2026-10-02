@@ -350,7 +350,11 @@ export default function AdminTicketsPage() {
       const data = await res.json() as { results: AdminTicket[]; count: number; next: string | null };
       const results = Array.isArray(data) ? data : (data.results ?? []);
       const count   = typeof data.count === "number" ? data.count : results.length;
-      const next    = typeof data.next  === "string"  ? data.next  : null;
+      const next    = typeof data.next  === "string"
+        // Django returns an absolute URL (http://127.0.0.1:8000/api/v1/...).
+        // Strip the origin so the request goes through the Next.js proxy.
+        ? new URL(data.next).pathname + new URL(data.next).search
+        : null;
       setTickets((prev) => isLoadMore ? [...prev, ...results] : results);
       setTotalCount(count);
       setNextUrl(next);
