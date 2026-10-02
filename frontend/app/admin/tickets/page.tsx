@@ -2,11 +2,11 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Calendar, CheckCircle2, ChevronRight, CircleDot, Clock,
+  Calendar, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock,
   Download, FileSpreadsheet, Inbox, KeyRound, Loader2, MessageSquare,
   Search, TicketCheck, User, Wifi, WifiOff, X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { csrfToken } from "@/lib/auth";
 import type { ServiceStage } from "@/lib/admin-api";
 import { useTicketStream, type TicketSnapshot, type StreamMessage } from "@/hooks/use-ticket-stream";
@@ -200,15 +200,21 @@ function StageBar({ stages, currentStage }: { stages: ServiceStage[]; currentSta
 
 export default function AdminTicketsPage() {
   const [tickets, setTickets] = useState<AdminTicket[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  // Filters — changes trigger a fresh server-side fetch
+  const [searchQuery, setSearchQuery]     = useState("");
+  const [statusFilter, setStatusFilter]   = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
+
+  // Debounce ref for search input
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Panel state
   const [selected, setSelected] = useState<AdminTicket | null>(null);
@@ -311,28 +317,82 @@ export default function AdminTicketsPage() {
     onError:        () => setStreamConnected(false),
   });
 
+  // ── Server-side ticket fetch ─────────────────────────────────────────────
+  // Builds the API URL from current filter state, fetches page_size=50,
+  // appends results (for load-more) or replaces (for fresh filter change).
+
+  const buildUrl = useCallback((search: string, status: string, priority: string, assignee: string) => {
+    const params = new URLSearchParams();
+    params.set("page_size", "50");
+    if (search)   params.set("q",        search);
+    if (status)   params.set("status",   status);
+    if (priority) params.set("priority", priority);
+    if (assignee === "unassigned") {
+      params.set("assigned_to", "none");
+    } else if (assignee) {
+      params.set("assigned_to", assignee);
+    }
+    return `/api/v1/tickets/?${params}`;
+  }, []);
+
+  const fetchTickets = useCallback(async (
+    search: string, status: string, priority: string, assignee: string,
+    append = false,
+  ) => {
+    if (!append) setLoading(true);
+    else setLoadingMore(true);
+    setError("");
+    try {
+      const url = append && nextUrl ? nextUrl : buildUrl(search, status, priority, assignee);
+      const res = await fetch(url, { credentials: "include", cache: "no-store" });
+      if (!res.ok) throw new Error("Could not load tickets.");
+      const data = await res.json() as { results: AdminTicket[]; count: number; next: string | null };
+      const results = Array.isArray(data) ? data : (data.results ?? []);
+      const count   = typeof data.count === "number" ? data.count : results.length;
+      const next    = typeof data.next  === "string"  ? data.next  : null;
+      setTickets((prev) => append ? [...prev, ...results] : results);
+      setTotalCount(count);
+      setNextUrl(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load tickets.");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [buildUrl, nextUrl]);
+
   // ── Initial data load ────────────────────────────────────────────────────
 
   useEffect(() => {
+    // Fetch tickets + assignable staff in parallel on mount
     Promise.all([
-      fetch("/api/v1/tickets/", { credentials: "include", cache: "no-store" })
-        .then((r) => {
-          if (!r.ok) throw new Error("Could not load tickets.");
-          return r.json().then((d: { results?: AdminTicket[] } | AdminTicket[]) =>
-            Array.isArray(d) ? d : (d.results ?? [])
-          );
-        }),
+      fetchTickets(searchQuery, statusFilter, priorityFilter, assigneeFilter),
       fetch("/api/v1/tickets/assignable-staff/", { credentials: "include" })
         .then((r) => (r.ok ? (r.json() as Promise<StaffUser[]>) : []))
         .catch(() => [] as StaffUser[]),
-    ])
-      .then(([ticketData, staffData]) => {
-        setTickets(Array.isArray(ticketData) ? ticketData : []);
-        setStaffUsers(Array.isArray(staffData) ? staffData : []);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load data."))
-      .finally(() => setLoading(false));
+    ]).then(([, staffData]) => {
+      setStaffUsers(Array.isArray(staffData) ? staffData : []);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Re-fetch when filters change (debounce search) ────────────────────────
+
+  useEffect(() => {
+    // Instant refetch for select filters
+    setNextUrl(null);
+    fetchTickets(searchQuery, statusFilter, priorityFilter, assigneeFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, priorityFilter, assigneeFilter]);
+
+  function handleSearchChange(value: string) {
+    setSearchQuery(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setNextUrl(null);
+      fetchTickets(value, statusFilter, priorityFilter, assigneeFilter);
+    }, 350);
+  }
 
   // ── Auto-scroll messages to bottom ──────────────────────────────────────
 
