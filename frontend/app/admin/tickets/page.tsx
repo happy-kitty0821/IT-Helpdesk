@@ -566,29 +566,11 @@ export default function AdminTicketsPage() {
   }
 
   // ── Filtering ────────────────────────────────────────────────────────────
+  // Filtering is now server-side — tickets already contains the filtered page.
+  const visibleTickets = tickets;
 
-  const visibleTickets = useMemo(() => {
-    return tickets.filter((t) => {
-      if (statusFilter && t.status !== statusFilter) return false;
-      if (priorityFilter && t.priority !== priorityFilter) return false;
-      if (assigneeFilter === "unassigned" && t.assigned_to !== null) return false;
-      if (assigneeFilter && assigneeFilter !== "unassigned" && String(t.assigned_to) !== assigneeFilter) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        return (
-          t.reference.toLowerCase().includes(q) ||
-          t.subject.toLowerCase().includes(q) ||
-          (t.requester_name ?? "").toLowerCase().includes(q) ||
-          (t.requester_email ?? "").toLowerCase().includes(q) ||
-          (t.category_name ?? "").toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [tickets, statusFilter, priorityFilter, assigneeFilter, searchQuery]);
-
-  const openCount = tickets.filter((t) => !["resolved", "closed", "cancelled"].includes(t.status)).length;
-  const pendingCount = tickets.filter((t) => t.status === "submitted").length;
+  const openCount       = tickets.filter((t) => !["resolved", "closed", "cancelled"].includes(t.status)).length;
+  const pendingCount    = tickets.filter((t) => t.status === "submitted").length;
   const unassignedCount = tickets.filter((t) => !t.assigned_to && !["closed", "cancelled"].includes(t.status)).length;
 
   const isAccountRecovery = selected
@@ -769,7 +751,7 @@ export default function AdminTicketsPage() {
               <Search size={15} aria-hidden="true" />
               <input
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search reference, subject, requester..."
                 aria-label="Search tickets"
               />
@@ -787,7 +769,9 @@ export default function AdminTicketsPage() {
               <option value="unassigned">Unassigned</option>
               {staffUsers.map((u) => <option key={u.id} value={String(u.id)}>{u.name}</option>)}
             </select>
-            <span className="atq-count">{visibleTickets.length} result{visibleTickets.length !== 1 ? "s" : ""}</span>
+            <span className="atq-count">
+              {loading ? "Loading…" : `${totalCount.toLocaleString()} ticket${totalCount !== 1 ? "s" : ""}${tickets.length < totalCount ? ` (showing ${tickets.length})` : ""}`}
+            </span>
           </div>
 
           {/* ── Table ── */}
@@ -840,6 +824,28 @@ export default function AdminTicketsPage() {
               ))
             )}
           </div>
+
+          {/* ── Load more ── */}
+          {nextUrl && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "16px 0 4px" }}>
+              <button
+                onClick={() => fetchTickets(searchQuery, statusFilter, priorityFilter, assigneeFilter, true)}
+                disabled={loadingMore}
+                style={{
+                  border: "1.5px solid #e2e8f0", background: "#fff", borderRadius: 10,
+                  padding: "9px 24px", cursor: loadingMore ? "wait" : "pointer",
+                  fontWeight: 700, fontSize: ".85rem", color: "#475569",
+                  display: "flex", alignItems: "center", gap: 7,
+                  fontFamily: "inherit",
+                }}
+              >
+                {loadingMore
+                  ? <><Loader2 size={14} className="spin" aria-hidden="true" /> Loading…</>
+                  : <>Load more <span style={{ color: "#94a3b8", fontWeight: 400 }}>({totalCount - tickets.length} remaining)</span></>
+                }
+              </button>
+            </div>
+          )}
         </>
       )}
 
