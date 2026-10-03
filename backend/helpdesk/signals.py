@@ -249,6 +249,21 @@ def get_helpdesk_url() -> str:
     return getattr(django_settings, 'HELPDESK_URL', 'http://localhost:3000')
 
 
+def get_support_email() -> str:
+    """
+    Return the support email from SiteSettings, falling back to the .env
+    VERIFICATION_FROM_EMAIL setting, then to a hardcoded default.
+
+    SiteSettings is an admin-editable singleton so the email can be changed
+    at any time without a deployment.
+    """
+    try:
+        from helpdesk.models import SiteSettings  # local import — avoids circular
+        return SiteSettings.get().support_email or 'support@iic.edu.np'
+    except Exception:
+        return getattr(django_settings, 'VERIFICATION_FROM_EMAIL', 'support@iic.edu.np')
+
+
 def _ticket_context(ticket, extra: dict | None = None) -> dict:
     """Build the base notification context for a ticket."""
     requester = ticket.requester
