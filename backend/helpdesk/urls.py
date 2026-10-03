@@ -26,6 +26,7 @@ from .views import (
     AdminSoftwareDetail,
     AdminSoftwareListCreate,
     AdminSummaryView,
+    AdminDashboardStreamView,
     AdminUserDetail,
     AdminUserList,
     EmailTemplateDetail,
@@ -108,6 +109,7 @@ urlpatterns = [
 
     # ── Admin ──────────────────────────────────────────────────────────────
     re_path(r'^admin/summary/?$',                AdminSummaryView.as_view(),          name='admin-summary'),
+    re_path(r'^admin/summary/stream/?$',         AdminDashboardStreamView.as_view(),  name='admin-summary-stream'),
     re_path(r'^admin/services/?$',               AdminServiceCategoryList.as_view(),  name='admin-service-list'),
     re_path(r'^admin/services/reorder/?$',       AdminServiceCategoryReorder.as_view(),name='admin-service-reorder'),
     re_path(r'^admin/services/(?P<pk>[0-9]+)/?$',AdminServiceCategoryDetail.as_view(),name='admin-service-detail'),

@@ -114,7 +114,12 @@ export type AdminSummary = {
   published_guides: number;
   software: number;
   active_software: number;
-  // Recent tickets (lightweight list)
+  // Chart data
+  chart_daily:    { date: string; count: number }[];
+  chart_resolved: { date: string; count: number }[];
+  chart_status:   { status: string; count: number }[];
+  chart_priority: { priority: string; count: number }[];
+  // Recent tickets
   recent_tickets: {
     id: string;
     reference: string;

@@ -786,32 +786,84 @@ class AdminSummaryView(APIView):
 
     def get(self, request):
         from django.utils import timezone as _tz
-        from datetime import timedelta
+        from django.db.models import Count
+        from datetime import timedelta, date
 
         User = get_user_model()
         now  = _tz.now()
 
-        # Ticket breakdowns
-        total_tickets    = Ticket.objects.count()
-        open_tickets     = Ticket.objects.exclude(status__in=(
+        # ── Ticket counts ───────────────────────────────────────────────────
+        total_tickets     = Ticket.objects.count()
+        open_tickets      = Ticket.objects.exclude(status__in=(
             Ticket.Status.CLOSED, Ticket.Status.CANCELLED)).count()
-        submitted_today  = Ticket.objects.filter(
+        submitted_today   = Ticket.objects.filter(
             created_at__date=now.date()).count()
-        pending_review   = Ticket.objects.filter(
+        pending_review    = Ticket.objects.filter(
             status=Ticket.Status.SUBMITTED).count()
-        unassigned_open  = Ticket.objects.filter(
+        unassigned_open   = Ticket.objects.filter(
             assigned_to__isnull=True
         ).exclude(status__in=(
             Ticket.Status.CLOSED, Ticket.Status.CANCELLED,
             Ticket.Status.RESOLVED)).count()
-        resolved_7d      = Ticket.objects.filter(
+        resolved_7d       = Ticket.objects.filter(
             status=Ticket.Status.RESOLVED,
             updated_at__gte=now - timedelta(days=7)).count()
         waiting_requester = Ticket.objects.filter(
             status=Ticket.Status.WAITING_REQUESTER).count()
 
-        # Recent tickets (last 8 for the dashboard)
-        from .serializers import TicketSerializer
+        # ── Chart data ──────────────────────────────────────────────────────
+
+        # 1. Daily ticket volume — last 14 days (created)
+        since_14d = now - timedelta(days=13)
+        daily_qs  = (
+            Ticket.objects
+            .filter(created_at__gte=since_14d)
+            .extra(select={'day': "DATE(created_at)"})
+            .values('day')
+            .annotate(count=Count('id'))
+            .order_by('day')
+        )
+        # Build a complete 14-day series (fill gaps with 0)
+        daily_map = {row['day']: row['count'] for row in daily_qs}
+        daily_series = []
+        for i in range(13, -1, -1):
+            d = (now - timedelta(days=i)).date()
+            daily_series.append({'date': d.isoformat(), 'count': daily_map.get(d, 0)})
+
+        # 2. Status breakdown (current open tickets only)
+        status_breakdown = list(
+            Ticket.objects
+            .exclude(status__in=(Ticket.Status.CLOSED, Ticket.Status.CANCELLED))
+            .values('status')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+
+        # 3. Priority breakdown (all open tickets)
+        priority_breakdown = list(
+            Ticket.objects
+            .exclude(status__in=(Ticket.Status.CLOSED, Ticket.Status.CANCELLED))
+            .values('priority')
+            .annotate(count=Count('id'))
+            .order_by('priority')
+        )
+
+        # 4. Resolution trend — daily resolved last 14 days
+        resolved_qs = (
+            Ticket.objects
+            .filter(status=Ticket.Status.RESOLVED, updated_at__gte=since_14d)
+            .extra(select={'day': "DATE(updated_at)"})
+            .values('day')
+            .annotate(count=Count('id'))
+            .order_by('day')
+        )
+        resolved_map = {row['day']: row['count'] for row in resolved_qs}
+        resolved_series = []
+        for i in range(13, -1, -1):
+            d = (now - timedelta(days=i)).date()
+            resolved_series.append({'date': d.isoformat(), 'count': resolved_map.get(d, 0)})
+
+        # ── Recent tickets ──────────────────────────────────────────────────
         recent_qs = Ticket.objects.select_related(
             'category', 'requester', 'assigned_to'
         ).order_by('-created_at')[:8]
@@ -841,9 +893,160 @@ class AdminSummaryView(APIView):
             'software':          SoftwareResource.objects.count(),
             'active_software':   SoftwareResource.objects.filter(
                                      status=SoftwareResource.Status.ACTIVE).count(),
+            # Chart data
+            'chart_daily':      daily_series,
+            'chart_resolved':   resolved_series,
+            'chart_status':     status_breakdown,
+            'chart_priority':   priority_breakdown,
             # Recent tickets
             'recent_tickets':    recent_tickets,
         })
+
+
+class AdminDashboardStreamView(View):
+    """
+    GET /api/v1/admin/summary/stream/
+
+    Plain Django View (not DRF) so the text/event-stream content-type
+    is never intercepted by DRF negotiation.
+
+    Pushes a `summary_update` SSE event every 15 seconds containing the
+    same payload as AdminSummaryView.GET, so the admin dashboard can update
+    its metric cards and charts without a full page reload.
+
+    Sends a heartbeat comment every 15 seconds to keep the connection alive
+    through proxies.  Clients reconnect automatically on drop.
+    """
+
+    def _build_payload(self, user):
+        """Build the same summary dict as AdminSummaryView but callable inline."""
+        import json as _json
+        from django.utils import timezone as _tz
+        from django.db.models import Count
+        from datetime import timedelta
+
+        User = get_user_model()
+        now  = _tz.now()
+
+        # Daily created series (14 days)
+        since_14d  = now - timedelta(days=13)
+        daily_qs   = (
+            Ticket.objects
+            .filter(created_at__gte=since_14d)
+            .extra(select={'day': "DATE(created_at)"})
+            .values('day').annotate(count=Count('id')).order_by('day')
+        )
+        daily_map = {row['day']: row['count'] for row in daily_qs}
+        daily_series = [
+            {'date': (now - timedelta(days=i)).date().isoformat(),
+             'count': daily_map.get((now - timedelta(days=i)).date(), 0)}
+            for i in range(13, -1, -1)
+        ]
+
+        # Resolved series (14 days)
+        resolved_qs = (
+            Ticket.objects
+            .filter(status=Ticket.Status.RESOLVED, updated_at__gte=since_14d)
+            .extra(select={'day': "DATE(updated_at)"})
+            .values('day').annotate(count=Count('id')).order_by('day')
+        )
+        resolved_map = {row['day']: row['count'] for row in resolved_qs}
+        resolved_series = [
+            {'date': (now - timedelta(days=i)).date().isoformat(),
+             'count': resolved_map.get((now - timedelta(days=i)).date(), 0)}
+            for i in range(13, -1, -1)
+        ]
+
+        status_breakdown = list(
+            Ticket.objects
+            .exclude(status__in=(Ticket.Status.CLOSED, Ticket.Status.CANCELLED))
+            .values('status').annotate(count=Count('id')).order_by('-count')
+        )
+        priority_breakdown = list(
+            Ticket.objects
+            .exclude(status__in=(Ticket.Status.CLOSED, Ticket.Status.CANCELLED))
+            .values('priority').annotate(count=Count('id')).order_by('priority')
+        )
+
+        return _json.dumps({
+            'users':             User.objects.filter(is_active=True).count(),
+            'suspended_users':   User.objects.filter(
+                                     is_active=False,
+                                     profile__is_suspended=True).count(),
+            'tickets':           Ticket.objects.count(),
+            'open_tickets':      Ticket.objects.exclude(status__in=(
+                                     Ticket.Status.CLOSED,
+                                     Ticket.Status.CANCELLED)).count(),
+            'submitted_today':   Ticket.objects.filter(
+                                     created_at__date=now.date()).count(),
+            'pending_review':    Ticket.objects.filter(
+                                     status=Ticket.Status.SUBMITTED).count(),
+            'unassigned_open':   Ticket.objects.filter(
+                                     assigned_to__isnull=True
+                                 ).exclude(status__in=(
+                                     Ticket.Status.CLOSED,
+                                     Ticket.Status.CANCELLED,
+                                     Ticket.Status.RESOLVED)).count(),
+            'resolved_7d':       Ticket.objects.filter(
+                                     status=Ticket.Status.RESOLVED,
+                                     updated_at__gte=now - timedelta(days=7)).count(),
+            'waiting_requester': Ticket.objects.filter(
+                                     status=Ticket.Status.WAITING_REQUESTER).count(),
+            'guides':            GuideArticle.objects.count(),
+            'published_guides':  GuideArticle.objects.filter(
+                                     status=GuideArticle.Status.PUBLISHED).count(),
+            'software':          SoftwareResource.objects.count(),
+            'active_software':   SoftwareResource.objects.filter(
+                                     status=SoftwareResource.Status.ACTIVE).count(),
+            'chart_daily':       daily_series,
+            'chart_resolved':    resolved_series,
+            'chart_status':      status_breakdown,
+            'chart_priority':    priority_breakdown,
+        })
+
+    def get(self, request):
+        import time
+        from django.http import StreamingHttpResponse
+        from .permissions import get_user_roles
+
+        # Auth check (plain Django session — no DRF pipeline here)
+        if not request.user or not request.user.is_authenticated:
+            def _unauth():
+                yield _sse_format("error", '{"detail":"Authentication required."}')
+            r = StreamingHttpResponse(_unauth(), content_type="text/event-stream")
+            r["Cache-Control"] = "no-cache"
+            r["X-Accel-Buffering"] = "no"
+            return r
+
+        # Permission check — administrator role required
+        roles = get_user_roles(request.user)
+        if 'administrator' not in roles and not request.user.is_superuser:
+            def _forbidden():
+                yield _sse_format("error", '{"detail":"Admin access required."}')
+            r = StreamingHttpResponse(_forbidden(), content_type="text/event-stream")
+            r["Cache-Control"] = "no-cache"
+            r["X-Accel-Buffering"] = "no"
+            return r
+
+        def _stream():
+            # Send initial snapshot immediately
+            try:
+                yield _sse_format("summary_update", self._build_payload(request.user))
+            except Exception:
+                pass
+
+            # Push updates every 15 seconds
+            while True:
+                time.sleep(15)
+                try:
+                    yield _sse_format("summary_update", self._build_payload(request.user))
+                except Exception:
+                    yield _sse_heartbeat()
+
+        r = StreamingHttpResponse(_stream(), content_type="text/event-stream")
+        r["Cache-Control"] = "no-cache"
+        r["X-Accel-Buffering"] = "no"
+        return r
 
 
 class UserRoleListCreate(APIView):
