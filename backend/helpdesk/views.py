@@ -785,15 +785,64 @@ class AdminSummaryView(APIView):
     permission_classes = (IsAdministrator,)
 
     def get(self, request):
+        from django.utils import timezone as _tz
+        from datetime import timedelta
+
         User = get_user_model()
+        now  = _tz.now()
+
+        # Ticket breakdowns
+        total_tickets    = Ticket.objects.count()
+        open_tickets     = Ticket.objects.exclude(status__in=(
+            Ticket.Status.CLOSED, Ticket.Status.CANCELLED)).count()
+        submitted_today  = Ticket.objects.filter(
+            created_at__date=now.date()).count()
+        pending_review   = Ticket.objects.filter(
+            status=Ticket.Status.SUBMITTED).count()
+        unassigned_open  = Ticket.objects.filter(
+            assigned_to__isnull=True
+        ).exclude(status__in=(
+            Ticket.Status.CLOSED, Ticket.Status.CANCELLED,
+            Ticket.Status.RESOLVED)).count()
+        resolved_7d      = Ticket.objects.filter(
+            status=Ticket.Status.RESOLVED,
+            updated_at__gte=now - timedelta(days=7)).count()
+        waiting_requester = Ticket.objects.filter(
+            status=Ticket.Status.WAITING_REQUESTER).count()
+
+        # Recent tickets (last 8 for the dashboard)
+        from .serializers import TicketSerializer
+        recent_qs = Ticket.objects.select_related(
+            'category', 'requester', 'assigned_to'
+        ).order_by('-created_at')[:8]
+        recent_tickets = TicketSerializer(
+            recent_qs, many=True, context={'request': request}
+        ).data
+
         return Response({
-            'users': User.objects.filter(is_active=True).count(),
-            'tickets': Ticket.objects.count(),
-            'open_tickets': Ticket.objects.exclude(status__in=(Ticket.Status.CLOSED, Ticket.Status.CANCELLED)).count(),
-            'guides': GuideArticle.objects.count(),
-            'published_guides': GuideArticle.objects.filter(status=GuideArticle.Status.PUBLISHED).count(),
-            'software': SoftwareResource.objects.count(),
-            'active_software': SoftwareResource.objects.filter(status=SoftwareResource.Status.ACTIVE).count(),
+            # User stats
+            'users':             User.objects.filter(is_active=True).count(),
+            'suspended_users':   User.objects.filter(
+                                     is_active=False,
+                                     profile__is_suspended=True,
+                                 ).count(),
+            # Ticket stats
+            'tickets':           total_tickets,
+            'open_tickets':      open_tickets,
+            'submitted_today':   submitted_today,
+            'pending_review':    pending_review,
+            'unassigned_open':   unassigned_open,
+            'resolved_7d':       resolved_7d,
+            'waiting_requester': waiting_requester,
+            # Content stats
+            'guides':            GuideArticle.objects.count(),
+            'published_guides':  GuideArticle.objects.filter(
+                                     status=GuideArticle.Status.PUBLISHED).count(),
+            'software':          SoftwareResource.objects.count(),
+            'active_software':   SoftwareResource.objects.filter(
+                                     status=SoftwareResource.Status.ACTIVE).count(),
+            # Recent tickets
+            'recent_tickets':    recent_tickets,
         })
 
 

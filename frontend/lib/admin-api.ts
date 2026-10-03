@@ -98,13 +98,35 @@ export type Software = {
 };
 
 export type AdminSummary = {
+  // User stats
   users: number;
+  suspended_users: number;
+  // Ticket stats
   tickets: number;
   open_tickets: number;
+  submitted_today: number;
+  pending_review: number;
+  unassigned_open: number;
+  resolved_7d: number;
+  waiting_requester: number;
+  // Content stats
   guides: number;
   published_guides: number;
   software: number;
   active_software: number;
+  // Recent tickets (lightweight list)
+  recent_tickets: {
+    id: string;
+    reference: string;
+    subject: string;
+    status: string;
+    priority: string;
+    category_name: string | null;
+    requester_name: string | null;
+    assignee_name: string | null;
+    elapsed: string;
+    created_at: string;
+  }[];
 };
 
 type Paginated<T> = { results: T[] };
