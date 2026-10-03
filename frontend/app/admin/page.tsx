@@ -412,7 +412,8 @@ export default function AdminOverview() {
               </div>
               <div className="dash-line-chart" aria-label="Ticket volume chart">
                 {(() => {
-                  const data  = summary.chart_daily;
+                  const data  = summary.chart_daily ?? [];
+                  if (data.length < 2) return <div style={{ flex: 1, background: "#f8fafc", borderRadius: 8 }} />;
                   const max   = Math.max(...data.map(d => d.count), 1);
                   const W = 100, H = 80;
                   const pts = data.map((d, i) => ({
@@ -450,9 +451,9 @@ export default function AdminOverview() {
                 })()}
                 {/* X-axis labels (first, middle, last) */}
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: ".68rem", color: "#94a3b8" }}>
-                  <span>{summary.chart_daily[0]?.date.slice(5)}</span>
-                  <span>{summary.chart_daily[7]?.date.slice(5)}</span>
-                  <span>{summary.chart_daily[summary.chart_daily.length - 1]?.date.slice(5)}</span>
+                  <span>{summary.chart_daily?.[0]?.date.slice(5)}</span>
+                  <span>{summary.chart_daily?.[7]?.date.slice(5)}</span>
+                  <span>{summary.chart_daily?.[(summary.chart_daily?.length ?? 1) - 1]?.date.slice(5)}</span>
                 </div>
               </div>
             </div>
@@ -520,7 +521,8 @@ export default function AdminOverview() {
               </div>
               <div className="dash-line-chart">
                 {(() => {
-                  const data = summary.chart_resolved;
+                  const data = summary.chart_resolved ?? [];
+                  if (data.length < 2) return <div style={{ flex: 1, background: "#f8fafc", borderRadius: 8 }} />;
                   const max  = Math.max(...data.map(d => d.count), 1);
                   const W = 100, H = 80;
                   const pts = data.map((d, i) => ({
@@ -557,9 +559,9 @@ export default function AdminOverview() {
                   );
                 })()}
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: ".68rem", color: "#94a3b8" }}>
-                  <span>{summary.chart_resolved[0]?.date.slice(5)}</span>
-                  <span>{summary.chart_resolved[7]?.date.slice(5)}</span>
-                  <span>{summary.chart_resolved[summary.chart_resolved.length - 1]?.date.slice(5)}</span>
+                  <span>{summary.chart_resolved?.[0]?.date.slice(5)}</span>
+                  <span>{summary.chart_resolved?.[7]?.date.slice(5)}</span>
+                  <span>{summary.chart_resolved?.[(summary.chart_resolved?.length ?? 1) - 1]?.date.slice(5)}</span>
                 </div>
               </div>
             </div>
@@ -588,7 +590,7 @@ export default function AdminOverview() {
           </motion.section>
 
           {/* ── Recent tickets ── */}
-          {summary.recent_tickets.length > 0 && (
+          {(summary.recent_tickets?.length ?? 0) > 0 && (
             <motion.section variants={staggerItem}>
               <div className="dash-section-row">
                 <h2 className="dash-section-heading" style={{ margin: 0 }}>
