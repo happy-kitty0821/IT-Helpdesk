@@ -1040,7 +1040,7 @@ class AccountRecoveryCodeView(APIView):
         import string
         from django.utils import timezone as tz
         from .notifications import send_event
-        from .signals import get_helpdesk_url
+        from .signals import get_helpdesk_url, get_support_email
 
         try:
             ticket = Ticket.objects.select_related('requester', 'category').get(pk=pk)
@@ -1079,7 +1079,7 @@ class AccountRecoveryCodeView(APIView):
             'requester_email': requester.email,
             'to_email': requester.email,
             'college_email': requester.email,
-            'support_email': getattr(request, 'META', {}).get('HTTP_HOST', 'support@iic.edu.np'),
+            'support_email': get_support_email(),
             'backup_code': backup_code,
             'temp_password': temp_password,
             'helpdesk_url': get_helpdesk_url(),
@@ -1192,6 +1192,7 @@ class RecoveryActionView(APIView):
         import random, string
         from .email_config_service import get_effective_from_email
         from .email_utils import render_email, send_email_async
+        from .signals import get_support_email as _get_support_email
         from .models import SiteSettings
 
         raw_backup   = request.data.get('backup_code',   None)
@@ -1257,7 +1258,7 @@ class RecoveryActionView(APIView):
             f"  Temporary password: {email_temp_password}\n\n"
             f"Please change your password immediately after signing in.\n"
             f"These credentials are single-use and should not be shared.\n\n"
-            f"If you did not request this, contact us at support@iic.edu.np immediately.\n\n"
+            f"If you did not request this, contact us at {_get_support_email()} immediately.\n\n"
             f"Helpdesk: {helpdesk_url}\n\n"
             f"\u2014 IIC IT & NOC Department"
         )
@@ -1268,7 +1269,7 @@ class RecoveryActionView(APIView):
             'ticket_reference': ref,
             'backup_code':      email_backup_code,
             'temp_password':    email_temp_password,
-            'support_email':    'support@iic.edu.np',
+            'support_email':    _get_support_email(),
             'helpdesk_url':     helpdesk_url,
         })
 
@@ -1307,7 +1308,7 @@ class RecoveryActionView(APIView):
             f"Please visit the IIC IT & NOC department in person with a valid college ID "
             f"or other approved identification.\n\n"
             f"Office hours: Sunday\u2013Friday, 10:00 AM \u2013 4:00 PM\n\n"
-            f"Questions? Contact us at support@iic.edu.np.\n\n"
+            f"Questions? Contact us at {_get_support_email()}.\n\n"
             f"Helpdesk: {helpdesk_url}\n\n"
             f"\u2014 IIC IT & NOC Department"
         )
@@ -1316,7 +1317,7 @@ class RecoveryActionView(APIView):
             'name':             name,
             'college_email':    requester.email,
             'ticket_reference': ref,
-            'support_email':    'support@iic.edu.np',
+            'support_email':    _get_support_email(),
             'helpdesk_url':     helpdesk_url,
         })
 
@@ -3069,6 +3070,7 @@ def _send_password_reset_email(user, raw_token: str) -> None:
     """
     from .email_config_service import get_effective_from_email
     from .email_utils import render_email, send_email_async
+    from .signals import get_support_email as _pwd_support_email
 
     helpdesk_url = getattr(settings, 'HELPDESK_URL', 'http://localhost:3000').rstrip('/')
     reset_url    = f'{helpdesk_url}/reset-password?token={raw_token}'
@@ -3086,9 +3088,10 @@ def _send_password_reset_email(user, raw_token: str) -> None:
     )
 
     html = render_email('email/password_reset.html', {
-        'name':         name,
-        'reset_url':    reset_url,
-        'expiry_hours': expiry_hours,
+        'name':          name,
+        'reset_url':     reset_url,
+        'expiry_hours':  expiry_hours,
+        'support_email': _pwd_support_email(),
     })
 
     send_email_async(

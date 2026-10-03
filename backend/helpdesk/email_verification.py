@@ -30,6 +30,14 @@ from django.conf import settings
 
 from .email_utils import render_email, send_email_async
 
+def _get_support_email() -> str:
+    """Lazy wrapper — avoids circular import at module level."""
+    try:
+        from .signals import get_support_email
+        return get_support_email()
+    except Exception:
+        return 'support@iic.edu.np'
+
 logger = logging.getLogger(__name__)
 
 _SUBJECT = 'Verify your IIC IT Helpdesk account'
@@ -105,10 +113,11 @@ def send_verification_email(user) -> None:
     )
 
     html = render_email('email/verify_email.html', {
-        'name':         name,
-        'email':        user.email,
-        'verify_url':   verify_url,
+        'name':          name,
+        'email':         user.email,
+        'verify_url':    verify_url,
         'expires_hours': expiry_hours,
+        'support_email': _get_support_email(),
     })
 
     send_email_async(
