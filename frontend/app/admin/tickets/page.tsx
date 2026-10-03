@@ -640,7 +640,18 @@ export default function AdminTicketsPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="admin-content" style={{ paddingRight: selected ? 560 : undefined, transition: "padding-right 280ms ease" }}>
+    <div
+      className="admin-content"
+      style={{
+        // When the detail panel is open (fixed, 540px wide on the right),
+        // shift content so it fills the space to the LEFT of the panel.
+        // We set max-width to account for the panel and remove auto-centering
+        // so content stretches naturally without a gap.
+        maxWidth: selected ? "calc(100% - 540px - 24px)" : undefined,
+        marginRight: selected ? 0 : undefined,
+        transition: "max-width 280ms ease, margin-right 280ms ease",
+      }}
+    >
 
       <header className="admin-heading">
         <div>

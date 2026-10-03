@@ -197,7 +197,7 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .admin-user a { display: flex; align-items: center; gap: 8px; color: #cbd5e1; margin-top: 16px; font-size: .88rem; }
 .admin-user svg { width: 17px; }
 .admin-main { min-width: 0; }
-.admin-content { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding-block: 46px 70px; }
+.admin-content { width: min(1280px, calc(100% - 48px)); margin: 0 auto; padding-block: 46px 70px; }
 .admin-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
 .admin-heading h1 { font-size: clamp(2.1rem, 4vw, 3.3rem); line-height: 1; letter-spacing: -.045em; margin-bottom: 12px; }
 .admin-heading p:last-child { color: #475569; margin-bottom: 0; }
@@ -532,7 +532,7 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
   .admin-sidebar nav { display: flex; margin: 0 0 0 auto; }
   .admin-sidebar nav a { min-height: 42px; }
   .admin-user { display: none; }
-  .admin-content { width: min(100% - 24px, 1180px); padding-block: 30px 54px; }
+  .admin-content { width: min(100% - 24px, 1280px); padding-block: 30px 54px; }
   .admin-heading { align-items: flex-start; flex-direction: column; }
   .metric-grid, .admin-actions > div { grid-template-columns: 1fr; }
   .content-table { overflow-x: auto; }
@@ -1577,7 +1577,7 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
   grid-template-columns: 1.6fr 1fr 1fr 1.6fr;
   gap: 12px;
 }
-@media (max-width: 1100px) { .dash-charts-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 1200px) { .dash-charts-row { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 700px)  { .dash-charts-row { grid-template-columns: 1fr; } }
 
 .dash-chart-card {
