@@ -226,11 +226,12 @@ export default function AdminOverview() {
       .catch((e: Error) => { setError(e.message); setLoading(false); });
   }, [applyUpdate]);
 
-  // ── SSE stream (live updates every 15 s) ──────────────────────────────────
+  // ── SSE stream (live updates, reconnects automatically) ──────────────────
   useEffect(() => {
-    let retryDelay = 3000;
+    let retryDelay = 1000;   // start at 1 s; only grows on real errors
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
+    let lastEventAt = 0;
 
     function connect() {
       if (unmounted) return;
@@ -238,7 +239,8 @@ export default function AdminOverview() {
       esRef.current = es;
 
       es.addEventListener("summary_update", (e: MessageEvent) => {
-        retryDelay = 3000;
+        retryDelay = 1000;   // reset back-off on successful event
+        lastEventAt = Date.now();
         try {
           const data = JSON.parse(e.data) as AdminSummary;
           applyUpdate(data);
@@ -250,10 +252,13 @@ export default function AdminOverview() {
         setConnected(false);
         es.close();
         if (!unmounted) {
-          retryTimer = setTimeout(() => {
-            retryDelay = Math.min(retryDelay * 2, 60_000);
-            connect();
-          }, retryDelay);
+          // If we received an event recently the stream likely just hit its
+          // MAX_SECONDS limit and ended normally — reconnect immediately.
+          // Otherwise it's a real error; use exponential back-off.
+          const timeSinceLast = Date.now() - lastEventAt;
+          const delay = (lastEventAt > 0 && timeSinceLast < 5000) ? 500 : retryDelay;
+          retryDelay = Math.min(retryDelay * 2, 30_000);
+          retryTimer = setTimeout(connect, delay);
         }
       };
     }

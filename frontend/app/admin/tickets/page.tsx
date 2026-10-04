@@ -643,13 +643,12 @@ export default function AdminTicketsPage() {
     <div
       className="admin-content"
       style={{
-        // When the detail panel is open (fixed, 540px wide on the right),
-        // shift content so it fills the space to the LEFT of the panel.
-        // We set max-width to account for the panel and remove auto-centering
-        // so content stretches naturally without a gap.
-        maxWidth: selected ? "calc(100% - 540px - 24px)" : undefined,
+        // When the fixed detail panel (540px) is open, shrink content
+        // to stay left of it. Remove auto-margins so content is left-aligned.
+        maxWidth:    selected ? "calc(100% - 540px - 24px)" : undefined,
         marginRight: selected ? 0 : undefined,
-        transition: "max-width 280ms ease, margin-right 280ms ease",
+        marginLeft:  selected ? 0 : undefined,
+        transition:  "max-width 280ms ease",
       }}
     >
 

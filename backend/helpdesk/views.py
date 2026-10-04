@@ -1029,19 +1029,36 @@ class AdminDashboardStreamView(View):
             return r
 
         def _stream():
-            # Send initial snapshot immediately
+            import time as _time
+            # Send initial snapshot immediately on connect
             try:
                 yield _sse_format("summary_update", self._build_payload(request.user))
             except Exception:
-                pass
+                return
 
-            # Push updates every 15 seconds
-            while True:
-                time.sleep(15)
-                try:
-                    yield _sse_format("summary_update", self._build_payload(request.user))
-                except Exception:
+            # Send updates every 15 s, with heartbeats every 5 s to keep
+            # the connection alive through proxies. Cap at 4 minutes total
+            # so the connection is refreshed regularly (avoids proxy timeouts
+            # and ensures gunicorn sync workers aren't held indefinitely).
+            MAX_SECONDS = 240
+            elapsed     = 0
+            tick        = 5      # check every 5 seconds
+
+            while elapsed < MAX_SECONDS:
+                _time.sleep(tick)
+                elapsed += tick
+                if elapsed % 15 == 0:
+                    # Full data update every 15 s
+                    try:
+                        yield _sse_format("summary_update", self._build_payload(request.user))
+                    except Exception:
+                        yield _sse_heartbeat()
+                else:
+                    # Heartbeat to keep proxy alive
                     yield _sse_heartbeat()
+
+            # After MAX_SECONDS the generator ends; the client's onerror
+            # fires and it reconnects immediately, getting a fresh snapshot.
 
         r = StreamingHttpResponse(_stream(), content_type="text/event-stream")
         r["Cache-Control"] = "no-cache"
