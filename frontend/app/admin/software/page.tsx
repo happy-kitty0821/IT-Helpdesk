@@ -27,7 +27,7 @@ const STATUS_OPTIONS = [
 ];
 
 const MAX_FILE_BYTES  = 25 * 1024 * 1024 * 1024; // 25 GB
-const CHUNK_SIZE      = 90 * 1024 * 1024;         // 90 MB — comfortably below Cloudflare's 100 MB cap
+const CHUNK_SIZE      = 10 * 1024 * 1024;         // 10 MB — fast enough for Cloudflare Tunnel timeouts
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -201,7 +201,7 @@ function FileDropzone({
           <span style={{ fontSize: ".75rem", color: "#6366f1" }}>
             {formatBytes(pending.size)}
             {pending.size > CHUNK_SIZE && (
-              <> · Will be split into {Math.ceil(pending.size / CHUNK_SIZE)} chunks of 90 MB</>
+              <> · Will be split into {Math.ceil(pending.size / CHUNK_SIZE)} × 10 MB chunks</>
             )}
           </span>
         </div>
@@ -279,7 +279,7 @@ function FileDropzone({
         Drop installer here or click to browse
       </p>
       <p style={{ margin: "4px 0 0", fontSize: ".75rem", color: "#94a3b8" }}>
-        Any file type · Max 25 GB · Files &gt; 90 MB split automatically
+        Any file type · Max 25 GB · Files split into 10 MB chunks automatically
       </p>
       <input ref={inputRef} type="file" onChange={handleChange} style={{ display: "none" }} />
     </div>
@@ -330,38 +330,59 @@ async function uploadFileInChunks(
 
     onProgress({ phase: "uploading", chunksDone: i, chunksTotal: totalChunks, currentChunkPct: 0, error: "" });
 
-    await new Promise<void>((resolve, reject) => {
-      const fd  = new FormData();
-      fd.append("chunk", blob, `chunk-${i}`);
+    // Retry up to 3 times with exponential back-off (handles transient 502s from Cloudflare)
+    const MAX_RETRIES = 3;
+    let lastError: Error | null = null;
 
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", `/api/v1/upload/${uploadId}/chunk/${i}/`);
-      xhr.setRequestHeader("X-CSRFToken", token);
-      xhr.withCredentials = true;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        // Back-off: 2s, 4s, 8s
+        await new Promise<void>((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+        onProgress({ phase: "uploading", chunksDone: i, chunksTotal: totalChunks, currentChunkPct: 0, error: "" });
+      }
 
-      xhr.upload.onprogress = (ev) => {
-        if (ev.lengthComputable) {
-          onProgress({
-            phase: "uploading", chunksDone: i, chunksTotal: totalChunks,
-            currentChunkPct: Math.round((ev.loaded / ev.total) * 100),
-            error: "",
-          });
-        }
-      };
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const fd  = new FormData();
+          fd.append("chunk", blob, `chunk-${i}`);
 
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve();
-        } else {
-          let msg = `Chunk ${i} upload failed (HTTP ${xhr.status}).`;
-          try { msg = messageFrom(JSON.parse(xhr.responseText)); } catch { /* keep default */ }
-          reject(new Error(msg));
-        }
-      };
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", `/api/v1/upload/${uploadId}/chunk/${i}/`);
+          xhr.setRequestHeader("X-CSRFToken", token);
+          xhr.withCredentials = true;
 
-      xhr.onerror = () => reject(new Error(`Network error uploading chunk ${i}.`));
-      xhr.send(fd);
-    });
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) {
+              onProgress({
+                phase: "uploading", chunksDone: i, chunksTotal: totalChunks,
+                currentChunkPct: Math.round((ev.loaded / ev.total) * 100),
+                error: "",
+              });
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve();
+            } else {
+              let msg = `Chunk ${i} upload failed (HTTP ${xhr.status}).`;
+              try { msg = messageFrom(JSON.parse(xhr.responseText)); } catch { /* keep default */ }
+              reject(new Error(msg));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error(`Network error uploading chunk ${i}.`));
+          xhr.send(fd);
+        });
+        lastError = null;
+        break; // success — stop retrying
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < MAX_RETRIES) continue; // will retry
+      }
+    }
+
+    if (lastError) throw lastError;
   }
 
   // ── Step 3: Finalize ──────────────────────────────────────────────────────
@@ -694,7 +715,7 @@ export default function SoftwareManagement() {
                   <label htmlFor="sw-slug">
                     URL slug <span style={{ color: "#94a3b8", fontWeight: 400, fontSize: ".75rem", marginLeft: 4 }}>(auto-generated)</span>
                   </label>
-                  <input id="sw-slug" type="text" required pattern="[a-z0-9-]+" value={draftSlug}
+                  <input id="sw-slug" type="text" required pattern={"[a-z0-9]+([a-z0-9-]*[a-z0-9])?"}  value={draftSlug}
                     placeholder="e.g. microsoft-office" onChange={(e) => setDraftSlug(e.target.value)} />
                 </div>
 
@@ -749,7 +770,7 @@ export default function SoftwareManagement() {
                     onRemoveExisting={() => { setRemoveExisting(true); setPendingFile(null); }}
                   />
                   <small style={{ color: "#64748b", fontSize: ".75rem", display: "block", marginTop: 5 }}>
-                    Files are split into 90 MB chunks automatically — works through Cloudflare Tunnel.
+                    Files are split into 10 MB chunks automatically — works through Cloudflare Tunnel with retries on failure.
                   </small>
                 </div>
 

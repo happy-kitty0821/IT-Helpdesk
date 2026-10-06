@@ -68,7 +68,7 @@ export default function RegisterPage() {
               Username
               <input
                 name="username"
-                pattern="[A-Za-z0-9._-]{3,150}"
+                pattern={"[A-Za-z0-9._-]{3,150}"}
                 title="Use letters, numbers, dots, underscores, or hyphens"
                 autoComplete="username" required
               />
