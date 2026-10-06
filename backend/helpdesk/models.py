@@ -1423,3 +1423,128 @@ class SiteSettings(models.Model):
         """Return the singleton row, creating it with defaults if absent."""
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+# ---------------------------------------------------------------------------
+# Service status board
+# ---------------------------------------------------------------------------
+
+
+class ServiceStatus(models.Model):
+    """
+    Operational status for a single service category.
+
+    One row per ServiceCategory. Administrators update the status from the
+    admin panel; the public /status page renders all rows.
+
+    status values
+    ─────────────
+    operational       All systems normal.
+    degraded          Reduced performance or partial outage.
+    outage            Service completely unavailable.
+    maintenance       Scheduled maintenance in progress.
+    """
+
+    class Status(models.TextChoices):
+        OPERATIONAL  = 'operational',  'Operational'
+        DEGRADED     = 'degraded',     'Degraded performance'
+        OUTAGE       = 'outage',       'Service outage'
+        MAINTENANCE  = 'maintenance',  'Under maintenance'
+
+    category = models.OneToOneField(
+        'ServiceCategory',
+        on_delete=models.CASCADE,
+        related_name='service_status',
+        help_text='The service category this status applies to.',
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.OPERATIONAL,
+    )
+    message = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        help_text='Optional short message shown on the status page (e.g. "Scheduled downtime until 14:00").',
+    )
+    # When maintenance/outage started
+    incident_started_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When this incident/maintenance window began.',
+    )
+    # Expected resolution time
+    estimated_resolution = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Estimated time the service will be restored.',
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='service_status_updates',
+        help_text='Administrator who last updated this status.',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('category__sort_order', 'category__name')
+        verbose_name = 'Service status'
+        verbose_name_plural = 'Service statuses'
+
+    def __str__(self):
+        return f'{self.category.name}: {self.get_status_display()}'
+
+
+# ---------------------------------------------------------------------------
+# Ticket satisfaction feedback
+# ---------------------------------------------------------------------------
+
+
+class TicketFeedback(models.Model):
+    """
+    Post-resolution satisfaction rating submitted by the ticket requester.
+
+    One row per ticket. A requester can only submit feedback once
+    (enforced by OneToOneField to Ticket).
+
+    Rating: 1 (very dissatisfied) → 5 (very satisfied).
+    """
+
+    class Rating(models.IntegerChoices):
+        VERY_DISSATISFIED = 1, 'Very dissatisfied'
+        DISSATISFIED      = 2, 'Dissatisfied'
+        NEUTRAL           = 3, 'Neutral'
+        SATISFIED         = 4, 'Satisfied'
+        VERY_SATISFIED    = 5, 'Very satisfied'
+
+    ticket = models.OneToOneField(
+        'Ticket',
+        on_delete=models.CASCADE,
+        related_name='feedback',
+        help_text='The resolved/closed ticket this feedback is for.',
+    )
+    rating = models.PositiveSmallIntegerField(
+        choices=Rating.choices,
+        help_text='Satisfaction rating from 1 (worst) to 5 (best).',
+    )
+    comment = models.TextField(
+        max_length=2000,
+        blank=True,
+        default='',
+        help_text='Optional free-text feedback from the requester.',
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='ticket_feedback',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Ticket feedback'
+        verbose_name_plural = 'Ticket feedback'
+
+    def __str__(self):
+        return f'Feedback {self.rating}/5 on {self.ticket.reference}'

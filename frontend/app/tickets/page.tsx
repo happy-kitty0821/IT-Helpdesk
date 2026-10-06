@@ -1,9 +1,9 @@
 ﻿"use client";
 
 import { motion, AnimatePresence } from "motion/react";
-import { InboxIcon } from "lucide-react";
+import { InboxIcon, Loader2, Search } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { SiteHeader } from "@/components/site-header";
 import { fadeIn, fadeUp, staggerContainer, staggerItem } from "@/lib/animations";
@@ -23,6 +23,13 @@ interface Ticket {
   assignee_name: string | null;
 }
 interface Service { id: number; name: string; slug: string; }
+
+interface PaginatedTickets {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: Ticket[];
+}
 
 const STATUS_LABELS: Record<TicketStatus, string> = {
   submitted: "Submitted", triaged: "Triaged", in_progress: "In Progress",
@@ -81,6 +88,11 @@ export default function MyTicketsPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
 
   useEffect(() => {
     fetch("/api/v1/auth/me/", { credentials: "include" })
@@ -93,24 +105,66 @@ export default function MyTicketsPage() {
       .catch(() => { setUser(null); router.replace("/login"); });
   }, [router]);
 
+  const loadTickets = useCallback((q: string) => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (q.trim()) params.set("q", q.trim());
+    const url = `/api/v1/tickets/${params.toString() ? `?${params}` : ""}`;
+    fetch(url, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: PaginatedTickets | Ticket[] | null) => {
+        if (!data) { setTickets([]); setNextUrl(null); setTotalCount(0); return; }
+        if (Array.isArray(data)) {
+          setTickets(data);
+          setNextUrl(null);
+          setTotalCount(data.length);
+        } else {
+          setTickets(data.results ?? []);
+          setNextUrl(data.next);
+          setTotalCount(data.count ?? 0);
+        }
+      })
+      .catch(() => { setTickets([]); setNextUrl(null); })
+      .finally(() => setLoading(false));
+  }, []);
+
   useEffect(() => {
     if (!user) return;
-    Promise.all([
-      fetch("/api/v1/tickets/", { credentials: "include" }).then((r) =>
-        r.ok
-          ? r.json().then((d: { results?: Ticket[] } | Ticket[]) =>
-              Array.isArray(d) ? d : (d.results ?? [])
-            )
-          : []
-      ),
-      fetch("/api/v1/services/", { credentials: "include" }).then((r) =>
-        r.ok ? (r.json() as Promise<Service[]>) : []
-      ),
-    ])
-      .then(([ticketData, serviceData]) => { setTickets(ticketData); setServices(serviceData); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [user]);
+    loadTickets(searchQuery);
+    fetch("/api/v1/services/", { credentials: "include" })
+      .then((r) => r.ok ? (r.json() as Promise<Service[]>) : [])
+      .then(setServices)
+      .catch(() => {});
+  }, [user, searchQuery, loadTickets]);
+
+  const loadMore = useCallback(() => {
+    if (!nextUrl || loadingMore) return;
+    setLoadingMore(true);
+    // nextUrl is an absolute URL from Django (e.g. http://127.0.0.1:8000/api/v1/tickets/?page=2)
+    // Extract just the path + query to avoid CORS issues with absolute URLs
+    let fetchUrl = nextUrl;
+    try {
+      const parsed = new URL(nextUrl);
+      fetchUrl = parsed.pathname + (parsed.search || "");
+    } catch { /* not an absolute URL, use as-is */ }
+    fetch(fetchUrl, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: PaginatedTickets | null) => {
+        if (data) {
+          setTickets((prev) => [...prev, ...(data.results ?? [])]);
+          setNextUrl(data.next);
+        } else {
+          setNextUrl(null);
+        }
+      })
+      .catch(() => { setNextUrl(null); })
+      .finally(() => setLoadingMore(false));
+  }, [nextUrl, loadingMore]);
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setSearchQuery(searchInput);
+  }
 
   const serviceMap = new Map<number, string>(services.map((s) => [s.id, s.name]));
 
@@ -129,7 +183,24 @@ export default function MyTicketsPage() {
             <p className="eyebrow">Support requests</p>
             <h1>My tickets</h1>
           </div>
-          <Link href="/tickets/new" className="nav-action">New request</Link>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <form onSubmit={handleSearch} style={{ position: "relative" }}>
+              <Search size={15} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", pointerEvents: "none" }} aria-hidden="true" />
+              <input
+                type="text"
+                placeholder="Search tickets…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                style={{
+                  width: 220, padding: "8px 12px 8px 34px",
+                  border: "1px solid #dbe2ee", borderRadius: 10,
+                  fontSize: ".85rem", outline: "none",
+                }}
+                aria-label="Search tickets"
+              />
+            </form>
+            <Link href="/tickets/new" className="nav-action">New request</Link>
+          </div>
         </motion.div>
 
         <AnimatePresence mode="wait">
@@ -167,42 +238,67 @@ export default function MyTicketsPage() {
 
           {/* Ticket list */}
           {!loading && tickets.length > 0 && (
-            <motion.ol
-              key="list"
-              className="ticket-list"
-              style={{ listStyle: "none", padding: 0, margin: 0 }}
-              variants={staggerContainer}
-              initial="hidden"
-              animate="show"
-            >
-              {tickets.map((ticket) => (
-                <motion.li key={ticket.id} variants={staggerItem}>
-                  <Link href={`/tickets/${ticket.id}`} style={{ display: "block" }}>
-                    <article className="ticket-card">
-                      <div className="ticket-card-top">
-                        <span className="ticket-reference">{ticket.reference}</span>
-                        <span className={STATUS_CSS[ticket.status]}>
-                          {STATUS_LABELS[ticket.status]}
-                        </span>
-                      </div>
-                      <h2>{ticket.subject}</h2>
-                      <div className="ticket-card-meta">
-                        {serviceMap.has(ticket.category) && (
-                          <span>{serviceMap.get(ticket.category)}</span>
-                        )}
-                        <span>{formatDate(ticket.created_at)}</span>
-                        <span className={`ticket-priority-${ticket.priority}`}>
-                          {PRIORITY_LABELS[ticket.priority]}
-                        </span>
-                        {ticket.assignee_name && (
-                          <span>Assigned to {ticket.assignee_name}</span>
-                        )}
-                      </div>
-                    </article>
-                  </Link>
-                </motion.li>
-              ))}
-            </motion.ol>
+            <>
+              {totalCount > tickets.length && (
+                <p style={{ fontSize: ".8rem", color: "#64748b", margin: "0 0 10px" }}>
+                  Showing {tickets.length} of {totalCount} tickets
+                </p>
+              )}
+              <motion.ol
+                key="list"
+                className="ticket-list"
+                style={{ listStyle: "none", padding: 0, margin: 0 }}
+                variants={staggerContainer}
+                initial="hidden"
+                animate="show"
+              >
+                {tickets.map((ticket) => (
+                  <motion.li key={ticket.id} variants={staggerItem}>
+                    <Link href={`/tickets/${ticket.id}`} style={{ display: "block" }}>
+                      <article className="ticket-card">
+                        <div className="ticket-card-top">
+                          <span className="ticket-reference">{ticket.reference}</span>
+                          <span className={STATUS_CSS[ticket.status]}>
+                            {STATUS_LABELS[ticket.status]}
+                          </span>
+                        </div>
+                        <h2>{ticket.subject}</h2>
+                        <div className="ticket-card-meta">
+                          {serviceMap.has(ticket.category) && (
+                            <span>{serviceMap.get(ticket.category)}</span>
+                          )}
+                          <span>{formatDate(ticket.created_at)}</span>
+                          <span className={`ticket-priority-${ticket.priority}`}>
+                            {PRIORITY_LABELS[ticket.priority]}
+                          </span>
+                          {ticket.assignee_name && (
+                            <span>Assigned to {ticket.assignee_name}</span>
+                          )}
+                        </div>
+                      </article>
+                    </Link>
+                  </motion.li>
+                ))}
+              </motion.ol>
+
+              {/* Load more button */}
+              {nextUrl && (
+                <div style={{ textAlign: "center", marginTop: 20 }}>
+                  <button
+                    onClick={loadMore}
+                    disabled={loadingMore}
+                    className="secondary-button"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                  >
+                    {loadingMore ? (
+                      <><Loader2 size={15} className="spin" aria-hidden="true" /> Loading…</>
+                    ) : (
+                      "Load more tickets"
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
         </AnimatePresence>

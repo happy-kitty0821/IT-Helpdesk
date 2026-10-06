@@ -371,9 +371,42 @@ class TicketListCreate(generics.ListCreateAPIView):
             qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
             if not user.is_superuser and user_has_intern_scope_only(user):
                 qs = qs.filter(category__slug__in=get_intern_scope_slugs())
-            return qs
-        # Regular users see only their own tickets
-        return Ticket.objects.filter(requester=user).select_related('category', 'assigned_to')
+        else:
+            # Regular users see only their own tickets
+            qs = Ticket.objects.filter(requester=user).select_related('category', 'assigned_to')
+
+        # ── Search filter (?q=) — searches subject, reference, description, category name ──
+        q = self.request.query_params.get('q', '').strip()
+        if q:
+            qs = qs.filter(
+                Q(subject__icontains=q) |
+                Q(reference__icontains=q) |
+                Q(description__icontains=q) |
+                Q(category__name__icontains=q)
+            )
+
+        # ── Status filter (?status=submitted,resolved) — comma-separated list ──
+        status_param = self.request.query_params.get('status', '').strip()
+        if status_param:
+            status_list = [s.strip() for s in status_param.split(',') if s.strip()]
+            if status_list:
+                qs = qs.filter(status__in=status_list)
+
+        # ── Priority filter (?priority=p1,p2) — comma-separated list ──
+        priority_param = self.request.query_params.get('priority', '').strip()
+        if priority_param:
+            priority_list = [p.strip() for p in priority_param.split(',') if p.strip()]
+            if priority_list:
+                qs = qs.filter(priority__in=priority_list)
+
+        # ── Category filter (?category=wifi-issue) — slug-based ──
+        category_param = self.request.query_params.get('category', '').strip()
+        if category_param:
+            cat_list = [c.strip() for c in category_param.split(',') if c.strip()]
+            if cat_list:
+                qs = qs.filter(category__slug__in=cat_list)
+
+        return qs
 
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
@@ -1662,6 +1695,52 @@ class TicketAttachmentListView(APIView):
         serializer = TicketAttachmentSerializer(
             attachments, many=True, context={'request': request}
         )
+        return Response(serializer.data)
+
+
+class TicketEventListView(APIView):
+    """
+    GET /api/v1/tickets/{pk}/events/
+    Returns the immutable audit-log events for a ticket.
+
+    Access rules mirror TicketDetail:
+    - Requester can see events on their own tickets.
+    - Staff (including interns scoped to the category) can see events on any
+      ticket they are permitted to access.
+    """
+
+    def _get_ticket_and_check_access(self, request, pk):
+        from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
+        from uuid import UUID
+
+        roles = get_user_roles(request.user)
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
+        is_staff = bool(roles.intersection(staff_roles)) or request.user.is_superuser
+
+        try:
+            ticket = Ticket.objects.select_related('category').get(pk=UUID(pk))
+        except (Ticket.DoesNotExist, ValueError):
+            return None, False
+
+        if is_staff:
+            if not request.user.is_superuser and user_has_intern_scope_only(request.user):
+                if ticket.category and ticket.category.slug not in get_intern_scope_slugs():
+                    return None, False
+        else:
+            if ticket.requester_id != request.user.pk:
+                return None, False
+
+        return ticket, is_staff
+
+    def get(self, request, pk):
+        ticket, _ = self._get_ticket_and_check_access(request, pk)
+        if ticket is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from .models import TicketEvent
+        from .serializers import TicketEventSerializer
+        events = ticket.events.select_related('actor').order_by('created_at')
+        serializer = TicketEventSerializer(events, many=True)
         return Response(serializer.data)
 
 
@@ -3553,3 +3632,236 @@ class ChangePasswordView(APIView):
             {'detail': 'Password changed successfully.'},
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# Service status — public board + admin management
+# ---------------------------------------------------------------------------
+
+
+class PublicServiceStatusView(APIView):
+    """
+    GET /api/v1/status/
+
+    Public, unauthenticated endpoint.  Returns:
+    {
+      "overall": "operational" | "degraded" | "outage" | "maintenance",
+      "services": [ {id, category_name, category_slug, category_icon,
+                      status, status_label, message,
+                      incident_started_at, estimated_resolution, updated_at}, ... ]
+    }
+
+    Only active service categories are included. Categories that don't have
+    a ServiceStatus row yet are shown as "operational" (on-the-fly).
+    """
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+
+    def get(self, request):
+        from .models import ServiceStatus
+        from .serializers import ServiceStatusSerializer
+
+        active_categories = ServiceCategory.objects.filter(is_active=True).order_by(
+            'sort_order', 'name'
+        )
+
+        # Fetch all existing status rows in one query
+        status_map = {
+            ss.category_id: ss
+            for ss in ServiceStatus.objects.select_related('category').all()
+        }
+
+        results = []
+        worst = 'operational'
+        priority = ['outage', 'maintenance', 'degraded', 'operational']
+
+        for cat in active_categories:
+            if cat.pk in status_map:
+                ss = status_map[cat.pk]
+            else:
+                # Virtual row — no DB write needed
+                ss = ServiceStatus(
+                    category=cat,
+                    status=ServiceStatus.Status.OPERATIONAL,
+                )
+            results.append(ss)
+            # Track the worst-case overall status
+            if priority.index(ss.status) < priority.index(worst):
+                worst = ss.status
+
+        serializer = ServiceStatusSerializer(results, many=True)
+        return Response({'overall': worst, 'services': serializer.data})
+
+
+class AdminServiceStatusListView(generics.ListAPIView):
+    """
+    GET /api/v1/admin/status/
+
+    Returns all ServiceStatus rows for management. Includes categories that
+    don't have a row yet (virtual operational rows, not persisted).
+    """
+    permission_classes = (IsAdministrator,)
+    serializer_class   = None  # set dynamically
+    pagination_class   = None
+
+    def get(self, request):
+        from .models import ServiceStatus
+        from .serializers import AdminServiceStatusSerializer
+
+        active_categories = ServiceCategory.objects.filter(is_active=True).order_by(
+            'sort_order', 'name'
+        )
+        status_map = {
+            ss.category_id: ss
+            for ss in ServiceStatus.objects.select_related('category', 'updated_by').all()
+        }
+        results = []
+        for cat in active_categories:
+            ss = status_map.get(cat.pk)
+            if ss is None:
+                ss = ServiceStatus(category=cat, status=ServiceStatus.Status.OPERATIONAL)
+            results.append(ss)
+
+        serializer = AdminServiceStatusSerializer(results, many=True)
+        return Response(serializer.data)
+
+
+class AdminServiceStatusDetailView(APIView):
+    """
+    PATCH /api/v1/admin/status/{category_id}/
+
+    Upserts the ServiceStatus row for a given ServiceCategory (by category PK).
+    Writable fields: status, message, incident_started_at, estimated_resolution.
+    """
+    permission_classes = (IsAdministrator,)
+
+    def patch(self, request, category_id):
+        from .models import ServiceStatus
+        from .serializers import AdminServiceStatusSerializer
+
+        try:
+            category = ServiceCategory.objects.get(pk=category_id)
+        except ServiceCategory.DoesNotExist:
+            return Response({'detail': 'Service category not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        ss, _ = ServiceStatus.objects.get_or_create(
+            category=category,
+            defaults={'status': ServiceStatus.Status.OPERATIONAL},
+        )
+
+        serializer = AdminServiceStatusSerializer(ss, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Ticket feedback — requester submits after resolution
+# ---------------------------------------------------------------------------
+
+
+class TicketFeedbackView(APIView):
+    """
+    GET  /api/v1/tickets/{pk}/feedback/
+         Returns existing feedback for the ticket (requester or staff).
+
+    POST /api/v1/tickets/{pk}/feedback/
+         Submits satisfaction feedback.  Rules:
+         - Only the requester may submit feedback.
+         - Ticket must be in 'resolved' or 'closed' status.
+         - One submission per ticket (OneToOneField enforced by DB).
+    """
+
+    def _get_ticket_or_404(self, request, pk):
+        """Return (ticket, is_staff) or None on access/not-found."""
+        from uuid import UUID
+        from .permissions import get_user_roles
+
+        try:
+            ticket = Ticket.objects.select_related('requester').get(pk=UUID(pk))
+        except (Ticket.DoesNotExist, ValueError):
+            return None, False
+
+        roles = get_user_roles(request.user)
+        staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
+                       'content_editor', 'designated_approver'}
+        is_staff = bool(roles.intersection(staff_roles)) or request.user.is_superuser
+
+        if not is_staff and ticket.requester_id != request.user.pk:
+            return None, False
+
+        return ticket, is_staff
+
+    def get(self, request, pk):
+        from .models import TicketFeedback
+        from .serializers import TicketFeedbackSerializer
+
+        ticket, _ = self._get_ticket_or_404(request, pk)
+        if ticket is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            feedback = ticket.feedback
+        except TicketFeedback.DoesNotExist:
+            return Response({'detail': 'No feedback submitted yet.'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(TicketFeedbackSerializer(feedback).data)
+
+    @transaction.atomic
+    def post(self, request, pk):
+        from .models import TicketFeedback
+        from .serializers import TicketFeedbackSerializer
+
+        ticket, is_staff = self._get_ticket_or_404(request, pk)
+        if ticket is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Only the requester submits feedback
+        if is_staff:
+            return Response(
+                {'detail': 'Staff members cannot submit ticket feedback.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Ticket must be resolved or closed
+        if ticket.status not in ('resolved', 'closed'):
+            return Response(
+                {'detail': 'Feedback can only be submitted once a ticket has been resolved or closed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prevent duplicate submission
+        if TicketFeedback.objects.filter(ticket=ticket).exists():
+            return Response(
+                {'detail': 'Feedback has already been submitted for this ticket.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        serializer = TicketFeedbackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(ticket=ticket, submitted_by=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AdminFeedbackListView(generics.ListAPIView):
+    """
+    GET /api/v1/admin/feedback/
+    Lists all ticket feedback for admin review with optional filters.
+    ?rating=4,5   — filter by rating values (comma-separated)
+    """
+    permission_classes = (IsAdministrator,)
+    pagination_class   = None
+
+    def get_serializer_class(self):
+        from .serializers import TicketFeedbackSerializer
+        return TicketFeedbackSerializer
+
+    def get_queryset(self):
+        from .models import TicketFeedback
+        qs = TicketFeedback.objects.select_related('ticket', 'submitted_by').order_by('-created_at')
+        rating_param = self.request.query_params.get('rating', '').strip()
+        if rating_param:
+            ratings = [r.strip() for r in rating_param.split(',') if r.strip().isdigit()]
+            if ratings:
+                qs = qs.filter(rating__in=[int(r) for r in ratings])
+        return qs

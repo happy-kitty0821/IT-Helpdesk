@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import { Mail, MapPin } from "lucide-react";
+import { useEffect, useState } from "react";
 
 // ── Link columns ──────────────────────────────────────────────────────────────
 
@@ -38,15 +41,63 @@ const COLUMNS = [
       { href: "/register",       label: "Create account" },
       { href: "/profile",        label: "My profile" },
       { href: "/forgot-password", label: "Forgot password" },
+      { href: "/status",         label: "Service status" },
       { href: "/contact",        label: "Contact IT & NOC" },
     ],
   },
 ];
 
+// ── Site settings fetched from the backend ─────────────────────────────────
+
+interface SiteSettings {
+  support_email: string;
+  office_location: string;
+  office_phone: string;
+  institution_name: string;
+  department_name: string;
+  helpdesk_tagline: string;
+}
+
+const DEFAULT_SETTINGS: SiteSettings = {
+  support_email: "support@iic.edu.np",
+  office_location: "IT & NOC Department, Itahari International College, ING, Itahari, Sunsari, Nepal",
+  office_phone: "",
+  institution_name: "Itahari International College",
+  department_name: "IT & NOC Department",
+  helpdesk_tagline:
+    "Your first point of contact for IT support, account help, and self-service resources at IIC.",
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
+  const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/v1/settings/site/", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: Partial<SiteSettings> | null) => {
+        if (mounted && data) {
+          setSettings((prev) => ({
+            support_email:     data.support_email     ?? prev.support_email,
+            office_location:   data.office_location   ?? prev.office_location,
+            office_phone:      data.office_phone      ?? prev.office_phone,
+            institution_name:  data.institution_name  ?? prev.institution_name,
+            department_name:   data.department_name    ?? prev.department_name,
+            helpdesk_tagline:  data.helpdesk_tagline   ?? prev.helpdesk_tagline,
+          }));
+        }
+      })
+      .catch(() => {/* keep defaults on error */});
+    return () => { mounted = false; };
+  }, []);
+
+  // Short label for the address line (strip the long prefix used in admin)
+  const shortLocation = settings.office_location
+    .replace(/Itahari International College,?\s*/i, "")
+    .replace(/ING,?\s*/i, "");
 
   return (
     <footer className="site-footer" role="contentinfo">
@@ -58,25 +109,27 @@ export function SiteFooter() {
           <div className="site-footer-logo" aria-label="IIC IT & NOC Helpdesk">
             <span className="site-footer-logo-badge" aria-hidden="true">IIC</span>
             <div>
-              <strong>IT &amp; NOC Helpdesk</strong>
-              <small>Itahari International College</small>
+              <strong>{settings.department_name}</strong>
+              <small>{settings.institution_name}</small>
             </div>
           </div>
 
           <p className="site-footer-tagline">
-            Your first point of contact for IT support, account help, and
-            self-service resources at IIC.
+            {settings.helpdesk_tagline}
           </p>
 
           {/* Contact strip */}
           <address className="site-footer-contact">
-            <a href="mailto:support@iic.edu.np" className="site-footer-contact-item">
+            <a
+              href={`mailto:${settings.support_email}`}
+              className="site-footer-contact-item"
+            >
               <Mail size={14} aria-hidden="true" />
-              support@iic.edu.np
+              {settings.support_email}
             </a>
             <span className="site-footer-contact-item">
               <MapPin size={14} aria-hidden="true" />
-              IT &amp; NOC Dept, Itahari, Sunsari, Nepal
+              {shortLocation || settings.office_location}
             </span>
           </address>
         </div>
@@ -102,7 +155,7 @@ export function SiteFooter() {
       {/* ── Bottom bar ── */}
       <div className="site-footer-bar">
         <div className="shell site-footer-bar-inner">
-          <span>© {year} Itahari International College · IT &amp; NOC Department</span>
+          <span>© {year} {settings.institution_name} · {settings.department_name}</span>
           <span className="site-footer-bar-links">
             <Link href="/contact">Contact</Link>
             <Link href="/help">Help guides</Link>

@@ -1,8 +1,8 @@
 ﻿"use client";
 
 import {
-  Bell, BookOpen, Boxes, CircleDot, Gauge,
-  Home, LayoutGrid, LoaderCircle, Megaphone, Settings, Shield, ShieldAlert, Siren, Users,
+  Activity, Bell, BookOpen, Boxes, CircleDot, Gauge,
+  Home, LayoutGrid, LoaderCircle, Megaphone, MessageSquareDashed, Settings, Shield, ShieldAlert, Siren, Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -37,6 +37,10 @@ const ALL_NAV: NavItem[] = [
     allowedRoles: ["administrator"] },
   { href: "/admin/announcements", label: "Announcements", icon: Megaphone,
     allowedRoles: ["administrator"] },
+  { href: "/admin/status",        label: "Service Status",  icon: Activity,
+    allowedRoles: ["administrator", "service_lead"] },
+  { href: "/admin/feedback",      label: "Feedback",        icon: MessageSquareDashed,
+    allowedRoles: ["administrator", "service_lead"] },
   { href: "/admin/rate-limits",    label: "Rate Limits",    icon: Siren,
     allowedRoles: ["administrator"] },
   { href: "/admin/roles",         label: "Roles",         icon: Shield,

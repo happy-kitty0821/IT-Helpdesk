@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, RoleGrant, ServiceCategory, SiteSettings, SoftwareResource, Ticket, TicketAttachment, TicketFormSettings, TicketMessage
+from .models import AccountRecoveryToken, Announcement, EmailTemplate, GuideArticle, NotificationChannel, NotificationLog, NotificationRule, RoleConfig, RoleGrant, ServiceCategory, ServiceStatus, SiteSettings, SoftwareResource, Ticket, TicketAttachment, TicketFeedback, TicketFormSettings, TicketMessage
 
 
 def email_domain_allowed(email):
@@ -953,3 +953,127 @@ class ProfileSerializer(serializers.ModelSerializer):
                 setattr(profile, attr, value)
             profile.save()
         return instance
+
+
+# ---------------------------------------------------------------------------
+# Ticket event (audit log) serializer
+# ---------------------------------------------------------------------------
+
+class TicketEventSerializer(serializers.ModelSerializer):
+    """Read-only serializer for the ticket audit log."""
+    actor_name = serializers.SerializerMethodField()
+    action_label = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import TicketEvent
+        model = TicketEvent
+        fields = (
+            'id', 'action', 'action_label', 'actor_name',
+            'old_value', 'new_value', 'note', 'created_at',
+        )
+        read_only_fields = fields
+
+    def get_actor_name(self, obj):
+        if obj.actor:
+            return obj.actor.get_full_name() or obj.actor.username
+        return 'System'
+
+    def get_action_label(self, obj):
+        labels = {
+            'created':          'Ticket created',
+            'status_changed':   'Status changed',
+            'priority_changed': 'Priority changed',
+            'assigned':         'Assigned',
+            'stage_changed':    'Stage changed',
+            'subject_changed':  'Subject edited',
+            'team_changed':     'Team changed',
+        }
+        return labels.get(obj.action, obj.action)
+
+
+# ---------------------------------------------------------------------------
+# Service status serializers
+# ---------------------------------------------------------------------------
+
+
+class ServiceStatusSerializer(serializers.ModelSerializer):
+    """Read-only public serializer — returned by the public status endpoint."""
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    category_slug = serializers.CharField(source='category.slug', read_only=True)
+    category_icon = serializers.CharField(source='category.icon', read_only=True)
+    status_label  = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model  = ServiceStatus
+        fields = (
+            'id', 'category_name', 'category_slug', 'category_icon',
+            'status', 'status_label', 'message',
+            'incident_started_at', 'estimated_resolution',
+            'updated_at',
+        )
+        read_only_fields = fields
+
+
+class AdminServiceStatusSerializer(serializers.ModelSerializer):
+    """Full read/write serializer for the admin status management panel."""
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    category_slug = serializers.CharField(source='category.slug', read_only=True)
+    category_icon = serializers.CharField(source='category.icon', read_only=True)
+    status_label  = serializers.CharField(source='get_status_display', read_only=True)
+    updated_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = ServiceStatus
+        fields = (
+            'id', 'category', 'category_name', 'category_slug', 'category_icon',
+            'status', 'status_label', 'message',
+            'incident_started_at', 'estimated_resolution',
+            'updated_by_name', 'updated_at',
+        )
+        read_only_fields = (
+            'id', 'category_name', 'category_slug', 'category_icon',
+            'status_label', 'updated_by_name', 'updated_at',
+        )
+
+    def get_updated_by_name(self, obj) -> str:
+        if obj.updated_by:
+            return obj.updated_by.get_full_name() or obj.updated_by.username
+        return ''
+
+
+# ---------------------------------------------------------------------------
+# Ticket feedback serializers
+# ---------------------------------------------------------------------------
+
+
+class TicketFeedbackSerializer(serializers.ModelSerializer):
+    """
+    Serializer used for both creating and reading ticket feedback.
+    On create the requester and ticket are injected by the view.
+    """
+    rating_label  = serializers.CharField(source='get_rating_display', read_only=True)
+    submitted_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = TicketFeedback
+        fields = (
+            'id', 'ticket', 'rating', 'rating_label',
+            'comment', 'submitted_by_name', 'created_at',
+        )
+        read_only_fields = (
+            'id', 'ticket', 'rating_label',
+            'submitted_by_name', 'created_at',
+        )
+
+    def validate_rating(self, value: int) -> int:
+        if value < 1 or value > 5:
+            raise serializers.ValidationError('Rating must be between 1 and 5.')
+        return value
+
+    def validate_comment(self, value: str) -> str:
+        return value.strip()
+
+    def get_submitted_by_name(self, obj) -> str:
+        if obj.submitted_by:
+            return obj.submitted_by.get_full_name() or obj.submitted_by.username
+        return ''

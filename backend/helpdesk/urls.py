@@ -56,6 +56,7 @@ from .views import (
     TicketStreamView,
     TicketMessageListCreate,
     TicketAttachmentListView,
+    TicketEventListView,
     AssignableStaffView,
     TicketStatusView,
     UserRoleDetail,
@@ -68,6 +69,11 @@ from .views import (
     UserProfileView,
     ChangePasswordView,
     SiteSettingsView,
+    PublicServiceStatusView,
+    AdminServiceStatusListView,
+    AdminServiceStatusDetailView,
+    TicketFeedbackView,
+    AdminFeedbackListView,
 )
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -99,6 +105,7 @@ urlpatterns = [
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/status/?$',                 TicketStatusView.as_view(),        name='ticket-status'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/messages/?$',               TicketMessageListCreate.as_view(), name='ticket-messages'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/attachments/?$',            TicketAttachmentListView.as_view(),name='ticket-attachments'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/events/?$',                 TicketEventListView.as_view(),     name='ticket-events'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/recovery-code/?$',          AccountRecoveryCodeView.as_view(), name='ticket-recovery-code'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/recovery-action/?$',        RecoveryActionView.as_view(),      name='ticket-recovery-action'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/?$',                        TicketDetail.as_view(),            name='ticket-detail'),
@@ -157,6 +164,15 @@ urlpatterns = [
     re_path(r'^announcement/?$',                          ActiveAnnouncementView.as_view(),      name='announcement-active'),
     re_path(r'^admin/announcements/?$',                   AdminAnnouncementListCreate.as_view(), name='admin-announcement-list'),
     re_path(r'^admin/announcements/(?P<pk>[0-9]+)/?$',    AdminAnnouncementDetail.as_view(),     name='admin-announcement-detail'),
+
+    # Service status board
+    re_path(r'^status/?$',                                        PublicServiceStatusView.as_view(),        name='public-service-status'),
+    re_path(r'^admin/status/?$',                                  AdminServiceStatusListView.as_view(),     name='admin-service-status-list'),
+    re_path(r'^admin/status/(?P<category_id>[0-9]+)/?$',          AdminServiceStatusDetailView.as_view(),   name='admin-service-status-detail'),
+
+    # Ticket feedback
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/feedback/?$',           TicketFeedbackView.as_view(),             name='ticket-feedback'),
+    re_path(r'^admin/feedback/?$',                                 AdminFeedbackListView.as_view(),          name='admin-feedback-list'),
 
     # Swagger ui for testing
     # 1. Downloads the raw OpenAPI 3 schema YAML/JSON

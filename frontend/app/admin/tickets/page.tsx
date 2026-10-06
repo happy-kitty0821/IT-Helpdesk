@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import {
   Calendar, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock,
-  Download, FileSpreadsheet, Inbox, KeyRound, Loader2, MessageSquare,
+  Download, FileSpreadsheet, History, Inbox, KeyRound, Loader2, MessageSquare,
   Search, TicketCheck, User, Wifi, WifiOff, X,
 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -58,6 +58,17 @@ interface TicketMessage {
 interface ServiceCategoryDetail {
   id: number;
   stages: ServiceStage[];
+}
+
+interface TicketEventItem {
+  id: number;
+  action: string;
+  action_label: string;
+  actor_name: string;
+  old_value: string;
+  new_value: string;
+  note: string;
+  created_at: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -221,7 +232,7 @@ export default function AdminTicketsPage() {
   const [saving, setSaving] = useState(false);
   const [panelError, setPanelError] = useState("");
   const [panelNotice, setPanelNotice] = useState("");
-  const [activeTab, setActiveTab] = useState<"details" | "messages">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "messages" | "history">("details");
 
   // Ticket edit drafts
   const [draftStatus, setDraftStatus] = useState("");
@@ -240,6 +251,10 @@ export default function AdminTicketsPage() {
   const [sendingReply, setSendingReply] = useState(false);
   const [replyError, setReplyError] = useState("");
   const threadEndRef = useRef<HTMLDivElement>(null);
+
+  // Event history
+  const [events, setEvents] = useState<TicketEventItem[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
 
   // Category stages (fetched per category on panel open)
   const [categoryStages, setCategoryStages] = useState<ServiceStage[]>([]);
@@ -428,6 +443,7 @@ export default function AdminTicketsPage() {
     setPanelNotice("");
     setActiveTab("details");
     setMessages([]);
+    setEvents([]);
     setReplyBody("");
     setIsInternal(false);
     setReplyError("");
@@ -463,6 +479,18 @@ export default function AdminTicketsPage() {
       .then(setMessages)
       .catch(() => setMessages([]))
       .finally(() => setMessagesLoading(false));
+  }, [activeTab, selected]);
+
+  // ── Load event history when tab switches ──────────────────────────────────
+
+  useEffect(() => {
+    if (activeTab !== "history" || !selected) return;
+    setEventsLoading(true);
+    fetch(`/api/v1/tickets/${selected.id}/events/`, { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? (r.json() as Promise<TicketEventItem[]>) : [])
+      .then(setEvents)
+      .catch(() => setEvents([]))
+      .finally(() => setEventsLoading(false));
   }, [activeTab, selected]);
 
   // ── Save ticket ──────────────────────────────────────────────────────────
@@ -914,7 +942,7 @@ export default function AdminTicketsPage() {
 
             {/* Tab bar */}
             <div style={{ display: "flex", borderBottom: "1px solid var(--border)", padding: "0 20px" }} role="tablist">
-              {(["details", "messages"] as const).map((tab) => (
+              {(["details", "messages", "history"] as const).map((tab) => (
                 <button
                   key={tab}
                   role="tab"
@@ -928,8 +956,8 @@ export default function AdminTicketsPage() {
                     display: "flex", alignItems: "center", gap: 6,
                   }}
                 >
-                  {tab === "details" ? <CircleDot size={14} aria-hidden="true" /> : <MessageSquare size={14} aria-hidden="true" />}
-                  {tab === "details" ? "Details" : "Messages"}
+                  {tab === "details" ? <CircleDot size={14} aria-hidden="true" /> : tab === "messages" ? <MessageSquare size={14} aria-hidden="true" /> : <History size={14} aria-hidden="true" />}
+                  {tab === "details" ? "Details" : tab === "messages" ? "Messages" : "History"}
                 </button>
               ))}
             </div>
@@ -1307,6 +1335,70 @@ export default function AdminTicketsPage() {
                     Tip: Ctrl+Enter to send
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* ── History tab ── */}
+            {activeTab === "history" && (
+              <div className="atq-panel-body" style={{ overflowY: "auto", maxHeight: "calc(100vh - 120px)" }}>
+                {eventsLoading ? (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", color: "#64748b", padding: 20 }}>
+                    <Loader2 size={18} className="spin" aria-hidden="true" /> Loading history…
+                  </div>
+                ) : events.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#64748b", padding: 32 }}>
+                    <History size={24} style={{ opacity: 0.4, marginBottom: 8 }} aria-hidden="true" />
+                    <p style={{ margin: 0, fontSize: ".9rem" }}>No history events recorded yet.</p>
+                  </div>
+                ) : (
+                  <ol style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                    {events.map((evt, i) => {
+                      const isLast = i === events.length - 1;
+                      return (
+                        <li
+                          key={evt.id}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "32px 1fr",
+                            gap: 10,
+                            padding: "12px 0",
+                          }}
+                        >
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                            <div style={{
+                              width: 26, height: 26, borderRadius: "50%",
+                              background: "#eef2ff", border: "2px solid #c7d2fe",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              flexShrink: 0, fontSize: ".68rem", fontWeight: 800, color: "#234395",
+                            }}>
+                              {evt.action === "created" ? <CheckCircle2 size={13} style={{ color: "#166534" }} aria-hidden="true" /> : i + 1}
+                            </div>
+                            {!isLast && <div style={{ width: 2, flex: 1, background: "#e2e8f0", marginTop: 3 }} />}
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <strong style={{ fontSize: ".82rem" }}>{evt.action_label}</strong>
+                              <span style={{ fontSize: ".72rem", color: "#94a3b8" }}>by {evt.actor_name}</span>
+                            </div>
+                            {(evt.old_value || evt.new_value) && (
+                              <p style={{ margin: "3px 0 0", fontSize: ".76rem", color: "#64748b" }}>
+                                {evt.old_value && <span style={{ textDecoration: "line-through", opacity: 0.6 }}>{evt.old_value}</span>}
+                                {evt.old_value && evt.new_value && <span style={{ margin: "0 5px" }}>→</span>}
+                                {evt.new_value && <strong style={{ color: "#234395" }}>{evt.new_value}</strong>}
+                              </p>
+                            )}
+                            {evt.note && (
+                              <p style={{ margin: "3px 0 0", fontSize: ".76rem", color: "#64748b", fontStyle: "italic" }}>{evt.note}</p>
+                            )}
+                            <span style={{ fontSize: ".68rem", color: "#94a3b8", display: "block", marginTop: 3 }}>
+                              {new Date(evt.created_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
               </div>
             )}
           </motion.aside>

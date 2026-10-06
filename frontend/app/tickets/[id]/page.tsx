@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft, Calendar, CheckCircle2, ChevronRight, CircleDot,
-  Clock, Info, MessageSquare, Send, Tag, User, Wifi, WifiOff, XCircle,
+  Clock, History, Info, MessageSquare, Send, Star, Tag, User, Wifi, WifiOff, XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -63,6 +63,17 @@ interface TicketMessage {
 interface ServiceCategory {
   id: number;
   stages: ServiceStage[];
+}
+
+interface TicketEvent {
+  id: number;
+  action: string;
+  action_label: string;
+  actor_name: string;
+  old_value: string;
+  new_value: string;
+  note: string;
+  created_at: string;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -142,6 +153,95 @@ function PriorityBadge({ priority }: { priority: TicketPriority }) {
     <span style={{ color: text, background: bg, borderRadius: 999, padding: "4px 10px", fontSize: ".78rem", fontWeight: 800 }}>
       {PRIORITY_LABELS[priority]}
     </span>
+  );
+}
+
+// ── Event timeline ──────────────────────────────────────────────────────────
+
+function EventTimeline({ events }: { events: TicketEvent[] }) {
+  if (!events.length) {
+    return (
+      <div className="td-card" style={{ textAlign: "center", color: "var(--muted)", padding: 32 }}>
+        <History size={24} style={{ opacity: 0.4, marginBottom: 8 }} aria-hidden="true" />
+        <p style={{ margin: 0, fontSize: ".9rem" }}>No history events recorded yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="td-card" style={{ padding: 0 }}>
+      <ol style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {events.map((evt, i) => {
+          const isLast = i === events.length - 1;
+          return (
+            <li
+              key={evt.id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "36px 1fr",
+                gap: 12,
+                padding: "14px 20px",
+                borderBottom: isLast ? "none" : "1px solid var(--border)",
+              }}
+            >
+              {/* Timeline dot */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div
+                  style={{
+                    width: 28, height: 28, borderRadius: "50%",
+                    background: "#eef2ff", border: "2px solid #c7d2fe",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0, fontSize: ".7rem", fontWeight: 800, color: "#234395",
+                  }}
+                >
+                  {evt.action === "created" ? (
+                    <CheckCircle2 size={14} style={{ color: "#166534" }} aria-hidden="true" />
+                  ) : (
+                    i + 1
+                  )}
+                </div>
+                {!isLast && (
+                  <div style={{ width: 2, flex: 1, background: "var(--border)", marginTop: 4 }} />
+                )}
+              </div>
+
+              {/* Content */}
+              <div style={{ paddingBottom: isLast ? 0 : 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: ".85rem" }}>{evt.action_label}</strong>
+                  <span style={{ fontSize: ".75rem", color: "var(--muted)" }}>
+                    by {evt.actor_name}
+                  </span>
+                </div>
+                {(evt.old_value || evt.new_value) && (
+                  <p style={{ margin: "4px 0 0", fontSize: ".8rem", color: "var(--muted)" }}>
+                    {evt.old_value && (
+                      <span style={{ textDecoration: "line-through", opacity: 0.6 }}>
+                        {evt.old_value}
+                      </span>
+                    )}
+                    {evt.old_value && evt.new_value && (
+                      <span style={{ margin: "0 6px" }}>→</span>
+                    )}
+                    {evt.new_value && (
+                      <strong style={{ color: "var(--brand)" }}>{evt.new_value}</strong>
+                    )}
+                  </p>
+                )}
+                {evt.note && (
+                  <p style={{ margin: "4px 0 0", fontSize: ".8rem", color: "var(--muted)", fontStyle: "italic" }}>
+                    {evt.note}
+                  </p>
+                )}
+                <span style={{ fontSize: ".72rem", color: "var(--muted)", opacity: 0.7, display: "block", marginTop: 4 }}>
+                  {formatDate(evt.created_at)}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -424,6 +524,20 @@ export default function TicketDetailPage() {
   // SSE connection state
   const [streamConnected, setStreamConnected] = useState(false);
 
+  // History tab state
+  const [activeTab, setActiveTab] = useState<"conversation" | "history">("conversation");
+  const [events, setEvents] = useState<TicketEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [eventsLoaded, setEventsLoaded] = useState(false);
+
+  // Feedback state
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackDone, setFeedbackDone] = useState(false);
+  const [existingFeedback, setExistingFeedback] = useState<{ rating: number; comment: string } | null>(null);
+
   // ── SSE stream callbacks ───────────────────────────────────────────────
 
   const handleTicketUpdate = useCallback((snapshot: TicketSnapshot) => {
@@ -503,6 +617,19 @@ export default function TicketDetailPage() {
           const cat = cats.find((c) => c.id === ticketData.category);
           if (cat?.stages) setStages(cat.stages);
         }
+        // Check for existing feedback on resolved/closed tickets
+        if (['resolved', 'closed'].includes(ticketData.status)) {
+          const fbRes = await fetch(`/api/v1/tickets/${params.id}/feedback/`, {
+            credentials: "include",
+          }).catch(() => null);
+          if (fbRes?.ok) {
+            const fb = await fbRes.json().catch(() => null) as { rating?: number; comment?: string } | null;
+            if (fb?.rating) {
+              setExistingFeedback({ rating: fb.rating, comment: fb.comment ?? "" });
+              setFeedbackDone(true);
+            }
+          }
+        }
         setLoading(false);
       }
     }
@@ -568,6 +695,57 @@ export default function TicketDetailPage() {
       setReplyError("A network error occurred.");
     } finally {
       setSendingReply(false);
+    }
+  }
+
+  // ── Fetch event history ────────────────────────────────────────────────
+
+  async function loadEvents() {
+    if (eventsLoaded || loadingEvents || !ticket) return;
+    setLoadingEvents(true);
+    try {
+      const res = await fetch(`/api/v1/tickets/${ticket.id}/events/`, {
+        credentials: "include", cache: "no-store",
+      });
+      if (res.ok) {
+        setEvents(await res.json() as TicketEvent[]);
+        setEventsLoaded(true);
+      }
+    } catch { /* ignore */ }
+    finally { setLoadingEvents(false); }
+  }
+
+  useEffect(() => {
+    if (activeTab === "history" && !eventsLoaded) {
+      loadEvents();
+    }
+  }, [activeTab, eventsLoaded]);
+
+  // ── Submit feedback ────────────────────────────────────────────────────
+
+  async function submitFeedback() {
+    if (!ticket || feedbackRating === 0 || feedbackSubmitting) return;
+    setFeedbackSubmitting(true);
+    setFeedbackError("");
+    try {
+      const token = await csrfToken();
+      const res = await fetch(`/api/v1/tickets/${ticket.id}/feedback/`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify({ rating: feedbackRating, comment: feedbackComment }),
+      });
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (!res.ok) {
+        setFeedbackError((data.detail as string) ?? "Could not submit feedback.");
+      } else {
+        setFeedbackDone(true);
+        setExistingFeedback({ rating: feedbackRating, comment: feedbackComment });
+      }
+    } catch {
+      setFeedbackError("A network error occurred.");
+    } finally {
+      setFeedbackSubmitting(false);
     }
   }
 
@@ -709,19 +887,64 @@ export default function TicketDetailPage() {
               </div>
             )}
 
-            {/* Message thread */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-              <MessageThread
-                messages={messages}
-                myId={myId}
-                replyBody={replyBody}
-                setReplyBody={setReplyBody}
-                sendingReply={sendingReply}
-                replyError={replyError}
-                onSend={sendReply}
-                isClosed={isClosed}
-              />
-            </motion.div>
+            {/* Tab bar: Conversation / History */}
+            <div style={{ display: "flex", gap: 4, marginTop: 16, borderBottom: "2px solid var(--border)", marginBottom: 0 }}>
+              <button
+                onClick={() => setActiveTab("conversation")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 7,
+                  padding: "10px 18px", border: "none", background: "none",
+                  cursor: "pointer", fontSize: ".88rem", fontWeight: 700,
+                  color: activeTab === "conversation" ? "var(--brand)" : "var(--muted)",
+                  borderBottom: activeTab === "conversation" ? "3px solid var(--brand)" : "3px solid transparent",
+                  marginBottom: -2, transition: "all 0.15s",
+                }}
+              >
+                <MessageSquare size={15} aria-hidden="true" />
+                Conversation
+              </button>
+              <button
+                onClick={() => setActiveTab("history")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 7,
+                  padding: "10px 18px", border: "none", background: "none",
+                  cursor: "pointer", fontSize: ".88rem", fontWeight: 700,
+                  color: activeTab === "history" ? "var(--brand)" : "var(--muted)",
+                  borderBottom: activeTab === "history" ? "3px solid var(--brand)" : "3px solid transparent",
+                  marginBottom: -2, transition: "all 0.15s",
+                }}
+              >
+                <History size={15} aria-hidden="true" />
+                History
+              </button>
+            </div>
+
+            {/* Tab content */}
+            {activeTab === "conversation" ? (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+                <MessageThread
+                  messages={messages}
+                  myId={myId}
+                  replyBody={replyBody}
+                  setReplyBody={setReplyBody}
+                  sendingReply={sendingReply}
+                  replyError={replyError}
+                  onSend={sendReply}
+                  isClosed={isClosed}
+                />
+              </motion.div>
+            ) : (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+                {loadingEvents ? (
+                  <div className="td-card" style={{ textAlign: "center", padding: 32, color: "var(--muted)" }}>
+                    <span style={{ display: "inline-block", width: 28, height: 28, borderRadius: "50%", border: "3px solid var(--brand-soft)", borderTopColor: "var(--brand)", animation: "spin 0.8s linear infinite" }} />
+                    <p style={{ marginTop: 10, fontSize: ".9rem" }}>Loading history…</p>
+                  </div>
+                ) : (
+                  <EventTimeline events={events} />
+                )}
+              </motion.div>
+            )}
           </section>
 
           {/* Sidebar */}
@@ -870,6 +1093,108 @@ export default function TicketDetailPage() {
                   This ticket is {STATUS_LABELS[ticket.status].toLowerCase()}. No further actions are available.
                 </span>
               </div>
+            )}
+
+            {/* Feedback widget — shown for resolved / closed tickets */}
+            {(ticket.status === "resolved" || ticket.status === "closed") && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                style={{
+                  marginTop: 16,
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 14, padding: 18,
+                }}
+              >
+                {feedbackDone && existingFeedback ? (
+                  /* Thank-you state */
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+                      {[1,2,3,4,5].map((s) => (
+                        <Star
+                          key={s} size={22}
+                          style={{
+                            color: s <= existingFeedback.rating ? "#f59e0b" : "#e2e8f0",
+                            fill:  s <= existingFeedback.rating ? "#f59e0b" : "transparent",
+                          }}
+                          aria-hidden="true"
+                        />
+                      ))}
+                    </div>
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: ".88rem", color: "#166534" }}>
+                      Thanks for your feedback!
+                    </p>
+                    {existingFeedback.comment && (
+                      <p style={{ margin: "6px 0 0", fontSize: ".82rem", color: "var(--muted)", fontStyle: "italic" }}>
+                        &ldquo;{existingFeedback.comment}&rdquo;
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  /* Rating form */
+                  <>
+                    <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: ".9rem" }}>
+                      How did we do?
+                    </p>
+                    {/* Star rating */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 12 }} role="group" aria-label="Rating">
+                      {[1,2,3,4,5].map((s) => (
+                        <button
+                          key={s} type="button"
+                          onClick={() => setFeedbackRating(s)}
+                          aria-label={`Rate ${s} out of 5`}
+                          style={{
+                            border: "none", background: "none", cursor: "pointer",
+                            padding: 2, borderRadius: 4,
+                            outline: feedbackRating === s ? "2px solid var(--brand)" : "none",
+                            outlineOffset: 2,
+                          }}
+                        >
+                          <Star
+                            size={26}
+                            style={{
+                              color: s <= feedbackRating ? "#f59e0b" : "#d1d5db",
+                              fill:  s <= feedbackRating ? "#f59e0b" : "transparent",
+                              transition: "all 0.1s",
+                            }}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    {/* Comment */}
+                    <textarea
+                      rows={2}
+                      value={feedbackComment}
+                      onChange={(e) => setFeedbackComment(e.target.value)}
+                      placeholder="Any additional comments? (optional)"
+                      maxLength={2000}
+                      style={{
+                        width: "100%", border: "1px solid var(--control)", borderRadius: 9,
+                        padding: "8px 12px", resize: "vertical", fontSize: ".85rem",
+                        fontFamily: "inherit", marginBottom: 10,
+                      }}
+                    />
+                    {feedbackError && (
+                      <p style={{ margin: "0 0 8px", color: "#991b1b", fontSize: ".82rem" }} role="alert">
+                        {feedbackError}
+                      </p>
+                    )}
+                    <button
+                      onClick={submitFeedback}
+                      disabled={feedbackRating === 0 || feedbackSubmitting}
+                      className="primary-button"
+                      style={{ width: "100%", justifyContent: "center", display: "flex", alignItems: "center", gap: 7 }}
+                    >
+                      {feedbackSubmitting
+                        ? "Submitting…"
+                        : feedbackRating === 0 ? "Select a rating" : "Submit feedback"
+                      }
+                    </button>
+                  </>
+                )}
+              </motion.div>
             )}
           </aside>
         </div>

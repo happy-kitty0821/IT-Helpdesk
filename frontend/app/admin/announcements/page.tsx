@@ -14,10 +14,15 @@ interface Announcement {
   id: number;
   campaign_id: string;
   title: string;
+  body: string;
   image_url: string | null;
   alt_text: string;
   link_url: string;
+  audience: string;
+  priority: number;
   is_active: boolean;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -40,7 +45,9 @@ function formatDate(iso: string) {
 }
 
 const EMPTY_FORM = {
-  campaign_id: "", title: "", alt_text: "", link_url: "", is_active: false,
+  campaign_id: "", title: "", body: "", alt_text: "", link_url: "",
+  audience: "all", priority: 1, is_active: false,
+  scheduled_start: "", scheduled_end: "",
 };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -94,9 +101,14 @@ export default function AnnouncementsPage() {
     setForm({
       campaign_id: ann.campaign_id,
       title:       ann.title,
+      body:        ann.body ?? "",
       alt_text:    ann.alt_text,
       link_url:    ann.link_url,
+      audience:    ann.audience ?? "all",
+      priority:    ann.priority ?? 1,
       is_active:   ann.is_active,
+      scheduled_start: ann.scheduled_start ? ann.scheduled_start.slice(0, 16) : "",
+      scheduled_end:   ann.scheduled_end   ? ann.scheduled_end.slice(0, 16)   : "",
     });
     setImageFile(null);
     setImagePreview(ann.image_url);
@@ -129,9 +141,16 @@ export default function AnnouncementsPage() {
       const fd = new FormData();
       fd.append("campaign_id", form.campaign_id);
       fd.append("title",       form.title);
+      fd.append("body",        form.body);
       fd.append("alt_text",    form.alt_text);
       fd.append("link_url",    form.link_url);
+      fd.append("audience",    form.audience);
+      fd.append("priority",    String(form.priority));
       fd.append("is_active",   String(form.is_active));
+      if (form.scheduled_start) fd.append("scheduled_start", form.scheduled_start);
+      else fd.append("scheduled_start", "");
+      if (form.scheduled_end) fd.append("scheduled_end", form.scheduled_end);
+      else fd.append("scheduled_end", "");
       if (imageFile) fd.append("image", imageFile);
 
       const url = editing
@@ -405,6 +424,48 @@ export default function AnnouncementsPage() {
                   />
                 </div>
 
+                {/* Body text */}
+                <div>
+                  <label htmlFor="ann-body">Body text <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional)</span></label>
+                  <textarea
+                    id="ann-body" rows={3}
+                    value={form.body}
+                    onChange={(e) => setForm((p) => ({ ...p, body: e.target.value }))}
+                    placeholder="Short announcement text or HTML shown in the modal"
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #dbe2ee", borderRadius: 10, fontSize: ".85rem", fontFamily: "inherit", resize: "vertical" }}
+                  />
+                </div>
+
+                {/* Audience + Priority row */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <label htmlFor="ann-audience">Audience</label>
+                    <select
+                      id="ann-audience"
+                      value={form.audience}
+                      onChange={(e) => setForm((p) => ({ ...p, audience: e.target.value }))}
+                    >
+                      <option value="all">Everyone</option>
+                      <option value="public">Visitors (unauthenticated)</option>
+                      <option value="student">Students</option>
+                      <option value="staff">Faculty &amp; staff</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="ann-priority">Priority</label>
+                    <select
+                      id="ann-priority"
+                      value={form.priority}
+                      onChange={(e) => setForm((p) => ({ ...p, priority: Number(e.target.value) }))}
+                    >
+                      <option value={0}>Low</option>
+                      <option value={1}>Normal</option>
+                      <option value={2}>High</option>
+                      <option value={3}>Urgent</option>
+                    </select>
+                  </div>
+                </div>
+
                 {/* Image upload */}
                 <div>
                   <label>
@@ -473,6 +534,34 @@ export default function AnnouncementsPage() {
                       Activating this will automatically deactivate all other announcements.
                     </small>
                   )}
+                </div>
+
+                {/* Scheduling */}
+                <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 14, marginTop: 4 }}>
+                  <label style={{ fontSize: ".85rem", fontWeight: 700, color: "#334155", display: "block", marginBottom: 10 }}>
+                    Schedule <span style={{ fontWeight: 400, color: "#94a3b8" }}>(optional — leave blank for always visible while active)</span>
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <label htmlFor="ann-scheduled-start" style={{ fontSize: ".8rem" }}>Starts</label>
+                      <input
+                        id="ann-scheduled-start" type="datetime-local"
+                        value={form.scheduled_start}
+                        onChange={(e) => setForm((p) => ({ ...p, scheduled_start: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="ann-scheduled-end" style={{ fontSize: ".8rem" }}>Ends</label>
+                      <input
+                        id="ann-scheduled-end" type="datetime-local"
+                        value={form.scheduled_end}
+                        onChange={(e) => setForm((p) => ({ ...p, scheduled_end: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <small style={{ color: "#64748b", fontSize: ".75rem", marginTop: 4, display: "block" }}>
+                    Times are in your local timezone. The announcement is only visible between these times when active.
+                  </small>
                 </div>
               </div>
 
