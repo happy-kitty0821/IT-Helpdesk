@@ -707,6 +707,27 @@ class AdminSoftwareListCreate(generics.ListCreateAPIView):
     permission_classes = (IsContentEditor,)
     serializer_class = SoftwareResourceSerializer
     queryset = SoftwareResource.objects.select_related('guide', 'updated_by')
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_serializer(self, *args, **kwargs):
+        """When multipart/form-data, parse JSON string fields (platforms)."""
+        import json as _json
+        from django.http import QueryDict
+
+        if 'data' in kwargs:
+            data = kwargs['data']
+            if isinstance(data, QueryDict):
+                data = data.dict()
+                if 'platforms' in data and isinstance(data['platforms'], str):
+                    try:
+                        data['platforms'] = _json.loads(data['platforms'])
+                    except (ValueError, TypeError):
+                        data['platforms'] = []
+                if 'remove_file' in data and isinstance(data['remove_file'], str):
+                    data['remove_file'] = data['remove_file'].lower() in ('true', '1', 'yes')
+                kwargs['data'] = data
+
+        return super().get_serializer(*args, **kwargs)
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
@@ -716,9 +737,37 @@ class AdminSoftwareDetail(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsContentEditor,)
     serializer_class = SoftwareResourceSerializer
     queryset = SoftwareResource.objects.select_related('guide', 'updated_by')
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_serializer(self, *args, **kwargs):
+        """When multipart/form-data, parse JSON string fields (platforms)."""
+        import json as _json
+        from django.http import QueryDict
+
+        if 'data' in kwargs:
+            data = kwargs['data']
+            if isinstance(data, QueryDict):
+                data = data.dict()
+                if 'platforms' in data and isinstance(data['platforms'], str):
+                    try:
+                        data['platforms'] = _json.loads(data['platforms'])
+                    except (ValueError, TypeError):
+                        data['platforms'] = []
+                if 'remove_file' in data and isinstance(data['remove_file'], str):
+                    data['remove_file'] = data['remove_file'].lower() in ('true', '1', 'yes')
+                kwargs['data'] = data
+
+        return super().get_serializer(*args, **kwargs)
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        # Delete the uploaded file along with the record
+        old_file = instance.file
+        instance.delete()
+        if old_file:
+            old_file.delete(save=False)
 
 
 class AdminUserPagination(PageNumberPagination):
@@ -3865,3 +3914,99 @@ class AdminFeedbackListView(generics.ListAPIView):
             if ratings:
                 qs = qs.filter(rating__in=[int(r) for r in ratings])
         return qs
+
+
+# ---------------------------------------------------------------------------
+# Gated software file download
+# ---------------------------------------------------------------------------
+
+
+class SoftwareDownloadView(APIView):
+    """
+    GET /api/v1/software/{slug}/download/
+
+    Streams an uploaded installer file to the requesting user ONLY after
+    verifying:
+      1. The SoftwareResource exists and is active.
+      2. An uploaded file is actually attached (file field is non-empty).
+      3. The requesting user's role permits the resource's audience:
+            public     → anyone (unauthenticated included)
+            all        → authenticated users with any role
+            student    → users whose role grants student or higher audience access
+            staff      → users whose role grants staff audience access
+    
+    Why a gated view instead of direct /media/ ?
+    ────────────────────────────────────────────
+    Django's /media/ route (dev) and Nginx's static serving (prod) both
+    bypass the Django auth stack entirely — any URL-guesser can download
+    a file even if it is restricted to "Students only".  This view sits
+    in front of the file, runs the same audience logic used by
+    get_permitted_audiences(), and only then hands the bytes to the client.
+
+    File delivery
+    ─────────────
+    Development  → FileResponse streams the file directly from Django.
+    Production   → Set MEDIA_ACCEL_REDIRECT=true in .env to use the
+                   X-Accel-Redirect header (Nginx) instead.  Django only
+                   sends the header; Nginx serves the bytes — far more
+                   efficient for large files.
+    """
+
+    authentication_classes = ()   # we inspect request.user manually
+    permission_classes     = (permissions.AllowAny,)
+
+    def get(self, request, slug: str):
+        from django.conf import settings as _settings
+        from django.http import FileResponse, Http404, HttpResponse
+
+        # ── 1. Look up the resource ────────────────────────────────────────
+        try:
+            resource = SoftwareResource.objects.get(
+                slug=slug,
+                status=SoftwareResource.Status.ACTIVE,
+            )
+        except SoftwareResource.DoesNotExist:
+            return HttpResponse(status=404)
+
+        # ── 2. File must be attached ───────────────────────────────────────
+        if not resource.file:
+            return HttpResponse(status=404)
+
+        # ── 3. Audience / auth check ───────────────────────────────────────
+        permitted = get_permitted_audiences(request)
+        if resource.audience not in permitted:
+            # Not authenticated at all and resource requires login
+            if not request.user or not request.user.is_authenticated:
+                return HttpResponse(status=401)
+            # Authenticated but wrong role for this audience
+            return HttpResponse(status=403)
+
+        # ── 4. Serve the file ─────────────────────────────────────────────
+        use_accel = _settings.MEDIA_ACCEL_REDIRECT  # Nginx X-Accel-Redirect
+
+        if use_accel:
+            # Production fast path — Nginx does the actual byte transfer.
+            # The internal location /protected-media/ must be configured in
+            # nginx.conf to alias MEDIA_ROOT with `internal;`.
+            file_path = resource.file.name   # relative to MEDIA_ROOT
+            response = HttpResponse()
+            response['X-Accel-Redirect'] = f'/protected-media/{file_path}'
+            response['Content-Type']     = 'application/octet-stream'
+            response['Content-Disposition'] = (
+                f'attachment; filename="{resource.file.name.rsplit("/", 1)[-1]}"'
+            )
+            return response
+
+        # Dev / fallback — Django streams the file directly.
+        try:
+            file_handle = resource.file.open('rb')
+        except OSError:
+            return HttpResponse(status=404)
+
+        filename = resource.file.name.rsplit('/', 1)[-1]
+        response = FileResponse(
+            file_handle,
+            as_attachment=True,
+            filename=filename,
+        )
+        return response

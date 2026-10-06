@@ -118,8 +118,22 @@ STORAGES = {
 }
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
-DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+# Allow up to 25 GB file uploads (software installers).  Files larger than
+# FILE_UPLOAD_MAX_MEMORY_SIZE are streamed to temporary files on disk, so
+# memory usage stays low even for very large uploads.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 26 * 1024 * 1024 * 1024  # 26 GB (25 GB + overhead)
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5 MB — above this, files stream to disk
+
+# ── Protected file delivery ────────────────────────────────────────────────────
+# Set to True in production when Nginx is configured with an internal
+# /protected-media/ alias (X-Accel-Redirect). Django sends only the header;
+# Nginx transfers the bytes — zero Django worker overhead for large files.
+#   nginx.conf snippet:
+#     location /protected-media/ {
+#         internal;
+#         alias /var/www/iic-app/backend/media/;
+#     }
+MEDIA_ACCEL_REDIRECT = os.environ.get('MEDIA_ACCEL_REDIRECT', 'false').lower() == 'true'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {

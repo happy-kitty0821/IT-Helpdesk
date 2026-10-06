@@ -508,12 +508,27 @@ class AdminUserCreateSerializer(serializers.Serializer):
 class SoftwareResourceSerializer(serializers.ModelSerializer):
     guide_title = serializers.CharField(source='guide.title', read_only=True)
     updated_by_name = serializers.SerializerMethodField()
+    # Write-only: accepts a multipart file upload.  Optional — leave blank
+    # to keep using the external download_url instead.
+    file = serializers.FileField(write_only=True, required=False, allow_null=True)
+    # Write-only: when True, removes the existing uploaded file.
+    remove_file = serializers.BooleanField(write_only=True, required=False, default=False)
+    # Read-only: derived file metadata for the frontend.
+    file_url  = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
+    file_size = serializers.SerializerMethodField()
+
+    # 25 GB hard limit enforced in the serializer as a second line of
+    # defence behind Django's DATA_UPLOAD_MAX_MEMORY_SIZE.
+    MAX_FILE_SIZE = 25 * 1024 * 1024 * 1024  # 25 GB
 
     class Meta:
         model = SoftwareResource
         fields = (
             'id', 'name', 'slug', 'description', 'version', 'platforms',
-            'audience', 'licence_notes', 'download_url', 'guide', 'guide_title',
+            'audience', 'licence_notes', 'download_url',
+            'file', 'remove_file', 'file_url', 'file_name', 'file_size',
+            'guide', 'guide_title',
             'status', 'updated_by_name', 'created_at', 'updated_at',
         )
         read_only_fields = ('guide_title', 'updated_by_name', 'created_at', 'updated_at')
@@ -526,8 +541,65 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('One or more platforms are not supported.')
         return list(dict.fromkeys(value))
 
+    def validate_file(self, value):
+        """Validate the uploaded installer file."""
+        if value is None:
+            return value
+        if value.size > self.MAX_FILE_SIZE:
+            raise serializers.ValidationError(
+                f'File is too large ({value.size / (1024**3):.1f} GB). '
+                f'Maximum allowed size is 25 GB.'
+            )
+        return value
+
     def get_updated_by_name(self, obj):
         return obj.updated_by.get_full_name() or obj.updated_by.username if obj.updated_by else None
+
+    def get_file_url(self, obj):
+        """Return the raw media path; the frontend resolves it via NEXT_PUBLIC_DJANGO_URL."""
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+    def get_file_name(self, obj):
+        if obj.file:
+            return obj.file.name.rsplit('/', 1)[-1]
+        return None
+
+    def get_file_size(self, obj):
+        if not obj.file:
+            return 0
+        try:
+            return obj.file.size
+        except OSError:
+            return 0
+
+    def update(self, instance, validated_data):
+        """Handle file replacement — delete the old file when a new one is uploaded."""
+        new_file    = validated_data.pop('file', None)
+        remove_file = validated_data.pop('remove_file', False)
+
+        old_file = instance.file if instance.file else None
+
+        instance = super().update(instance, validated_data)
+
+        if new_file is not None:
+            # New file uploaded — replace
+            instance.file = new_file
+            instance.save(update_fields=['file'])
+            if old_file and old_file.name != instance.file.name:
+                old_file.delete(save=False)
+        elif remove_file:
+            # Explicitly remove existing file
+            instance.file = None
+            instance.save(update_fields=['file'])
+            if old_file:
+                old_file.delete(save=False)
+
+        return instance
 
 
 class RoleGrantSerializer(serializers.ModelSerializer):

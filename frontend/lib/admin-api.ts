@@ -90,6 +90,9 @@ export type Software = {
   audience: "public" | "student" | "staff" | "all";
   licence_notes: string;
   download_url: string;
+  file_url: string | null;
+  file_name: string | null;
+  file_size: number;
   guide: number | null;
   guide_title: string | null;
   status: "draft" | "active" | "archived";

@@ -139,6 +139,18 @@ class SoftwareResource(models.Model):
     audience = models.CharField(max_length=20, choices=ServiceCategory.Audience.choices, default=ServiceCategory.Audience.ALL)
     licence_notes = models.CharField(max_length=500, blank=True)
     download_url = models.URLField(blank=True)
+    # Optional: upload the actual installer so students can download directly
+    # from the helpdesk instead of linking to an external URL.
+    file = models.FileField(
+        upload_to='software/%Y/%m/',
+        blank=True,
+        null=True,
+        help_text=(
+            'Optional installer file hosted on the helpdesk server. '
+            'Max 25 GB. When set, a download button appears on the public '
+            'software page alongside (or instead of) the external download URL.'
+        ),
+    )
     guide = models.ForeignKey(GuideArticle, on_delete=models.SET_NULL, null=True, blank=True, related_name='software_resources')
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='software_created')

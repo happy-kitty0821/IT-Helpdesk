@@ -1,5 +1,5 @@
 ﻿import type { Metadata } from "next";
-import { Download, MonitorSmartphone } from "lucide-react";
+import { Download, ExternalLink, MonitorSmartphone } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { getSoftware } from "@/lib/content";
 
@@ -14,6 +14,17 @@ export const metadata: Metadata = {
   alternates: { canonical: "/software" },
 };
 
+// ── Byte formatter ─────────────────────────────────────────────────────────────
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
 export default async function SoftwarePage() {
   const software = await getSoftware();
   return (
@@ -27,26 +38,87 @@ export default async function SoftwarePage() {
         </header>
         {software.length ? (
           <div className="software-list">
-            {software.map((item) => (
-              <article key={item.id}>
-                <span className="software-icon"><MonitorSmartphone aria-hidden="true" /></span>
-                <div>
-                  <h2>{item.name}{item.version && <small>{item.version}</small>}</h2>
-                  <p>{item.description}</p>
-                  <div className="catalog-meta">
-                    <span>{item.platforms.join(" · ")}</span>
-                    <span>{item.audience}</span>
+            {software.map((item) => {
+              // Prefer hosted file over external URL
+              const hasHostedFile  = Boolean(item.file_url);
+              const hasExternalUrl = Boolean(item.download_url);
+              const hasDownload    = hasHostedFile || hasExternalUrl;
+
+              return (
+                <article key={item.id}>
+                  <span className="software-icon">
+                    <MonitorSmartphone aria-hidden="true" />
+                  </span>
+
+                  <div style={{ flex: 1 }}>
+                    <h2>
+                      {item.name}
+                      {item.version && <small>{item.version}</small>}
+                    </h2>
+                    <p>{item.description}</p>
+                    <div className="catalog-meta">
+                      <span>{item.platforms.join(" · ")}</span>
+                      <span>{item.audience}</span>
+                      {/* Show hosted file size */}
+                      {hasHostedFile && item.file_size > 0 && (
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          background: "#dcfce7", color: "#166534",
+                          borderRadius: 999, padding: "1px 8px",
+                          fontSize: ".72rem", fontWeight: 800,
+                        }}>
+                          {formatBytes(item.file_size)} · Hosted
+                        </span>
+                      )}
+                    </div>
+                    {item.licence_notes && (
+                      <p className="licence-note">{item.licence_notes}</p>
+                    )}
                   </div>
-                  {item.licence_notes && <p className="licence-note">{item.licence_notes}</p>}
-                </div>
-                {item.download_url
-                  ? <a className="primary-button" href={item.download_url} target="_blank" rel="noopener noreferrer">
-                      <Download aria-hidden="true" /> Open download
-                    </a>
-                  : <span className="status-chip draft">Link pending</span>
-                }
-              </article>
-            ))}
+
+                  {/* Download / link buttons */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+
+                    {/* Hosted file — direct download */}
+                    {hasHostedFile && (
+                      <a
+                        className="primary-button"
+                        href={item.file_url!}
+                        download={item.file_name ?? true}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
+                      >
+                        <Download size={15} aria-hidden="true" />
+                        Download
+                        {item.file_size > 0 && (
+                          <span style={{ opacity: 0.75, fontSize: ".78em" }}>
+                            ({formatBytes(item.file_size)})
+                          </span>
+                        )}
+                      </a>
+                    )}
+
+                    {/* External URL — shown as secondary link if hosted file also exists, or primary if no file */}
+                    {hasExternalUrl && (
+                      <a
+                        className={hasHostedFile ? "secondary-button" : "primary-button"}
+                        href={item.download_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
+                      >
+                        <ExternalLink size={15} aria-hidden="true" />
+                        {hasHostedFile ? "Official site" : "Open download"}
+                      </a>
+                    )}
+
+                    {/* No downloads available */}
+                    {!hasDownload && (
+                      <span className="status-chip draft">Link pending</span>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : (
           <div className="catalog-empty">
