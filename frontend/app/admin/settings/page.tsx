@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Eye, EyeOff, Globe, MapPin, Phone, Plus, Save, Settings, Trash2,
+  Eye, EyeOff, Globe, HardDrive, MapPin, Phone, Plus, Save, Settings, Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { csrfToken } from "@/lib/auth";
@@ -37,7 +37,11 @@ interface SiteSettings {
   department_name:       string;
   helpdesk_tagline:      string;
   recovery_credentials_destination: "college" | "alternative";
-  updated_at:            string;
+  // Upload configuration
+  chunk_size_mb:       number;
+  upload_chunk_retries: number;
+  max_upload_size_gb:  number;
+  updated_at:          string;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -68,7 +72,10 @@ const SITE_DEFAULTS: SiteSettings = {
   department_name:       "IT & NOC Department",
   helpdesk_tagline:      "Your first point of contact for IT support, account help, and self-service resources at IIC.",
   recovery_credentials_destination: "college" as const,
-  updated_at:            "",
+  chunk_size_mb:        10,
+  upload_chunk_retries: 3,
+  max_upload_size_gb:   25,
+  updated_at:           "",
 };
 
 function messageFrom(data: unknown): string {
@@ -141,7 +148,7 @@ function FieldRow({
 export default function SettingsPage() {
 
   // ── Active tab ────────────────────────────────────────────────────────────
-  const [tab, setTab] = useState<"form" | "contact">("form");
+  const [tab, setTab] = useState<"form" | "contact" | "upload">("form");
 
   // ── Ticket form state ─────────────────────────────────────────────────────
   const [formSettings,  setFormSettings]  = useState<TicketFormSettings>(FORM_DEFAULTS);
@@ -286,6 +293,9 @@ export default function SettingsPage() {
         </button>
         <button className={`svc-tab${tab === "contact" ? " active" : ""}`} onClick={() => { setTab("contact"); setError(""); setNotice(""); }}>
           <Globe size={14} aria-hidden="true" /> Contact &amp; office
+        </button>
+        <button className={`svc-tab${tab === "upload"  ? " active" : ""}`} onClick={() => { setTab("upload");  setError(""); setNotice(""); }}>
+          <HardDrive size={14} aria-hidden="true" /> File uploads
         </button>
       </div>
 
@@ -545,6 +555,144 @@ export default function SettingsPage() {
                 </button>
               </div>
           </section>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════════
+              TAB: FILE UPLOADS
+          ════════════════════════════════════════════════════════════════ */}
+          {tab === "upload" && (
+            <section aria-label="File upload configuration" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+
+              <div style={{ background: "#fff", border: "1px solid #dbe2ee", borderRadius: 14, padding: "20px 22px" }}>
+                <h2 style={{ margin: "0 0 4px", fontSize: ".95rem", fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
+                  <HardDrive size={16} style={{ color: "#234395" }} aria-hidden="true" /> Chunked upload settings
+                </h2>
+                <p style={{ margin: "0 0 20px", fontSize: ".82rem", color: "#64748b", lineHeight: 1.6 }}>
+                  These values are read by the admin software upload page. Adjusting them lets you
+                  balance reliability (smaller chunks, more retries) against efficiency (larger chunks,
+                  fewer round trips).<br />
+                  <strong>Cloudflare Tunnel:</strong> keep chunk size ≤ 10 MB to avoid proxy timeouts.{" "}
+                  <strong>Direct / private server:</strong> you can safely raise it to 50–90 MB.
+                </p>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+
+                  {/* Chunk size */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <label htmlFor="upload-chunk-size" style={{ fontSize: ".83rem", fontWeight: 700, color: "#374151" }}>
+                      Chunk size (MB)
+                    </label>
+                    <input
+                      id="upload-chunk-size"
+                      type="number" min={1} max={95} step={1}
+                      value={siteSettings.chunk_size_mb}
+                      onChange={(e) => patchSite("chunk_size_mb", Math.min(95, Math.max(1, Number(e.target.value))))}
+                      style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "9px 12px", fontSize: ".9rem", width: "100%" }}
+                    />
+                    <p style={{ margin: 0, fontSize: ".74rem", color: "#94a3b8", lineHeight: 1.5 }}>
+                      1–95 MB per chunk. Each chunk is sent as a separate HTTP request.
+                      Use ≤ 10 MB behind Cloudflare Tunnel.
+                    </p>
+                    {/* Visual recommendation bands */}
+                    <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
+                      {[
+                        { label: "Cloudflare", max: 10,  color: "#fef3c7", text: "#92400e", border: "#fcd34d" },
+                        { label: "Balanced",   max: 50,  color: "#f0fdf4", text: "#166534", border: "#86efac" },
+                        { label: "Direct",     max: 95,  color: "#eef2ff", text: "#3730a3", border: "#a5b4fc" },
+                      ].map((band) => {
+                        const active = siteSettings.chunk_size_mb <= band.max;
+                        return (
+                          <span key={band.label} style={{
+                            flex: 1, textAlign: "center", fontSize: ".68rem", fontWeight: 700,
+                            padding: "3px 0", borderRadius: 6,
+                            background: active ? band.color : "#f8fafc",
+                            color:      active ? band.text  : "#cbd5e1",
+                            border:     `1px solid ${active ? band.border : "#e2e8f0"}`,
+                          }}>
+                            {band.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Retries */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <label htmlFor="upload-retries" style={{ fontSize: ".83rem", fontWeight: 700, color: "#374151" }}>
+                      Chunk retries
+                    </label>
+                    <input
+                      id="upload-retries"
+                      type="number" min={0} max={10} step={1}
+                      value={siteSettings.upload_chunk_retries}
+                      onChange={(e) => patchSite("upload_chunk_retries", Math.min(10, Math.max(0, Number(e.target.value))))}
+                      style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "9px 12px", fontSize: ".9rem", width: "100%" }}
+                    />
+                    <p style={{ margin: 0, fontSize: ".74rem", color: "#94a3b8", lineHeight: 1.5 }}>
+                      0–10. How many times to retry a failed chunk before giving up.
+                      Each retry waits 2×, 4×, 8× seconds (exponential back-off).
+                    </p>
+                  </div>
+
+                  {/* Max file size */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <label htmlFor="upload-max-size" style={{ fontSize: ".83rem", fontWeight: 700, color: "#374151" }}>
+                      Max file size (GB)
+                    </label>
+                    <input
+                      id="upload-max-size"
+                      type="number" min={1} max={100} step={1}
+                      value={siteSettings.max_upload_size_gb}
+                      onChange={(e) => patchSite("max_upload_size_gb", Math.min(100, Math.max(1, Number(e.target.value))))}
+                      style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "9px 12px", fontSize: ".9rem", width: "100%" }}
+                    />
+                    <p style={{ margin: 0, fontSize: ".74rem", color: "#94a3b8", lineHeight: 1.5 }}>
+                      1–100 GB. Validated both in the browser and on the server when the upload session is initialised.
+                    </p>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Summary card */}
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 18px" }}>
+                <p style={{ margin: "0 0 8px", fontWeight: 700, fontSize: ".83rem", color: "#475569" }}>
+                  Current effective behaviour
+                </p>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: ".8rem" }}>
+                  {[
+                    {
+                      label: "Chunks for a 1 GB file",
+                      value: `${Math.ceil(1024 / siteSettings.chunk_size_mb)} chunks × ${siteSettings.chunk_size_mb} MB`,
+                    },
+                    {
+                      label: "Chunks for a 10 GB file",
+                      value: `${Math.ceil(10240 / siteSettings.chunk_size_mb)} chunks × ${siteSettings.chunk_size_mb} MB`,
+                    },
+                    {
+                      label: "Max retries per chunk",
+                      value: `${siteSettings.upload_chunk_retries} (${siteSettings.upload_chunk_retries === 0 ? "no retries" : "up to " + (Math.pow(2, siteSettings.upload_chunk_retries + 1) - 2) + "s back-off"})`,
+                    },
+                    {
+                      label: "Max upload size",
+                      value: `${siteSettings.max_upload_size_gb} GB`,
+                    },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 14px", minWidth: 180 }}>
+                      <p style={{ margin: "0 0 2px", fontSize: ".72rem", color: "#94a3b8", fontWeight: 600 }}>{label}</p>
+                      <strong style={{ color: "#234395", fontSize: ".85rem" }}>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button className="primary-button" onClick={saveSite} disabled={siteSaving}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 22px" }}>
+                  {siteSaving ? "Saving…" : <><Save size={16} aria-hidden="true" /> Save upload settings</>}
+                </button>
+              </div>
+            </section>
           )}
         </>
       )}

@@ -1421,6 +1421,29 @@ class SiteSettings(models.Model):
         ),
     )
 
+    # ── File upload configuration ──────────────────────────────────────────
+    # These values are served publicly so the frontend can read them on load
+    # and adjust the chunked upload behaviour without a code deploy.
+    chunk_size_mb = models.PositiveSmallIntegerField(
+        default=10,
+        help_text=(
+            'Size of each upload chunk in megabytes (1–95). '
+            'Smaller values work better through Cloudflare Tunnel; '
+            'larger values are more efficient on a direct server connection.'
+        ),
+    )
+    upload_chunk_retries = models.PositiveSmallIntegerField(
+        default=3,
+        help_text=(
+            'How many times to retry a failed chunk before aborting (0–10). '
+            'Higher values help on unreliable connections.'
+        ),
+    )
+    max_upload_size_gb = models.PositiveSmallIntegerField(
+        default=25,
+        help_text='Maximum file upload size in gigabytes (1–100).',
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

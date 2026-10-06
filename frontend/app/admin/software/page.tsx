@@ -26,8 +26,8 @@ const STATUS_OPTIONS = [
   { value: "archived", label: "Archived" },
 ];
 
-const MAX_FILE_BYTES  = 25 * 1024 * 1024 * 1024; // 25 GB
-const CHUNK_SIZE      = 10 * 1024 * 1024;         // 10 MB — fast enough for Cloudflare Tunnel timeouts
+const MAX_FILE_BYTES  = 25 * 1024 * 1024 * 1024; // 25 GB — overridden at runtime from site settings
+const CHUNK_SIZE      = 10 * 1024 * 1024;         // 10 MB default — overridden at runtime
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -158,6 +158,7 @@ function UploadProgress({ state, fileName }: { state: UploadState; fileName: str
 
 function FileDropzone({
   existing, pending, onSelect, onRemovePending, onRemoveExisting, disabled,
+  maxFileSizeBytes = MAX_FILE_BYTES, chunkSizeBytes = CHUNK_SIZE,
 }: {
   existing: { name: string; size: number; url: string } | null;
   pending:  File | null;
@@ -165,6 +166,8 @@ function FileDropzone({
   onRemovePending:  () => void;
   onRemoveExisting: () => void;
   disabled?: boolean;
+  maxFileSizeBytes?: number;
+  chunkSizeBytes?:  number;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -182,8 +185,8 @@ function FileDropzone({
   }
 
   function validate(file: File) {
-    if (file.size > MAX_FILE_BYTES) {
-      alert(`File is too large (${formatBytes(file.size)}). Maximum allowed is 25 GB.`);
+    if (file.size > maxFileSizeBytes) {
+      alert(`File is too large (${formatBytes(file.size)}). Maximum allowed is ${formatBytes(maxFileSizeBytes)}.`);
       return;
     }
     onSelect(file);
@@ -200,8 +203,8 @@ function FileDropzone({
           </strong>
           <span style={{ fontSize: ".75rem", color: "#6366f1" }}>
             {formatBytes(pending.size)}
-            {pending.size > CHUNK_SIZE && (
-              <> · Will be split into {Math.ceil(pending.size / CHUNK_SIZE)} × 10 MB chunks</>
+            {pending.size > chunkSizeBytes && (
+              <> · Will be split into {Math.ceil(pending.size / chunkSizeBytes)} × {formatBytes(chunkSizeBytes)} chunks</>
             )}
           </span>
         </div>
@@ -279,7 +282,7 @@ function FileDropzone({
         Drop installer here or click to browse
       </p>
       <p style={{ margin: "4px 0 0", fontSize: ".75rem", color: "#94a3b8" }}>
-        Any file type · Max 25 GB · Files split into 10 MB chunks automatically
+        Any file type · Max {formatBytes(maxFileSizeBytes)} · Split into {formatBytes(chunkSizeBytes)} chunks automatically
       </p>
       <input ref={inputRef} type="file" onChange={handleChange} style={{ display: "none" }} />
     </div>
@@ -289,20 +292,18 @@ function FileDropzone({
 // ── Chunked upload logic ───────────────────────────────────────────────────────
 
 /**
- * Uploads a file using the three-step chunked protocol:
- *   1. POST /api/v1/upload/init/        → upload_id
- *   2. PUT  /api/v1/upload/{id}/chunk/{n}/ for each 90 MB chunk (XHR for progress)
- *   3. POST /api/v1/upload/{id}/finalize/ → final_path
- *
- * Returns final_path (relative to MEDIA_ROOT) on success.
- * Calls onProgress(state) on every meaningful state change.
+ * Uploads a file using the three-step chunked protocol.
+ * chunkSize and maxRetries are read from site settings so they can be
+ * changed from the admin panel without a code deploy.
  */
 async function uploadFileInChunks(
   file: File,
   token: string,
   onProgress: (s: UploadState) => void,
+  chunkSize: number,
+  maxRetries: number,
 ): Promise<string> {
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  const totalChunks = Math.ceil(file.size / chunkSize);
 
   // ── Step 1: Init ─────────────────────────────────────────────────────────
   onProgress({ phase: "initializing", chunksDone: 0, chunksTotal: totalChunks, currentChunkPct: 0, error: "" });
@@ -315,7 +316,7 @@ async function uploadFileInChunks(
       filename:     file.name,
       total_size:   file.size,
       total_chunks: totalChunks,
-      chunk_size:   CHUNK_SIZE,
+      chunk_size:   chunkSize,
     }),
   });
   const initData = await initRes.json().catch(() => ({})) as Record<string, unknown>;
@@ -324,14 +325,14 @@ async function uploadFileInChunks(
 
   // ── Step 2: Upload chunks ─────────────────────────────────────────────────
   for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE;
-    const end   = Math.min(start + CHUNK_SIZE, file.size);
+    const start = i * chunkSize;
+    const end   = Math.min(start + chunkSize, file.size);
     const blob  = file.slice(start, end);
 
     onProgress({ phase: "uploading", chunksDone: i, chunksTotal: totalChunks, currentChunkPct: 0, error: "" });
 
-    // Retry up to 3 times with exponential back-off (handles transient 502s from Cloudflare)
-    const MAX_RETRIES = 3;
+    // Retry up to maxRetries times with exponential back-off (handles transient 502s from Cloudflare)
+    const MAX_RETRIES = maxRetries;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -428,6 +429,13 @@ export default function SoftwareManagement() {
   const [pendingFile, setPendingFile]       = useState<File | null>(null);
   const [removeExisting, setRemoveExisting] = useState(false);
 
+  // Upload config — fetched from site settings on mount
+  const [uploadConfig, setUploadConfig] = useState({
+    chunkSizeBytes: CHUNK_SIZE,               // bytes
+    maxFileSizeBytes: MAX_FILE_BYTES,         // bytes
+    retries: 3,
+  });
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   function load() {
@@ -435,7 +443,22 @@ export default function SoftwareManagement() {
       .then(([sw, gs]) => { setItems(sw); setGuides(gs); })
       .catch((e: Error) => setFormError(e.message));
   }
-  useEffect(load, []);
+
+  useEffect(() => {
+    load();
+    // Fetch upload config from public site-settings endpoint — no auth needed
+    fetch("/api/v1/settings/site/", { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: { chunk_size_mb?: number; max_upload_size_gb?: number; upload_chunk_retries?: number } | null) => {
+        if (!d) return;
+        setUploadConfig({
+          chunkSizeBytes:   (d.chunk_size_mb    ?? 10)  * 1024 * 1024,
+          maxFileSizeBytes: (d.max_upload_size_gb ?? 25) * 1024 * 1024 * 1024,
+          retries:           d.upload_chunk_retries ?? 3,
+        });
+      })
+      .catch(() => {/* keep defaults */});
+  }, []);
 
   // ── Editor helpers ────────────────────────────────────────────────────────
 
@@ -489,7 +512,7 @@ export default function SoftwareManagement() {
       // ── Step A: chunked upload (if a new file is pending) ──────────────
       if (pendingFile) {
         try {
-          filePath = await uploadFileInChunks(pendingFile, token, setUploadState);
+          filePath = await uploadFileInChunks(pendingFile, token, setUploadState, uploadConfig.chunkSizeBytes, uploadConfig.retries);
         } catch (uploadErr) {
           const msg = uploadErr instanceof Error ? uploadErr.message : "Upload failed.";
           setUploadState({ phase: "error", chunksDone: 0, chunksTotal: 0, currentChunkPct: 0, error: msg });
@@ -765,6 +788,8 @@ export default function SoftwareManagement() {
                     existing={existingFileInfo}
                     pending={pendingFile}
                     disabled={isUploading}
+                    maxFileSizeBytes={uploadConfig.maxFileSizeBytes}
+                    chunkSizeBytes={uploadConfig.chunkSizeBytes}
                     onSelect={setPendingFile}
                     onRemovePending={() => setPendingFile(null)}
                     onRemoveExisting={() => { setRemoveExisting(true); setPendingFile(null); }}

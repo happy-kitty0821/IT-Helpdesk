@@ -835,9 +835,27 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
             'walk_in_note', 'accessibility_note', 'account_recovery_note',
             'institution_name', 'department_name', 'helpdesk_tagline',
             'recovery_credentials_destination',
+            # Upload configuration — returned publicly so the frontend can
+            # read them at startup without requiring an admin session.
+            'chunk_size_mb', 'upload_chunk_retries', 'max_upload_size_gb',
             'updated_at',
         )
         read_only_fields = ('updated_at',)
+
+    def validate_chunk_size_mb(self, value: int) -> int:
+        if not 1 <= value <= 95:
+            raise serializers.ValidationError('chunk_size_mb must be between 1 and 95 MB.')
+        return value
+
+    def validate_upload_chunk_retries(self, value: int) -> int:
+        if not 0 <= value <= 10:
+            raise serializers.ValidationError('upload_chunk_retries must be between 0 and 10.')
+        return value
+
+    def validate_max_upload_size_gb(self, value: int) -> int:
+        if not 1 <= value <= 100:
+            raise serializers.ValidationError('max_upload_size_gb must be between 1 and 100 GB.')
+        return value
 
     def validate_office_hours(self, value):
         """
