@@ -1560,3 +1560,116 @@ class TicketFeedback(models.Model):
 
     def __str__(self):
         return f'Feedback {self.rating}/5 on {self.ticket.reference}'
+
+
+# ---------------------------------------------------------------------------
+# Chunked file upload
+# ---------------------------------------------------------------------------
+
+
+import os as _os
+
+
+def _chunk_upload_path(instance, filename):
+    return f'_chunks/{instance.upload_id}/{filename}'
+
+
+class ChunkedUpload(models.Model):
+    """
+    Tracks a multi-chunk file upload session.
+
+    Flow
+    ────
+    1. POST /api/v1/upload/init/
+       → creates a ChunkedUpload row, returns upload_id + chunk_size
+
+    2. PUT  /api/v1/upload/{upload_id}/chunk/{index}/   (multipart, one chunk)
+       → stores the chunk file, marks the index received
+
+    3. POST /api/v1/upload/{upload_id}/finalize/
+       → assembles all chunks in order, writes the final file, deletes chunks,
+         marks is_complete=True, returns final_path (relative to MEDIA_ROOT)
+
+    The finalizing view writes the assembled file to MEDIA_ROOT and then the
+    caller (e.g. AdminSoftwareDetail PATCH) attaches final_path to the model.
+
+    Stale uploads (is_complete=False, created > 24 h) can be cleaned up by a
+    management command or cron.
+    """
+
+    class Status(models.TextChoices):
+        PENDING   = 'pending',   'Pending'
+        UPLOADING = 'uploading', 'Uploading'
+        COMPLETE  = 'complete',  'Complete'
+        FAILED    = 'failed',    'Failed'
+
+    upload_id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='chunked_uploads',
+    )
+    original_name = models.CharField(max_length=255)
+    total_size    = models.BigIntegerField(help_text='Total file size in bytes')
+    total_chunks  = models.PositiveIntegerField()
+    chunk_size    = models.PositiveIntegerField(help_text='Expected bytes per chunk (last may be smaller)')
+    # Bitmask stored as a JSON list of received chunk indices for quick lookup
+    received_chunks = models.JSONField(default=list)
+    status   = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    # Populated after successful finalization — relative to MEDIA_ROOT
+    final_path = models.CharField(max_length=500, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'Chunked upload'
+        verbose_name_plural = 'Chunked uploads'
+
+    def __str__(self):
+        return f'ChunkedUpload({self.original_name}, {self.status})'
+
+    def chunk_dir(self) -> str:
+        """Absolute path to the directory holding the individual chunk files."""
+        from django.conf import settings as _s
+        return _os.path.join(_s.MEDIA_ROOT, '_chunks', str(self.upload_id))
+
+    def chunk_path(self, index: int) -> str:
+        """Absolute path for chunk file at *index*."""
+        return _os.path.join(self.chunk_dir(), f'{index:06d}')
+
+    def all_chunks_received(self) -> bool:
+        return len(self.received_chunks) == self.total_chunks
+
+    def assemble(self, dest_relative: str) -> str:
+        """
+        Concatenate all chunk files in order and write to *dest_relative*
+        (path relative to MEDIA_ROOT).  Returns the absolute destination path.
+        Raises FileNotFoundError if any chunk is missing.
+        """
+        from django.conf import settings as _s
+        dest_abs = _os.path.join(_s.MEDIA_ROOT, dest_relative)
+        _os.makedirs(_os.path.dirname(dest_abs), exist_ok=True)
+        with open(dest_abs, 'wb') as out:
+            for i in range(self.total_chunks):
+                chunk = self.chunk_path(i)
+                if not _os.path.exists(chunk):
+                    raise FileNotFoundError(f'Chunk {i} missing for upload {self.upload_id}')
+                with open(chunk, 'rb') as f:
+                    while True:
+                        buf = f.read(1024 * 1024)  # 1 MB read buffer
+                        if not buf:
+                            break
+                        out.write(buf)
+        return dest_abs
+
+    def cleanup_chunks(self):
+        """Delete the temporary chunk directory."""
+        import shutil
+        chunk_dir = self.chunk_dir()
+        if _os.path.isdir(chunk_dir):
+            shutil.rmtree(chunk_dir, ignore_errors=True)

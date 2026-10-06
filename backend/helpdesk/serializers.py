@@ -511,6 +511,11 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
     # Write-only: accepts a multipart file upload.  Optional — leave blank
     # to keep using the external download_url instead.
     file = serializers.FileField(write_only=True, required=False, allow_null=True)
+    # Write-only: path relative to MEDIA_ROOT produced by FinalizeChunkedUploadView.
+    # Used when the file was uploaded via the chunked protocol instead of direct upload.
+    file_path = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, allow_null=True,
+    )
     # Write-only: when True, removes the existing uploaded file.
     remove_file = serializers.BooleanField(write_only=True, required=False, default=False)
     # Read-only: derived file metadata for the frontend.
@@ -527,7 +532,7 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'name', 'slug', 'description', 'version', 'platforms',
             'audience', 'licence_notes', 'download_url',
-            'file', 'remove_file', 'file_url', 'file_name', 'file_size',
+            'file', 'file_path', 'remove_file', 'file_url', 'file_name', 'file_size',
             'guide', 'guide_title',
             'status', 'updated_by_name', 'created_at', 'updated_at',
         )
@@ -556,13 +561,18 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
         return obj.updated_by.get_full_name() or obj.updated_by.username if obj.updated_by else None
 
     def get_file_url(self, obj):
-        """Return the raw media path; the frontend resolves it via NEXT_PUBLIC_DJANGO_URL."""
-        if obj.file:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.file.url)
-            return obj.file.url
-        return None
+        """
+        Return the gated download URL (/api/v1/software/{slug}/download/)
+        instead of the raw /media/ path.  The download view enforces
+        authentication + audience checks before streaming the file.
+        """
+        if not obj.file:
+            return None
+        request = self.context.get('request')
+        path = f'/api/v1/software/{obj.slug}/download/'
+        if request:
+            return request.build_absolute_uri(path)
+        return path
 
     def get_file_name(self, obj):
         if obj.file:
@@ -578,22 +588,40 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
             return 0
 
     def update(self, instance, validated_data):
-        """Handle file replacement — delete the old file when a new one is uploaded."""
-        new_file    = validated_data.pop('file', None)
+        """Handle file replacement — direct upload or chunked-upload path."""
+        import os
+        from django.conf import settings as _s
+        from django.core.files import File
+
+        new_file    = validated_data.pop('file',        None)
+        file_path   = validated_data.pop('file_path',   None)
         remove_file = validated_data.pop('remove_file', False)
 
         old_file = instance.file if instance.file else None
 
+        # If a chunked-upload final_path was supplied, open it as a Django File
+        if file_path and not new_file:
+            abs_path = os.path.join(_s.MEDIA_ROOT, file_path.lstrip('/'))
+            if os.path.exists(abs_path):
+                # Wrap in a Django File object so the storage backend records
+                # the path correctly.  We open in 'rb' and let Django copy it.
+                _fh = open(abs_path, 'rb')
+                new_file = File(_fh, name=os.path.basename(abs_path))
+
         instance = super().update(instance, validated_data)
 
         if new_file is not None:
-            # New file uploaded — replace
             instance.file = new_file
             instance.save(update_fields=['file'])
+            # Close the handle if we opened it ourselves (chunked path)
+            if hasattr(new_file, 'close'):
+                try:
+                    new_file.close()
+                except Exception:
+                    pass
             if old_file and old_file.name != instance.file.name:
                 old_file.delete(save=False)
         elif remove_file:
-            # Explicitly remove existing file
             instance.file = None
             instance.save(update_fields=['file'])
             if old_file:

@@ -725,6 +725,7 @@ class AdminSoftwareListCreate(generics.ListCreateAPIView):
                         data['platforms'] = []
                 if 'remove_file' in data and isinstance(data['remove_file'], str):
                     data['remove_file'] = data['remove_file'].lower() in ('true', '1', 'yes')
+                # file_path is already a plain string — no transformation needed
                 kwargs['data'] = data
 
         return super().get_serializer(*args, **kwargs)
@@ -755,6 +756,7 @@ class AdminSoftwareDetail(generics.RetrieveUpdateDestroyAPIView):
                         data['platforms'] = []
                 if 'remove_file' in data and isinstance(data['remove_file'], str):
                     data['remove_file'] = data['remove_file'].lower() in ('true', '1', 'yes')
+                # file_path is already a plain string — no transformation needed
                 kwargs['data'] = data
 
         return super().get_serializer(*args, **kwargs)
@@ -4010,3 +4012,247 @@ class SoftwareDownloadView(APIView):
             filename=filename,
         )
         return response
+
+
+# ---------------------------------------------------------------------------
+# Chunked file upload — three-step protocol
+#
+#  Step 1  POST /api/v1/upload/init/
+#          Body: { filename, total_size, total_chunks, chunk_size }
+#          → returns { upload_id, chunk_size }
+#
+#  Step 2  PUT  /api/v1/upload/{upload_id}/chunk/{index}/
+#          Multipart body: { chunk: <binary> }  (one part, ≤ 95 MB)
+#          → returns { received: index, progress: "N/total" }
+#
+#  Step 3  POST /api/v1/upload/{upload_id}/finalize/
+#          Body: { dest_path: "software/2026/01/filename.exe" }
+#          → returns { final_path }  (relative to MEDIA_ROOT)
+#          The caller then PATCHes the SoftwareResource with the final_path.
+#
+# Access: IsContentEditor on all three endpoints.
+# ---------------------------------------------------------------------------
+
+
+class InitChunkedUploadView(APIView):
+    """
+    POST /api/v1/upload/init/
+
+    Creates a ChunkedUpload session and returns the upload_id the
+    frontend will use for all subsequent chunk and finalize requests.
+    """
+    permission_classes = (IsContentEditor,)
+
+    # Hard limit: each chunk must be ≤ 95 MB (below Cloudflare's 100 MB cap).
+    # Total file size may be up to 25 GB.
+    MAX_CHUNK_BYTES = 95 * 1024 * 1024          # 95 MB
+    MAX_TOTAL_BYTES = 25 * 1024 * 1024 * 1024   # 25 GB
+
+    def post(self, request):
+        from .models import ChunkedUpload
+
+        filename     = str(request.data.get('filename', '')).strip()
+        total_size   = request.data.get('total_size')
+        total_chunks = request.data.get('total_chunks')
+        chunk_size   = request.data.get('chunk_size')
+
+        # ── Validate ──────────────────────────────────────────────────────
+        errors = {}
+        if not filename:
+            errors['filename'] = 'filename is required.'
+        if total_size is None:
+            errors['total_size'] = 'total_size is required.'
+        elif not isinstance(total_size, int) or total_size <= 0:
+            errors['total_size'] = 'total_size must be a positive integer.'
+        elif total_size > self.MAX_TOTAL_BYTES:
+            errors['total_size'] = f'File exceeds the 25 GB maximum ({total_size} bytes).'
+        if total_chunks is None:
+            errors['total_chunks'] = 'total_chunks is required.'
+        elif not isinstance(total_chunks, int) or total_chunks <= 0:
+            errors['total_chunks'] = 'total_chunks must be a positive integer.'
+        if chunk_size is None:
+            errors['chunk_size'] = 'chunk_size is required.'
+        elif not isinstance(chunk_size, int) or chunk_size <= 0:
+            errors['chunk_size'] = 'chunk_size must be a positive integer.'
+        elif chunk_size > self.MAX_CHUNK_BYTES:
+            errors['chunk_size'] = (
+                f'chunk_size {chunk_size} exceeds the 95 MB per-chunk maximum. '
+                f'Use {self.MAX_CHUNK_BYTES} bytes or smaller.'
+            )
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+        upload = ChunkedUpload.objects.create(
+            uploaded_by   = request.user,
+            original_name = filename,
+            total_size    = total_size,
+            total_chunks  = total_chunks,
+            chunk_size    = chunk_size,
+            status        = ChunkedUpload.Status.UPLOADING,
+        )
+
+        return Response({
+            'upload_id':   str(upload.upload_id),
+            'chunk_size':  chunk_size,
+            'total_chunks': total_chunks,
+        }, status=status.HTTP_201_CREATED)
+
+
+class UploadChunkView(APIView):
+    """
+    PUT /api/v1/upload/{upload_id}/chunk/{index}/
+
+    Receives a single binary chunk and stores it in the temporary chunk
+    directory.  The chunk is sent as multipart/form-data with the field
+    name 'chunk'.
+
+    Idempotent: re-uploading the same index simply overwrites the stored
+    chunk so the frontend can safely retry on network error.
+    """
+    permission_classes = (IsContentEditor,)
+    parser_classes     = (MultiPartParser, FormParser)
+
+    def put(self, request, upload_id: str, index: int):
+        import os
+        from .models import ChunkedUpload
+
+        # ── Look up the session ───────────────────────────────────────────
+        try:
+            upload = ChunkedUpload.objects.get(
+                upload_id=upload_id,
+                uploaded_by=request.user,
+            )
+        except ChunkedUpload.DoesNotExist:
+            return Response({'detail': 'Upload session not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if upload.status not in (ChunkedUpload.Status.UPLOADING, ChunkedUpload.Status.PENDING):
+            return Response(
+                {'detail': f'Upload session is {upload.status}, not accepting chunks.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # ── Validate index ────────────────────────────────────────────────
+        if index < 0 or index >= upload.total_chunks:
+            return Response(
+                {'detail': f'index {index} out of range (0–{upload.total_chunks - 1}).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Get the chunk data ────────────────────────────────────────────
+        chunk_file = request.FILES.get('chunk')
+        if chunk_file is None:
+            return Response({'detail': 'Multipart field "chunk" is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_chunk = 95 * 1024 * 1024
+        if chunk_file.size > max_chunk:
+            return Response(
+                {'detail': f'Chunk too large ({chunk_file.size} bytes, max {max_chunk}).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Write chunk to disk ───────────────────────────────────────────
+        chunk_dir  = upload.chunk_dir()
+        chunk_path = upload.chunk_path(index)
+        os.makedirs(chunk_dir, exist_ok=True)
+
+        with open(chunk_path, 'wb') as f:
+            for data in chunk_file.chunks():
+                f.write(data)
+
+        # ── Record receipt ────────────────────────────────────────────────
+        received = upload.received_chunks
+        if index not in received:
+            received.append(index)
+        upload.received_chunks = received
+        upload.save(update_fields=['received_chunks', 'updated_at'])
+
+        return Response({
+            'received': index,
+            'progress': f'{len(upload.received_chunks)}/{upload.total_chunks}',
+            'complete': upload.all_chunks_received(),
+        })
+
+
+class FinalizeChunkedUploadView(APIView):
+    """
+    POST /api/v1/upload/{upload_id}/finalize/
+
+    Verifies all chunks have arrived, assembles them into the final file,
+    cleans up the temporary chunk directory, and marks the session complete.
+
+    Body:
+        { "dest_subdir": "software/2026/01" }   # sub-directory under MEDIA_ROOT
+          (filename is taken from ChunkedUpload.original_name)
+
+    Response:
+        { "final_path": "software/2026/01/filename.exe" }
+          (relative to MEDIA_ROOT — pass this to the SoftwareResource PATCH)
+    """
+    permission_classes = (IsContentEditor,)
+
+    def post(self, request, upload_id: str):
+        import os
+        from django.utils.text import get_valid_filename
+        from .models import ChunkedUpload
+
+        # ── Look up session ───────────────────────────────────────────────
+        try:
+            upload = ChunkedUpload.objects.get(
+                upload_id=upload_id,
+                uploaded_by=request.user,
+            )
+        except ChunkedUpload.DoesNotExist:
+            return Response({'detail': 'Upload session not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if upload.status == ChunkedUpload.Status.COMPLETE:
+            # Idempotent: already finalized
+            return Response({'final_path': upload.final_path})
+
+        if upload.status not in (ChunkedUpload.Status.UPLOADING, ChunkedUpload.Status.PENDING):
+            return Response(
+                {'detail': f'Upload session is {upload.status}.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # ── All chunks must be present ────────────────────────────────────
+        if not upload.all_chunks_received():
+            missing = sorted(
+                set(range(upload.total_chunks)) - set(upload.received_chunks)
+            )
+            return Response(
+                {
+                    'detail': 'Not all chunks have been received.',
+                    'missing_chunks': missing[:20],   # first 20 only to keep response small
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # ── Determine destination path ────────────────────────────────────
+        raw_subdir  = str(request.data.get('dest_subdir', '')).strip().strip('/')
+        if not raw_subdir:
+            # Auto-generate based on current date — mirrors Django's upload_to
+            from django.utils import timezone
+            now = timezone.now()
+            raw_subdir = f'software/{now.year}/{now.month:02d}'
+
+        safe_filename = get_valid_filename(upload.original_name)
+        dest_relative = f'{raw_subdir}/{safe_filename}'
+
+        # ── Assemble ──────────────────────────────────────────────────────
+        try:
+            upload.assemble(dest_relative)
+        except FileNotFoundError as exc:
+            upload.status = ChunkedUpload.Status.FAILED
+            upload.save(update_fields=['status'])
+            return Response(
+                {'detail': f'Assembly failed: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # ── Mark complete, clean up chunks ────────────────────────────────
+        upload.status     = ChunkedUpload.Status.COMPLETE
+        upload.final_path = dest_relative
+        upload.save(update_fields=['status', 'final_path', 'updated_at'])
+        upload.cleanup_chunks()
+
+        return Response({'final_path': dest_relative}, status=status.HTTP_200_OK)

@@ -74,6 +74,10 @@ from .views import (
     AdminServiceStatusDetailView,
     TicketFeedbackView,
     AdminFeedbackListView,
+    SoftwareDownloadView,
+    InitChunkedUploadView,
+    UploadChunkView,
+    FinalizeChunkedUploadView,
 )
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -113,6 +117,7 @@ urlpatterns = [
 
     re_path(r'^guides/?$',   PublicGuideList.as_view(),   name='public-guide-list'),
     re_path(r'^software/?$', PublicSoftwareList.as_view(), name='public-software-list'),
+    re_path(r'^software/(?P<slug>[a-z0-9-]+)/download/?$', SoftwareDownloadView.as_view(), name='software-download'),
 
     # ── Admin ──────────────────────────────────────────────────────────────
     re_path(r'^admin/summary/?$',                AdminSummaryView.as_view(),          name='admin-summary'),
@@ -173,6 +178,14 @@ urlpatterns = [
     # Ticket feedback
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/feedback/?$',           TicketFeedbackView.as_view(),             name='ticket-feedback'),
     re_path(r'^admin/feedback/?$',                                 AdminFeedbackListView.as_view(),          name='admin-feedback-list'),
+
+    # Chunked file uploads (bypass Cloudflare 100 MB body limit)
+    re_path(r'^upload/init/?$',
+            InitChunkedUploadView.as_view(),   name='upload-init'),
+    re_path(r'^upload/(?P<upload_id>[0-9a-f-]+)/chunk/(?P<index>[0-9]+)/?$',
+            UploadChunkView.as_view(),         name='upload-chunk'),
+    re_path(r'^upload/(?P<upload_id>[0-9a-f-]+)/finalize/?$',
+            FinalizeChunkedUploadView.as_view(), name='upload-finalize'),
 
     # Swagger ui for testing
     # 1. Downloads the raw OpenAPI 3 schema YAML/JSON

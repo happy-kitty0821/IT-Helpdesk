@@ -1,7 +1,8 @@
 ﻿import type { Metadata } from "next";
-import { Download, ExternalLink, MonitorSmartphone } from "lucide-react";
+import { ExternalLink, MonitorSmartphone } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { getSoftware } from "@/lib/content";
+import { SoftwareDownloadButton } from "./download-button";
 
 export const metadata: Metadata = {
   title: "Software Catalogue",
@@ -23,7 +24,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────────
+// ── Page (server component) ────────────────────────────────────────────────────
 
 export default async function SoftwarePage() {
   const software = await getSoftware();
@@ -39,7 +40,6 @@ export default async function SoftwarePage() {
         {software.length ? (
           <div className="software-list">
             {software.map((item) => {
-              // Prefer hosted file over external URL
               const hasHostedFile  = Boolean(item.file_url);
               const hasExternalUrl = Boolean(item.download_url);
               const hasDownload    = hasHostedFile || hasExternalUrl;
@@ -59,7 +59,6 @@ export default async function SoftwarePage() {
                     <div className="catalog-meta">
                       <span>{item.platforms.join(" · ")}</span>
                       <span>{item.audience}</span>
-                      {/* Show hosted file size */}
                       {hasHostedFile && item.file_size > 0 && (
                         <span style={{
                           display: "inline-flex", alignItems: "center", gap: 4,
@@ -79,25 +78,17 @@ export default async function SoftwarePage() {
                   {/* Download / link buttons */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
 
-                    {/* Hosted file — direct download */}
+                    {/* Hosted file — gated download (session cookie required for non-public) */}
                     {hasHostedFile && (
-                      <a
-                        className="primary-button"
-                        href={item.file_url!}
-                        download={item.file_name ?? true}
-                        style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
-                      >
-                        <Download size={15} aria-hidden="true" />
-                        Download
-                        {item.file_size > 0 && (
-                          <span style={{ opacity: 0.75, fontSize: ".78em" }}>
-                            ({formatBytes(item.file_size)})
-                          </span>
-                        )}
-                      </a>
+                      <SoftwareDownloadButton
+                        url={item.file_url!}
+                        fileName={item.file_name ?? item.name}
+                        fileSize={item.file_size}
+                        audience={item.audience}
+                      />
                     )}
 
-                    {/* External URL — shown as secondary link if hosted file also exists, or primary if no file */}
+                    {/* External URL — fallback or secondary */}
                     {hasExternalUrl && (
                       <a
                         className={hasHostedFile ? "secondary-button" : "primary-button"}
@@ -111,7 +102,6 @@ export default async function SoftwarePage() {
                       </a>
                     )}
 
-                    {/* No downloads available */}
                     {!hasDownload && (
                       <span className="status-chip draft">Link pending</span>
                     )}
