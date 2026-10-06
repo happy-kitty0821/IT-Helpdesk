@@ -72,7 +72,7 @@ const SITE_DEFAULTS: SiteSettings = {
   department_name:       "IT & NOC Department",
   helpdesk_tagline:      "Your first point of contact for IT support, account help, and self-service resources at IIC.",
   recovery_credentials_destination: "college" as const,
-  chunk_size_mb:        10,
+  chunk_size_mb:        2,
   upload_chunk_retries: 3,
   max_upload_size_gb:   25,
   updated_at:           "",
@@ -584,21 +584,21 @@ export default function SettingsPage() {
                     </label>
                     <input
                       id="upload-chunk-size"
-                      type="number" min={1} max={95} step={1}
+                      type="number" min={1} max={50} step={1}
                       value={siteSettings.chunk_size_mb}
-                      onChange={(e) => patchSite("chunk_size_mb", Math.min(95, Math.max(1, Number(e.target.value))))}
+                      onChange={(e) => patchSite("chunk_size_mb", Math.min(50, Math.max(1, Number(e.target.value))))}
                       style={{ border: "1px solid #94a3b8", borderRadius: 8, padding: "9px 12px", fontSize: ".9rem", width: "100%" }}
                     />
                     <p style={{ margin: 0, fontSize: ".74rem", color: "#94a3b8", lineHeight: 1.5 }}>
-                      1–95 MB per chunk. Each chunk is sent as a separate HTTP request.
-                      Use ≤ 10 MB behind Cloudflare Tunnel.
+                      1–50 MB per chunk. Each chunk is a separate HTTP request.
+                      Keep ≤ 5 MB behind Cloudflare Tunnel to avoid proxy timeouts.
                     </p>
                     {/* Visual recommendation bands */}
                     <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
                       {[
-                        { label: "Cloudflare", max: 10,  color: "#fef3c7", text: "#92400e", border: "#fcd34d" },
-                        { label: "Balanced",   max: 50,  color: "#f0fdf4", text: "#166534", border: "#86efac" },
-                        { label: "Direct",     max: 95,  color: "#eef2ff", text: "#3730a3", border: "#a5b4fc" },
+                        { label: "Cloudflare", max: 5,  color: "#fef3c7", text: "#92400e", border: "#fcd34d" },
+                        { label: "Balanced",   max: 20, color: "#f0fdf4", text: "#166534", border: "#86efac" },
+                        { label: "Direct",     max: 95, color: "#eef2ff", text: "#3730a3", border: "#a5b4fc" },
                       ].map((band) => {
                         const active = siteSettings.chunk_size_mb <= band.max;
                         return (

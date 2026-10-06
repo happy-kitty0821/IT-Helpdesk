@@ -124,7 +124,7 @@ export default function GuideManagement() {
             <header><div><span>{editing ? "Update document" : "New document"}</span><h2>{editing ? editing.title : "Upload PDF guide"}</h2></div><button aria-label="Close editor" onClick={closeEditor}><X aria-hidden="true" /></button></header>
             <form onSubmit={submit}>
               <label>Guide title<input name="title" defaultValue={selected.title} required maxLength={160} placeholder="Microsoft 365 setup guide" /></label>
-              <label>URL slug<input name="slug" defaultValue={selected.slug} pattern={"[a-z0-9]+([a-z0-9-]*[a-z0-9])?"} required placeholder="microsoft-365-setup" /></label>
+              <label>URL slug<input name="slug" defaultValue={selected.slug} pattern={"[a-z0-9][-a-z0-9]*"} required placeholder="microsoft-365-setup" /></label>
               <label>Short description<textarea name="summary" defaultValue={selected.summary} required maxLength={300} rows={3} placeholder="Tell readers what this guide helps them complete." /></label>
 
               <label className={`pdf-dropzone ${dragging ? "dragging" : ""}`} onDragEnter={() => setDragging(true)} onDragLeave={() => setDragging(false)} onDrop={() => setDragging(false)}>

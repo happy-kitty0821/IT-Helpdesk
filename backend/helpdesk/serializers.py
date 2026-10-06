@@ -843,8 +843,8 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
         read_only_fields = ('updated_at',)
 
     def validate_chunk_size_mb(self, value: int) -> int:
-        if not 1 <= value <= 95:
-            raise serializers.ValidationError('chunk_size_mb must be between 1 and 95 MB.')
+        if not 1 <= value <= 50:
+            raise serializers.ValidationError('chunk_size_mb must be between 1 and 50 MB.')
         return value
 
     def validate_upload_chunk_retries(self, value: int) -> int:

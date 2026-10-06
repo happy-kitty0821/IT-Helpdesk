@@ -377,7 +377,7 @@ export default function AnnouncementsPage() {
                     value={form.campaign_id}
                     onChange={(e) => setForm((p) => ({ ...p, campaign_id: e.target.value }))}
                     placeholder="e.g. orientation-2026"
-                    pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                    pattern={"[a-z0-9][-a-z0-9]*"}
                     title="Lowercase letters, digits and hyphens only"
                     disabled={!!editing} /* immutable after creation */
                   />

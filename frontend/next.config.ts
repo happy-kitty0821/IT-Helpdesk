@@ -3,6 +3,14 @@
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   skipTrailingSlashRedirect: true,
+
+  // ── Rewrite proxy timeout ──────────────────────────────────────────────────
+  // Default is 10 s — insufficient for large file chunk uploads which write
+  // to disk on the Django side.  Set to 120 s to match Gunicorn's timeout.
+  experimental: {
+    proxyTimeout: 120_000,
+  },
+
   async headers() {
     return [
       {

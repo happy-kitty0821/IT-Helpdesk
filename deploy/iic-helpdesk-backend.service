@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# systemd service unit — IIC IT Helpdesk Django backend
+#
+# DEPLOYMENT
+# ──────────
+# Copy to the server:
+#   sudo cp iic-helpdesk-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now iic-helpdesk-backend
+#
+# After any gunicorn.conf.py change:
+#   sudo systemctl restart iic-helpdesk-backend
+# ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=IIC IT Helpdesk — Django/Gunicorn backend
+After=network.target
+
+[Service]
+Type=notify
+
+# Run as the application user (not root)
+User=iicapp
+Group=iicapp
+
+WorkingDirectory=/var/www/iic-app/backend
+
+# Load the .env file so Django can read DJANGO_SECRET_KEY etc.
+EnvironmentFile=/var/www/iic-app/backend/.env
+
+ExecStart=/var/www/iic-app/backend/venv/bin/gunicorn \
+    Project.wsgi \
+    --config /var/www/iic-app/backend/gunicorn.conf.py
+
+# Give Gunicorn's graceful_timeout + a 10 s buffer before systemd force-kills
+TimeoutStopSec=40
+
+# Restart automatically if the process exits unexpectedly
+Restart=on-failure
+RestartSec=5
+
+# Write stdout/stderr to systemd journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iic-helpdesk-backend
+
+[Install]
+WantedBy=multi-user.target

@@ -27,7 +27,7 @@ const STATUS_OPTIONS = [
 ];
 
 const MAX_FILE_BYTES  = 25 * 1024 * 1024 * 1024; // 25 GB — overridden at runtime from site settings
-const CHUNK_SIZE      = 10 * 1024 * 1024;         // 10 MB default — overridden at runtime
+const CHUNK_SIZE      = 2 * 1024 * 1024;          // 2 MB default — safe for Cloudflare Tunnel, overridden at runtime
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -452,7 +452,7 @@ export default function SoftwareManagement() {
       .then((d: { chunk_size_mb?: number; max_upload_size_gb?: number; upload_chunk_retries?: number } | null) => {
         if (!d) return;
         setUploadConfig({
-          chunkSizeBytes:   (d.chunk_size_mb    ?? 10)  * 1024 * 1024,
+          chunkSizeBytes:   (d.chunk_size_mb    ?? 2)  * 1024 * 1024,
           maxFileSizeBytes: (d.max_upload_size_gb ?? 25) * 1024 * 1024 * 1024,
           retries:           d.upload_chunk_retries ?? 3,
         });
@@ -738,7 +738,7 @@ export default function SoftwareManagement() {
                   <label htmlFor="sw-slug">
                     URL slug <span style={{ color: "#94a3b8", fontWeight: 400, fontSize: ".75rem", marginLeft: 4 }}>(auto-generated)</span>
                   </label>
-                  <input id="sw-slug" type="text" required pattern={"[a-z0-9]+([a-z0-9-]*[a-z0-9])?"}  value={draftSlug}
+                  <input id="sw-slug" type="text" required pattern={"[a-z0-9][-a-z0-9]*"} value={draftSlug}
                     placeholder="e.g. microsoft-office" onChange={(e) => setDraftSlug(e.target.value)} />
                 </div>
 

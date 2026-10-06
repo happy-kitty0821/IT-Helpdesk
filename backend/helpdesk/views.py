@@ -4043,9 +4043,10 @@ class InitChunkedUploadView(APIView):
     """
     permission_classes = (IsContentEditor,)
 
-    # Hard limit: each chunk must be ≤ 95 MB (below Cloudflare's 100 MB cap).
-    # Total file size may be up to 25 GB.
-    MAX_CHUNK_BYTES = 95 * 1024 * 1024          # 95 MB
+    # Hard limit: each chunk must be ≤ 50 MB.  This gives comfortable headroom
+    # below Cloudflare's 100 MB body limit while still allowing efficient
+    # transfers on direct connections.  The admin settings UI caps at 50 MB.
+    MAX_CHUNK_BYTES = 50 * 1024 * 1024          # 50 MB
     MAX_TOTAL_BYTES = 25 * 1024 * 1024 * 1024   # 25 GB
 
     def post(self, request):
@@ -4076,7 +4077,7 @@ class InitChunkedUploadView(APIView):
             errors['chunk_size'] = 'chunk_size must be a positive integer.'
         elif chunk_size > self.MAX_CHUNK_BYTES:
             errors['chunk_size'] = (
-                f'chunk_size {chunk_size} exceeds the 95 MB per-chunk maximum. '
+                f'chunk_size {chunk_size} exceeds the 50 MB per-chunk maximum. '
                 f'Use {self.MAX_CHUNK_BYTES} bytes or smaller.'
             )
         if errors:

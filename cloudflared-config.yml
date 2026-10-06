@@ -1,0 +1,55 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Cloudflare Tunnel configuration — IIC IT Helpdesk
+#
+# DEPLOYMENT
+# ──────────
+# Copy this file to the server as:
+#   /etc/cloudflared/config.yml
+#
+# Then reload the tunnel:
+#   sudo systemctl restart cloudflared
+#
+# WHAT THIS FIXES
+# ───────────────
+# By default cloudflared buffers entire request bodies before forwarding them
+# to the origin.  For large chunk uploads (even at 2 MB) this can cause:
+#   • 502 Bad Gateway — if the buffer flush takes longer than cloudflared's
+#     internal read timeout
+#   • Slow uploads — because Django only starts processing after the full
+#     chunk arrives at cloudflared's buffer
+#
+# Setting no-chunked-encoding: false tells cloudflared to stream the body
+# directly to the origin as it arrives, eliminating both problems.
+# ─────────────────────────────────────────────────────────────────────────────
+
+tunnel: <YOUR_TUNNEL_ID>
+credentials-file: /etc/cloudflared/<YOUR_TUNNEL_ID>.json
+
+# ── Origin connection settings ────────────────────────────────────────────────
+originRequest:
+  # Stream the request body to the origin instead of buffering it first.
+  # Critical for file upload endpoints — eliminates 502 on large PUT requests.
+  noChunkedEncoding: false
+
+  # How long cloudflared waits for the origin to respond to a connection
+  # attempt before giving up.
+  connectTimeout: 30s
+
+  # How long cloudflared keeps an idle origin connection alive.
+  keepAliveTimeout: 90s
+
+  # Maximum time to wait for the origin to send the first response byte.
+  # File uploads (PUT /api/v1/upload/.../chunk/...) write to disk — give
+  # Django enough time to finish writing a 2 MB chunk even under I/O load.
+  # Gunicorn's --timeout should be set to a matching or slightly lower value.
+  tcpKeepAlive: 30s
+
+# ── Ingress rules ─────────────────────────────────────────────────────────────
+ingress:
+  # All traffic goes to the local Next.js frontend (port 3000).
+  # Next.js proxies /api/v1/* to Django (port 8000) via next.config.ts rewrites.
+  - hostname: ithelpdesk-iic.cloud-dev.tech
+    service: http://127.0.0.1:3000
+
+  # Catch-all (required by cloudflared — returns 404 for unmatched hosts)
+  - service: http_status:404

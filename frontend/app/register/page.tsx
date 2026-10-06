@@ -59,7 +59,7 @@ export default function RegisterPage() {
               College email
               <input
                 name="email" type="email"
-                pattern=".+@iic\.edu\.np"
+                pattern={"[^@]+@iic\\.edu\\.np"}
                 title="Use your @iic.edu.np email"
                 autoComplete="email" required
               />
@@ -68,7 +68,7 @@ export default function RegisterPage() {
               Username
               <input
                 name="username"
-                pattern={"[A-Za-z0-9._-]{3,150}"}
+                pattern={"[A-Za-z0-9][A-Za-z0-9._-]{2,149}"}
                 title="Use letters, numbers, dots, underscores, or hyphens"
                 autoComplete="username" required
               />

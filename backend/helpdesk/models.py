@@ -1425,11 +1425,12 @@ class SiteSettings(models.Model):
     # These values are served publicly so the frontend can read them on load
     # and adjust the chunked upload behaviour without a code deploy.
     chunk_size_mb = models.PositiveSmallIntegerField(
-        default=10,
+        default=2,
         help_text=(
-            'Size of each upload chunk in megabytes (1–95). '
-            'Smaller values work better through Cloudflare Tunnel; '
-            'larger values are more efficient on a direct server connection.'
+            'Size of each upload chunk in megabytes (1–50). '
+            'Values ≤ 5 MB are recommended behind Cloudflare Tunnel to avoid '
+            'proxy read timeouts. Larger values improve throughput on a '
+            'direct server connection.'
         ),
     )
     upload_chunk_retries = models.PositiveSmallIntegerField(
