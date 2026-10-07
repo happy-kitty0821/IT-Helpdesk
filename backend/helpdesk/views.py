@@ -4113,9 +4113,15 @@ class UploadChunkView(APIView):
     permission_classes = (IsContentEditor,)
     parser_classes     = (MultiPartParser, FormParser)
 
-    def put(self, request, upload_id: str, index: int):
+    def put(self, request, upload_id: str, index: str):
         import os
         from .models import ChunkedUpload
+
+        # index arrives as a string from the URL regex — cast immediately.
+        try:
+            index = int(index)
+        except (ValueError, TypeError):
+            return Response({'detail': 'index must be a non-negative integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # ── Look up the session ───────────────────────────────────────────
         try:
