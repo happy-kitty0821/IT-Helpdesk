@@ -1,37 +1,20 @@
 /**
- * Next.js Route Handler — proxy PUT /api/v1/upload/{upload_id}/chunk/{index}/
+ * Next.js App Router Route Handler
+ * PUT /api/v1/upload/{upload_id}/chunk/{index}/
  *
  * WHY THIS EXISTS
  * ───────────────
- * Next.js's built-in rewrite proxy silently drops multipart/form-data bodies
- * on PUT requests before they reach Django. This Route Handler explicitly
- * reads the raw request body and streams it to Django, bypassing that bug.
- *
- * This ONLY handles the chunk PUT. Every other /api/v1/* request still
- * uses the rewrite proxy in next.config.ts as before.
- *
- * BODY SIZE
- * ─────────
- * bodySizeLimit is set to '55mb' — enough for a 50 MB chunk plus
- * multipart boundary overhead.
+ * Next.js's built-in rewrite proxy drops multipart/form-data bodies on PUT
+ * requests before they reach Django. This Route Handler explicitly reads the
+ * raw request body and forwards it to Django, bypassing that bug.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
 
-// Disable Next.js's built-in body parser for this route — we need to
-// stream the raw multipart body straight through to Django.
-export const runtime = "nodejs";
-
-// Allow up to 55 MB request bodies — enough for a 50 MB chunk + multipart overhead.
+export const runtime    = "nodejs";
 export const maxDuration = 120; // seconds — matches Gunicorn timeout
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
-const DJANGO_BASE = "http://127.0.0.1:8000";
+const DJANGO = "http://127.0.0.1:8000";
 
 export async function PUT(
   request: NextRequest,
@@ -39,52 +22,40 @@ export async function PUT(
 ) {
   const { upload_id, index } = await params;
 
-  // Forward the raw body as-is (multipart/form-data with the chunk blob).
-  // We must read it as an ArrayBuffer and re-send it rather than using
-  // request.body directly, because Next.js may have already partially
-  // consumed the stream.
+  // Read the entire multipart body into memory.
+  // App Router route handlers don't have a built-in body size limit for
+  // nodejs runtime — the limit comes from Gunicorn/Django on the other side.
   const bodyBuffer = await request.arrayBuffer();
 
-  // Build forwarding headers — copy Content-Type (preserves multipart boundary),
-  // CSRF token, and Cookie so Django can authenticate the session.
-  const forwardHeaders = new Headers();
+  const fwd = new Headers();
 
-  const contentType = request.headers.get("content-type");
-  if (contentType) forwardHeaders.set("content-type", contentType);
+  const ct = request.headers.get("content-type");
+  if (ct)  fwd.set("content-type", ct);           // must keep multipart boundary
 
-  const csrfToken = request.headers.get("x-csrftoken");
-  if (csrfToken) forwardHeaders.set("x-csrftoken", csrfToken);
+  const csrf = request.headers.get("x-csrftoken");
+  if (csrf) fwd.set("x-csrftoken", csrf);
 
   const cookie = request.headers.get("cookie");
-  if (cookie) forwardHeaders.set("cookie", cookie);
+  if (cookie) fwd.set("cookie", cookie);           // session auth
 
-  // Forward X-Forwarded-For so Django logs the real client IP.
   const xff = request.headers.get("x-forwarded-for");
-  if (xff) forwardHeaders.set("x-forwarded-for", xff);
+  if (xff) fwd.set("x-forwarded-for", xff);
 
-  const djangoUrl = `${DJANGO_BASE}/api/v1/upload/${upload_id}/chunk/${index}/`;
-
-  let djangoRes: Response;
+  let res: Response;
   try {
-    djangoRes = await fetch(djangoUrl, {
+    res = await fetch(`${DJANGO}/api/v1/upload/${upload_id}/chunk/${index}/`, {
       method:  "PUT",
-      headers: forwardHeaders,
+      headers: fwd,
       body:    bodyBuffer,
-      // @ts-expect-error — Node.js fetch supports duplex for streaming
-      duplex:  "half",
     });
   } catch (err) {
-    console.error("[chunk-proxy] fetch to Django failed:", err);
-    return NextResponse.json(
-      { detail: "Could not connect to upload backend." },
-      { status: 502 },
-    );
+    console.error("[chunk-proxy] Django unreachable:", err);
+    return NextResponse.json({ detail: "Upload backend unreachable." }, { status: 502 });
   }
 
-  // Forward Django's response (status + body) back to the browser.
-  const responseBody = await djangoRes.arrayBuffer();
-  return new NextResponse(responseBody, {
-    status:  djangoRes.status,
-    headers: { "content-type": djangoRes.headers.get("content-type") ?? "application/json" },
+  const body = await res.arrayBuffer();
+  return new NextResponse(body, {
+    status:  res.status,
+    headers: { "content-type": res.headers.get("content-type") ?? "application/json" },
   });
 }

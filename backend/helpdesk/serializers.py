@@ -562,17 +562,16 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
 
     def get_file_url(self, obj):
         """
-        Return the gated download URL (/api/v1/software/{slug}/download/)
-        instead of the raw /media/ path.  The download view enforces
-        authentication + audience checks before streaming the file.
+        Return a relative path to the gated download endpoint.
+        We deliberately avoid build_absolute_uri here because Django is
+        accessed internally via 127.0.0.1:8000 (proxied through Next.js),
+        so build_absolute_uri would produce http://127.0.0.1:8000/... which
+        the browser cannot reach. The frontend resolves relative paths
+        through the Next.js proxy automatically.
         """
         if not obj.file:
             return None
-        request = self.context.get('request')
-        path = f'/api/v1/software/{obj.slug}/download/'
-        if request:
-            return request.build_absolute_uri(path)
-        return path
+        return f'/api/v1/software/{obj.slug}/download/'
 
     def get_file_name(self, obj):
         if obj.file:
@@ -778,10 +777,11 @@ class TicketAttachmentSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_file_url(self, obj):
-        request = self.context.get('request')
-        if obj.file and request:
-            return request.build_absolute_uri(obj.file.url)
-        return obj.file.url if obj.file else None
+        # Return relative path — build_absolute_uri would produce
+        # http://127.0.0.1:8000/... when called from Next.js proxy context.
+        if obj.file:
+            return obj.file.url
+        return None
 
 
 class RoleConfigSerializer(serializers.ModelSerializer):

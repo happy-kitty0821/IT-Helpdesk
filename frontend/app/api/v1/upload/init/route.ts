@@ -1,42 +1,40 @@
 /**
- * Next.js Route Handler — proxy POST /api/v1/upload/init/
- * Forwards JSON body to Django, returns the upload_id.
+ * Next.js App Router Route Handler
+ * POST /api/v1/upload/init/
  */
 
 import { type NextRequest, NextResponse } from "next/server";
 
-export const runtime = "nodejs";
+export const runtime    = "nodejs";
 export const maxDuration = 30;
 
-const DJANGO_BASE = "http://127.0.0.1:8000";
+const DJANGO = "http://127.0.0.1:8000";
 
 export async function POST(request: NextRequest) {
   const bodyBuffer = await request.arrayBuffer();
 
-  const forwardHeaders = new Headers();
-  forwardHeaders.set("content-type", request.headers.get("content-type") ?? "application/json");
+  const fwd = new Headers();
+  fwd.set("content-type", request.headers.get("content-type") ?? "application/json");
 
   const csrf = request.headers.get("x-csrftoken");
-  if (csrf) forwardHeaders.set("x-csrftoken", csrf);
+  if (csrf) fwd.set("x-csrftoken", csrf);
 
   const cookie = request.headers.get("cookie");
-  if (cookie) forwardHeaders.set("cookie", cookie);
+  if (cookie) fwd.set("cookie", cookie);
 
-  let djangoRes: Response;
+  let res: Response;
   try {
-    djangoRes = await fetch(`${DJANGO_BASE}/api/v1/upload/init/`, {
-      method:  "POST",
-      headers: forwardHeaders,
-      body:    bodyBuffer,
+    res = await fetch(`${DJANGO}/api/v1/upload/init/`, {
+      method: "POST", headers: fwd, body: bodyBuffer,
     });
   } catch (err) {
-    console.error("[upload-init-proxy] fetch failed:", err);
-    return NextResponse.json({ detail: "Could not connect to upload backend." }, { status: 502 });
+    console.error("[upload-init-proxy] Django unreachable:", err);
+    return NextResponse.json({ detail: "Upload backend unreachable." }, { status: 502 });
   }
 
-  const responseBody = await djangoRes.arrayBuffer();
-  return new NextResponse(responseBody, {
-    status:  djangoRes.status,
-    headers: { "content-type": djangoRes.headers.get("content-type") ?? "application/json" },
+  const body = await res.arrayBuffer();
+  return new NextResponse(body, {
+    status:  res.status,
+    headers: { "content-type": res.headers.get("content-type") ?? "application/json" },
   });
 }
