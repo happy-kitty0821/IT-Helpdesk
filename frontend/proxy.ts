@@ -29,9 +29,9 @@ const ROLE_FALLBACK: Record<string, string> = {
 
 const NON_STAFF_FALLBACK = "/";
 
-// ── Middleware ────────────────────────────────────────────────────────────────
+// ── Proxy ─────────────────────────────────────────────────────────────────────
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!pathname.startsWith("/admin")) return NextResponse.next();
