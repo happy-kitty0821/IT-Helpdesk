@@ -34,8 +34,19 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      { source: "/api/v1/:path*", destination: "http://127.0.0.1:8000/api/v1/:path*/" },
-      { source: "/media/:path*",  destination: "http://127.0.0.1:8000/media/:path*/" },
+      // Route Handlers at app/api/v1/upload/* handle chunked uploads.
+      // We must not have a rewrite matching /api/v1/upload/* or Next.js
+      // will proxy through the rewrite before the Route Handler is checked.
+      // Solution: use `missing` header condition that is never true for upload
+      // paths — this effectively makes the rule skip upload/* paths.
+      //
+      // The cleanest approach: two separate rules that together cover
+      // /api/v1/* EXCEPT /api/v1/upload/*.
+      {
+        source: "/api/v1/((?!upload/).*)",
+        destination: "http://127.0.0.1:8000/api/v1/$1/",
+      },
+      { source: "/media/:path*", destination: "http://127.0.0.1:8000/media/:path*/" },
     ];
   },
 };
