@@ -4144,7 +4144,7 @@ class UploadChunkView(APIView):
         if chunk_file is None:
             return Response({'detail': 'Multipart field "chunk" is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        max_chunk = 95 * 1024 * 1024
+        max_chunk = 50 * 1024 * 1024  # 50 MB (matches admin settings UI max)
         if chunk_file.size > max_chunk:
             return Response(
                 {'detail': f'Chunk too large ({chunk_file.size} bytes, max {max_chunk}).'},

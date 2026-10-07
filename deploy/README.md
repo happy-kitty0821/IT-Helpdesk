@@ -96,6 +96,34 @@ This is deployed automatically by Jenkins via the normal frontend build.
 
 ---
 
+## 5 — Diagnosing "stuck on chunk 1"
+
+If uploads appear to hang after chunk 0 completes, the causes (in order of likelihood):
+
+### 5a — `DATA_UPLOAD_MAX_MEMORY_SIZE` was too large (FIXED in settings.py)
+
+Previously set to 26 GB, which made Django's multipart parser slow before reading
+any bytes. Now set to 60 MB (covers one 50 MB chunk + overhead).
+
+### 5b — Gunicorn sync workers exhausted
+
+Sync workers handle one request at a time. If all workers are busy (SSE streams,
+other requests), chunk 1's connection queues and the XHR appears to hang.
+
+**Fix**: deploy `gunicorn.conf.py` (see step 3) which switches to `gthread` workers.
+
+### 5c — CSRF token rotation
+
+Django may issue a new CSRF token after each request. The frontend now re-fetches
+the token for every chunk (`csrfToken()` called per attempt), so this is handled.
+
+### 5d — XHR timeout
+
+Each chunk XHR now has a 60-second timeout (`xhr.timeout = 60_000`). If Django
+doesn't respond within 60 s, the chunk is retried with exponential back-off.
+
+---
+
 ## Timeout ladder summary
 
 | Hop | Timeout | Config |

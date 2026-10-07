@@ -118,11 +118,12 @@ STORAGES = {
 }
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
-# Allow up to 25 GB file uploads (software installers).  Files larger than
-# FILE_UPLOAD_MAX_MEMORY_SIZE are streamed to temporary files on disk, so
-# memory usage stays low even for very large uploads.
-DATA_UPLOAD_MAX_MEMORY_SIZE = 26 * 1024 * 1024 * 1024  # 26 GB (25 GB + overhead)
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5 MB — above this, files stream to disk
+# Chunked upload: each chunk is at most 50 MB (controlled by admin settings,
+# default 2 MB).  Django's multipart parser only sees one chunk at a time,
+# so DATA_UPLOAD_MAX_MEMORY_SIZE only needs to cover a single chunk plus
+# multipart overhead — not the total file size.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 60 * 1024 * 1024   # 60 MB — covers max 50 MB chunk + overhead
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1 * 1024 * 1024    # 1 MB — above this, files stream to temp disk (fast, low-RAM)
 
 # ── Protected file delivery ────────────────────────────────────────────────────
 # Set to True in production when Nginx is configured with an internal
