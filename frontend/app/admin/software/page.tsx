@@ -307,74 +307,74 @@ async function uploadFileInChunks(
   if (!initRes.ok) throw new Error(messageFrom(initData));
   const uploadId = String(initData.upload_id);
 
-  // ── Step 2: Upload chunks ─────────────────────────────────────────────────
+  // ── Step 2: Upload chunks via fetch (not XHR) ─────────────────────────────
+  // Using fetch so the request goes through Next.js Route Handlers
+  // (app/api/v1/upload/[upload_id]/chunk/[index]/route.ts) which correctly
+  // forward the multipart body to Django. XHR bypasses Route Handlers and
+  // hits the rewrite proxy which drops PUT bodies.
   for (let i = 0; i < totalChunks; i++) {
     const blob = file.slice(i * chunkSize, Math.min((i + 1) * chunkSize, file.size));
     onProgress({ phase: "uploading", chunksDone: i, chunksTotal: totalChunks, currentChunkPct: 0, error: "" });
 
     let lastErr: Error | null = null;
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
-        // Exponential back-off: 2s, 4s, 8s
         await new Promise<void>((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
         onProgress({ phase: "uploading", chunksDone: i, chunksTotal: totalChunks, currentChunkPct: 0, error: "" });
       }
 
       try {
-        // Re-fetch CSRF token on every attempt — the token may have rotated
-        // after the init POST or a previous chunk response.
         const chunkToken = await csrfToken();
+        const fd = new FormData();
+        fd.append("chunk", blob, `chunk-${i}`);
 
-        await new Promise<void>((resolve, reject) => {
-          const fd = new FormData();
-          fd.append("chunk", blob, `chunk-${i}`);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 60_000);
 
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", `/api/v1/upload/${uploadId}/chunk/${i}/`);
-          xhr.setRequestHeader("X-CSRFToken", chunkToken);
-          xhr.withCredentials = true;
+        let res: Response;
+        try {
+          res = await fetch(`/api/v1/upload/${uploadId}/chunk/${i}/`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "X-CSRFToken": chunkToken },
+            body: fd,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
 
-          // Hard timeout — if Django never responds (e.g. all workers busy),
-          // abort and retry rather than hanging forever.
-          // 2 MB at 0.5 Mbps = 32 s upload + 10 s Django write slack = 42 s
-          xhr.timeout = 60_000; // 60 seconds per chunk
-
-          xhr.upload.onprogress = (ev) => {
-            if (ev.lengthComputable)
-              onProgress({
-                phase: "uploading", chunksDone: i, chunksTotal: totalChunks,
-                currentChunkPct: Math.round((ev.loaded / ev.total) * 100),
-                error: "",
-              });
-          };
-
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve();
-            } else {
-              let m = `Chunk ${i} failed (HTTP ${xhr.status}).`;
-              try { m = messageFrom(JSON.parse(xhr.responseText)); } catch { /**/ }
-              reject(new Error(m));
-            }
-          };
-
-          xhr.ontimeout = () => reject(new Error(`Chunk ${i} timed out after 60s — will retry.`));
-          xhr.onerror   = () => reject(new Error(`Network error on chunk ${i}.`));
-          xhr.send(fd);
-        });
-
-        lastErr = null;
-        break; // success
+        if (res.ok) {
+          // Update progress to 100% for this chunk
+          onProgress({ phase: "uploading", chunksDone: i, chunksTotal: totalChunks, currentChunkPct: 100, error: "" });
+          lastErr = null;
+          break;
+        } else {
+          let m = `Chunk ${i} failed (HTTP ${res.status}).`;
+          try { m = messageFrom(await res.json()); } catch { /**/ }
+          // Don't retry definitive 4xx errors
+          if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+            throw new Error(m);
+          }
+          throw new Error(m);
+        }
       } catch (e) {
         lastErr = e instanceof Error ? e : new Error(String(e));
-        // Don't retry on definitive server errors (4xx except 429/408)
-        const msg = lastErr.message;
-        if (msg.includes("HTTP 4") && !msg.includes("HTTP 408") && !msg.includes("HTTP 429") && !msg.includes("HTTP 409")) {
-          break; // e.g. 403 CSRF — no point retrying
+        if (e instanceof Error && e.name === "AbortError") {
+          lastErr = new Error(`Chunk ${i} timed out — will retry.`);
+        }
+        // Don't retry on definitive 4xx
+        if (lastErr.message.includes("HTTP 4") && !lastErr.message.includes("HTTP 408") && !lastErr.message.includes("HTTP 429")) {
+          break;
         }
       }
     }
+
     if (lastErr) throw lastErr;
+
+    // Show chunk as done before moving to next
+    onProgress({ phase: "uploading", chunksDone: i + 1, chunksTotal: totalChunks, currentChunkPct: 0, error: "" });
   }
 
   // ── Step 3: Finalize ──────────────────────────────────────────────────────

@@ -586,6 +586,39 @@ class SoftwareResourceSerializer(serializers.ModelSerializer):
         except OSError:
             return 0
 
+    def create(self, validated_data):
+        """
+        Strip the write-only helper fields before creating the instance,
+        then attach the file afterwards (same logic as update).
+        """
+        import os
+        from django.conf import settings as _s
+        from django.core.files import File
+
+        new_file    = validated_data.pop('file',        None)
+        file_path   = validated_data.pop('file_path',   None)
+        validated_data.pop('remove_file', None)   # irrelevant on create
+
+        # Resolve chunked-upload path → Django File object
+        if file_path and not new_file:
+            abs_path = os.path.join(_s.MEDIA_ROOT, file_path.lstrip('/'))
+            if os.path.exists(abs_path):
+                _fh = open(abs_path, 'rb')
+                new_file = File(_fh, name=os.path.basename(abs_path))
+
+        instance = super().create(validated_data)
+
+        if new_file is not None:
+            instance.file = new_file
+            instance.save(update_fields=['file'])
+            if hasattr(new_file, 'close'):
+                try:
+                    new_file.close()
+                except Exception:
+                    pass
+
+        return instance
+
     def update(self, instance, validated_data):
         """Handle file replacement — direct upload or chunked-upload path."""
         import os
