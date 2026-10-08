@@ -525,7 +525,7 @@ export default function SoftwareManagement() {
 
       <div
         className="admin-content"
-        style={{ maxWidth: isEditorOpen ? "calc(100% - 480px - 24px)" : undefined, marginLeft: 0, marginRight: 0 }}
+        style={{ marginLeft: 0, marginRight: 0 }}
       >
         {/* ── Page header ── */}
         <header className="admin-heading">
@@ -765,13 +765,13 @@ export default function SoftwareManagement() {
           {isEditorOpen && (
             <motion.aside
               key={editing?.id ?? "new"}
-              className="editor-panel"
+              className="editor-panel guide-editor"
               initial={{ opacity: 0, x: 24, scale: 0.97 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 24 }}
               transition={{ type: "spring", stiffness: 340, damping: 32 }}
               aria-label={editing ? `Edit ${editing.name}` : "Add software"}
-              style={{ width: 460, display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 48px)" }}
+              style={{ display: "flex", flexDirection: "column" }}
             >
               {/* Panel header */}
               <header style={{
