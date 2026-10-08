@@ -2,11 +2,12 @@
 
 import {
   Activity, Bell, BookOpen, Boxes, CircleDot, Gauge,
-  Home, LayoutGrid, LoaderCircle, Megaphone, MessageSquareDashed, Settings, Shield, ShieldAlert, Siren, Users,
+  Home, LayoutGrid, LoaderCircle, Megaphone, Menu,
+  MessageSquareDashed, Settings, Shield, ShieldAlert, Siren, Users, X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   hasStaffRole, highestRole, ROLE_LABELS,
   type AuthUser, type RoleValue,
@@ -95,6 +96,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     loading: true,
     user: null,
   });
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   // Fetch current user once on mount
   useEffect(() => {
@@ -103,6 +106,26 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       .then((user) => setState({ loading: false, user }))
       .catch(() => setState({ loading: false, user: null }));
   }, []);
+
+  // Close mobile menu on route change
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
+
+  // Close mobile menu when clicking outside
+  useEffect(() => {
+    if (!mobileOpen) return;
+    function handle(e: MouseEvent) {
+      if (drawerRef.current && !drawerRef.current.contains(e.target as Node))
+        setMobileOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [mobileOpen]);
+
+  // Lock body scroll while mobile menu is open
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileOpen]);
 
   // Client-side route enforcement — second layer after middleware
   useEffect(() => {
@@ -175,6 +198,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <UploadQueueProvider>
       <div className="admin-frame">
+        {/* ── Desktop sidebar (hidden on mobile) ── */}
         <aside className="admin-sidebar">
           <Link href="/" className="admin-brand">
             <span>IIC</span>
@@ -205,12 +229,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               {roleLabel}
             </span>
             {user.category_scope && (
-              <span
-                style={{
-                  fontSize: ".7rem", color: "rgba(255,255,255,.55)",
-                  marginTop: 3, lineHeight: 1.4,
-                }}
-              >
+              <span style={{ fontSize: ".7rem", color: "rgba(255,255,255,.55)", marginTop: 3, lineHeight: 1.4 }}>
                 Scoped: {user.category_scope.join(", ")}
               </span>
             )}
@@ -218,10 +237,87 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
+        {/* ── Mobile top bar (only on ≤640px) ── */}
+        <div className="admin-mobile-bar">
+          <Link href="/" className="admin-mobile-brand">
+            <span>IIC</span>
+            <strong>IT &amp; NOC Staff Portal</strong>
+          </Link>
+          <button
+            type="button"
+            className="admin-mobile-toggle"
+            aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen((v) => !v)}
+          >
+            {mobileOpen
+              ? <X size={22} aria-hidden="true" />
+              : <Menu size={22} aria-hidden="true" />
+            }
+          </button>
+        </div>
+
         <main className="admin-main">{children}</main>
       </div>
 
-      {/* Background upload progress — visible from any admin page */}
+      {/* ── Mobile nav backdrop ── */}
+      {mobileOpen && (
+        <div
+          className="admin-mobile-backdrop"
+          aria-hidden="true"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* ── Mobile nav drawer ── */}
+      <div
+        ref={drawerRef}
+        className={`admin-mobile-drawer${mobileOpen ? " admin-mobile-drawer--open" : ""}`}
+        aria-label="Staff portal navigation"
+      >
+        {/* User identity */}
+        <div className="admin-mobile-identity">
+          <div className="admin-mobile-avatar" aria-hidden="true">
+            {user.name.charAt(0).toUpperCase()}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <strong style={{ display: "block", fontSize: ".9rem", color: "#f1f5f9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {user.name}
+            </strong>
+            <span style={{
+              display: "inline-block", borderRadius: 999,
+              padding: "1px 8px", fontSize: ".7rem", fontWeight: 800,
+              color: badge.text, background: badge.bg, marginTop: 3,
+            }}>
+              {roleLabel}
+            </span>
+          </div>
+        </div>
+
+        {/* Nav links */}
+        <nav aria-label="Staff portal navigation" style={{ flex: 1, overflow: "auto" }}>
+          {nav.map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={`admin-mobile-nav-link${pathname === href ? " active" : ""}`}
+            >
+              <Icon size={18} aria-hidden="true" />
+              {label}
+            </Link>
+          ))}
+        </nav>
+
+        {/* Footer */}
+        <div className="admin-mobile-footer">
+          <Link href="/" className="admin-mobile-nav-link" style={{ color: "#94a3b8" }}>
+            <Home size={16} aria-hidden="true" />
+            Back to public helpdesk
+          </Link>
+        </div>
+      </div>
+
+      {/* Background upload progress */}
       <UploadQueueWidget />
     </UploadQueueProvider>
   );

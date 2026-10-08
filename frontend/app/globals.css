@@ -1940,3 +1940,142 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
   .mobile-nav-drawer  { transition: none; }
   .mobile-nav-backdrop { animation: none; }
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   ADMIN SHELL — MOBILE NAVIGATION
+   The existing desktop sidebar (admin-frame / admin-sidebar) is kept intact
+   above 640px. Below 640px we show a top bar + slide-in drawer instead.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Mobile top bar — hidden on desktop */
+.admin-mobile-bar { display: none; }
+
+/* Mobile drawer — hidden on desktop */
+.admin-mobile-drawer { display: none; }
+
+/* Mobile backdrop — hidden on desktop */
+.admin-mobile-backdrop { display: none; }
+
+@media (max-width: 640px) {
+
+  /* ── Override the old horizontal icon-bar behaviour ── */
+  .admin-frame { display: flex; flex-direction: column; }
+  .admin-sidebar { display: none; }   /* hide desktop sidebar entirely */
+
+  /* ── Mobile top bar ── */
+  .admin-mobile-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    height: 56px;
+    background: #101b34; color: #fff;
+    padding: 0 16px;
+    position: sticky; top: 0; z-index: 30;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,.1);
+  }
+
+  .admin-mobile-brand {
+    display: flex; align-items: center; gap: 10px;
+    color: #fff; text-decoration: none; min-width: 0;
+  }
+  .admin-mobile-brand > span {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: #fff; color: #234395;
+    font-weight: 900; font-size: .78rem;
+    display: grid; place-items: center; flex-shrink: 0;
+  }
+  .admin-mobile-brand strong {
+    font-size: .82rem; font-weight: 750; color: #e2e8f0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .admin-mobile-toggle {
+    width: 38px; height: 38px; border-radius: 9px;
+    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
+    color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: background 120ms;
+  }
+  .admin-mobile-toggle:hover { background: rgba(255,255,255,.18); }
+
+  /* ── Main content fills remaining height ── */
+  .admin-main { flex: 1; min-width: 0; overflow-x: hidden; }
+
+  /* ── Backdrop ── */
+  .admin-mobile-backdrop {
+    display: block;
+    position: fixed; inset: 0; z-index: 38;
+    background: rgba(10, 16, 32, .6);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: admin-fade-in 180ms ease forwards;
+  }
+  @keyframes admin-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* ── Drawer ── */
+  .admin-mobile-drawer {
+    display: flex; flex-direction: column;
+    position: fixed; inset: 0 0 0 auto;
+    width: min(300px, 85vw);
+    z-index: 39;
+    background: #101b34; color: #fff;
+    transform: translateX(105%);
+    transition: transform 240ms cubic-bezier(0.32, 0.72, 0, 1);
+    visibility: hidden;
+    overflow: hidden;
+  }
+  .admin-mobile-drawer--open {
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  /* Identity block at the top of the drawer */
+  .admin-mobile-identity {
+    display: flex; align-items: center; gap: 12px;
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid rgba(255,255,255,.12);
+    flex-shrink: 0;
+  }
+  .admin-mobile-avatar {
+    width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+    background: #234395; color: #fff;
+    font-size: 1rem; font-weight: 900;
+    display: grid; place-items: center;
+  }
+
+  /* Individual nav links inside the drawer */
+  .admin-mobile-nav-link {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px;
+    font-size: .88rem; font-weight: 600; color: #94a3b8;
+    text-decoration: none; border: none; background: none;
+    font-family: inherit; cursor: pointer; width: 100%; text-align: left;
+    transition: background 110ms, color 110ms;
+    border-left: 3px solid transparent;
+  }
+  .admin-mobile-nav-link:hover {
+    background: rgba(255,255,255,.08); color: #fff;
+  }
+  .admin-mobile-nav-link.active {
+    background: rgba(99,102,241,.18); color: #c7d2fe;
+    border-left-color: #818cf8;
+  }
+  .admin-mobile-nav-link svg { flex-shrink: 0; }
+
+  /* Footer at the bottom of the drawer */
+  .admin-mobile-footer {
+    border-top: 1px solid rgba(255,255,255,.12);
+    padding: 8px 0 12px;
+    flex-shrink: 0;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .admin-mobile-drawer    { transition: none; }
+  .admin-mobile-backdrop  { animation: none; }
+}
