@@ -11,6 +11,8 @@ import {
   hasStaffRole, highestRole, ROLE_LABELS,
   type AuthUser, type RoleValue,
 } from "@/lib/auth";
+import { UploadQueueProvider } from "@/lib/upload-queue";
+import { UploadQueueWidget } from "@/components/upload-queue-widget";
 
 // ── Nav item definition ───────────────────────────────────────────────────────
 
@@ -171,51 +173,56 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const nav       = visibleNav(user);
 
   return (
-    <div className="admin-frame">
-      <aside className="admin-sidebar">
-        <Link href="/" className="admin-brand">
-          <span>IIC</span>
-          <div>
-            <strong>IT &amp; NOC</strong>
-            <small>Staff Portal</small>
-          </div>
-        </Link>
+    <UploadQueueProvider>
+      <div className="admin-frame">
+        <aside className="admin-sidebar">
+          <Link href="/" className="admin-brand">
+            <span>IIC</span>
+            <div>
+              <strong>IT &amp; NOC</strong>
+              <small>Staff Portal</small>
+            </div>
+          </Link>
 
-        <nav aria-label="Staff portal navigation">
-          {nav.map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href} className={pathname === href ? "active" : ""}>
-              <Icon aria-hidden="true" />
-              {label}
-            </Link>
-          ))}
-        </nav>
+          <nav aria-label="Staff portal navigation">
+            {nav.map(({ href, label, icon: Icon }) => (
+              <Link key={href} href={href} className={pathname === href ? "active" : ""}>
+                <Icon aria-hidden="true" />
+                {label}
+              </Link>
+            ))}
+          </nav>
 
-        <div className="admin-user">
-          <strong>{user.name}</strong>
-          <span
-            style={{
-              display: "inline-block", borderRadius: 999,
-              padding: "2px 9px", fontSize: ".72rem", fontWeight: 800,
-              color: badge.text, background: badge.bg, marginTop: 2,
-            }}
-          >
-            {roleLabel}
-          </span>
-          {user.category_scope && (
+          <div className="admin-user">
+            <strong>{user.name}</strong>
             <span
               style={{
-                fontSize: ".7rem", color: "rgba(255,255,255,.55)",
-                marginTop: 3, lineHeight: 1.4,
+                display: "inline-block", borderRadius: 999,
+                padding: "2px 9px", fontSize: ".72rem", fontWeight: 800,
+                color: badge.text, background: badge.bg, marginTop: 2,
               }}
             >
-              Scoped: {user.category_scope.join(", ")}
+              {roleLabel}
             </span>
-          )}
-          <Link href="/"><Home aria-hidden="true" /> Public helpdesk</Link>
-        </div>
-      </aside>
+            {user.category_scope && (
+              <span
+                style={{
+                  fontSize: ".7rem", color: "rgba(255,255,255,.55)",
+                  marginTop: 3, lineHeight: 1.4,
+                }}
+              >
+                Scoped: {user.category_scope.join(", ")}
+              </span>
+            )}
+            <Link href="/"><Home aria-hidden="true" /> Public helpdesk</Link>
+          </div>
+        </aside>
 
-      <main className="admin-main">{children}</main>
-    </div>
+        <main className="admin-main">{children}</main>
+      </div>
+
+      {/* Background upload progress — visible from any admin page */}
+      <UploadQueueWidget />
+    </UploadQueueProvider>
   );
 }
