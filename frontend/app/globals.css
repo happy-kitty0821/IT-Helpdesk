@@ -1634,3 +1634,175 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
 .dash-action-desc  { margin: 0; font-size: .76rem; color: #64748b; line-height: 1.4; }
 .dash-action-arrow { color: #94a3b8; flex-shrink: 0; }
 .dash-action:hover .dash-action-arrow { color: #4338ca; }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE ADDITIONS
+   Added below all existing rules so nothing above is affected.
+   Each block targets only classes that lacked mobile overrides.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Admin Dashboard — recent tickets row collapses on narrow screens ─── */
+@media (max-width: 700px) {
+  .dash-recent-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  /* Hide the "elapsed" column (4th child) on very small screens */
+  .dash-recent-row > *:nth-child(4) { display: none; }
+}
+@media (max-width: 500px) {
+  .dash-recent-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  /* Also hide status column (3rd child) — just show name + priority */
+  .dash-recent-row > *:nth-child(3),
+  .dash-recent-row > *:nth-child(4),
+  .dash-recent-row > *:nth-child(5) { display: none; }
+}
+
+/* ── 2. Content table — add horizontal scroll at tablet width too ─────────── */
+/* The existing 640px rule adds overflow-x, but between 641–899px tables      */
+/* can still be tight. Add the scroll wrapper earlier.                         */
+@media (max-width: 900px) {
+  .content-table { overflow-x: auto; }
+  .sw-table .table-head,
+  .sw-table article { min-width: 700px; }
+}
+
+/* ── 3. Service editor panel — full-screen drawer on mobile ─────────────── */
+/* .svc-editor has no responsive override at all in the original CSS.         */
+@media (max-width: 640px) {
+  .svc-editor {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+    border-left: none;
+  }
+  /* Inner 2-column grids inside the service editor form */
+  .ep-row-2 { grid-template-columns: 1fr; }
+}
+
+/* ── 4. Admin ticket queue panel — full-screen drawer on mobile ───────────── */
+/* .atq-panel has no responsive override at all in the original CSS.           */
+@media (max-width: 768px) {
+  .atq-panel {
+    width: 100vw;
+    right: 0;
+    border-radius: 0;
+  }
+}
+@media (max-width: 640px) {
+  .atq-panel {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+  }
+  /* Collapse 2-column grids inside the ATQ panel */
+  .atq-form { grid-template-columns: 1fr; }
+}
+
+/* ── 5. Service grid — remove excess right-padding when panel is open ──────── */
+/* .svc-panel-open .svc-grid uses padding-right: 460px which is too much       */
+/* on viewports below ~900px.                                                  */
+@media (max-width: 900px) {
+  .svc-panel-open .svc-grid { padding-right: 0; }
+}
+
+/* ── 6. Admin sidebar at tablet — 84px icon-only mode is very tight          */
+/* The existing 900px block already narrows it to 84px. Add a smooth touch.   */
+@media (max-width: 900px) and (min-width: 641px) {
+  .admin-sidebar { overflow-x: hidden; }
+  .admin-sidebar nav a { justify-content: center; padding-inline: 0; }
+}
+
+/* ── 7. Ticket queue table — make rows scrollable between 641–899px ─────── */
+@media (max-width: 900px) {
+  .atq-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* ── 8. Auth aside panel — hide on smaller tablets, show only the form ───── */
+@media (max-width: 768px) {
+  .auth-aside { display: none; }
+  .auth-page { grid-template-columns: 1fr; justify-content: stretch; }
+}
+
+/* ── 9. Hero section — reduce padding on narrow phones ───────────────────── */
+@media (max-width: 400px) {
+  .hero { padding-block: 40px 32px; }
+  .quick-panel { padding: 22px 18px; }
+  .quick-panel h2 { font-size: 1.55rem; }
+}
+
+/* ── 10. Admin heading — tighter on very small phones ───────────────────── */
+@media (max-width: 400px) {
+  .admin-heading h1 { font-size: 1.9rem; }
+  .admin-content { padding-block: 20px 48px; }
+}
+
+/* ── 11. Ticket detail — description and extra fields on mobile ─────────── */
+@media (max-width: 640px) {
+  .td-extra-row { grid-template-columns: 1fr; gap: 2px; }
+  .td-extra-row dt { font-size: .78rem; }
+  .ticket-detail-page { padding-block: 24px 60px; }
+  .td-hero { padding: 20px 0; }
+}
+
+/* ── 12. Service card grid — single column on small phones ──────────────── */
+@media (max-width: 400px) {
+  .service-grid { grid-template-columns: 1fr; }
+}
+
+/* ── 13. Upload queue widget — narrower on mobile ───────────────────────── */
+/* The widget is rendered inline with width: 320px. On a 375px phone         */
+/* that is fine, but on a 320px phone it can clip.                            */
+@media (max-width: 360px) {
+  /* The widget width is set inline; clamp it with a CSS custom property      */
+  /* override that applies to any element using that width.                   */
+  .upload-queue-widget-inner { width: calc(100vw - 32px) !important; }
+}
+
+/* ── 14. Announcement modal — already has 640px but needs a 400px polish ─── */
+@media (max-width: 400px) {
+  .ann-card { padding: 16px 14px 18px; }
+  .ann-centering { padding: 4px; }
+}
+
+/* ── 15. Software list on catalog page — already 1fr at 640px via inline     */
+/* styles, but the article inner layout can be tight on phones.               */
+@media (max-width: 640px) {
+  .software-list article { align-items: flex-start; }
+  /* Buttons stack below content rather than floating right */
+  .software-list article > .primary-button,
+  .software-list article > .secondary-button { width: 100%; justify-content: center; }
+}
+
+/* ── 16. Guide library meta row — wraps on small screens ────────────────── */
+@media (max-width: 640px) {
+  .guide-file-meta { flex-direction: column; gap: 4px; align-items: flex-start; }
+  .guide-row-copy { min-width: 0; }
+}
+
+/* ── 17. Notification routing table — ensure it scrolls on all phones ────── */
+@media (max-width: 640px) {
+  .notif-routing-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* ── 18. Svc-tab-bar — allow horizontal scroll on very narrow screens ─────── */
+@media (max-width: 400px) {
+  .svc-tab-bar { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 12px; }
+  .svc-tab { padding: 10px 12px; font-size: .78rem; flex-shrink: 0; }
+}
+
+/* ── 19. Admin ticket queue filters — stack on mobile ───────────────────── */
+@media (max-width: 640px) {
+  .atq-filters { flex-direction: column; align-items: stretch; }
+  .atq-filters > * { width: 100%; }
+}
+
+/* ── 20. Dashboard action grid — single column on phones ────────────────── */
+@media (max-width: 500px) {
+  .dash-actions-grid { grid-template-columns: 1fr; }
+  .dash-metrics-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+}
