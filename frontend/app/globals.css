@@ -1942,48 +1942,71 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
 }
 
 
+
 /* ════════════════════════════════════════════════════════════════════════════
-   ADMIN SHELL — MOBILE NAVIGATION
-   The existing desktop sidebar (admin-frame / admin-sidebar) is kept intact
-   above 640px. Below 640px we show a top bar + slide-in drawer instead.
+   ADMIN SHELL — MOBILE NAVIGATION (≤768px)
+   ────────────────────────────────────────
+   Breakpoint is 768px (not 640px) so landscape phones and small tablets
+   also get the mobile layout instead of the cramped 84px icon-only sidebar.
+
+   Strategy:
+   • ≥769px  — desktop sidebar unchanged (250px at 900px+, 84px icon-only 641–900px)
+   • ≤768px  — sidebar hidden; sticky dark top bar + slide-in drawer from right
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* Mobile top bar — hidden on desktop */
-.admin-mobile-bar { display: none; }
-
-/* Mobile drawer — hidden on desktop */
-.admin-mobile-drawer { display: none; }
-
-/* Mobile backdrop — hidden on desktop */
+/* ── Hidden on desktop by default ─────────────────────────────────────────── */
+.admin-mobile-bar      { display: none; }
+.admin-mobile-drawer   { display: none; }
 .admin-mobile-backdrop { display: none; }
 
-@media (max-width: 640px) {
+/* ── Mobile overrides ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
 
-  /* ── Override the old horizontal icon-bar behaviour ── */
-  .admin-frame { display: flex; flex-direction: column; }
-  .admin-sidebar { display: none; }   /* hide desktop sidebar entirely */
+  /* Stack frame vertically: top-bar on top, main content below */
+  .admin-frame {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: none !important;
+  }
 
-  /* ── Mobile top bar ── */
+  /* Hide the desktop sidebar entirely */
+  .admin-sidebar { display: none !important; }
+
+  /* Main content fills the rest of the screen */
+  .admin-main { flex: 1; min-width: 0; overflow-x: hidden; }
+
+  /* ── Sticky top bar ── */
   .admin-mobile-bar {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 12px;
     height: 56px;
-    background: #101b34; color: #fff;
+    background: #101b34;
+    color: #fff;
     padding: 0 16px;
-    position: sticky; top: 0; z-index: 30;
+    position: sticky;
+    top: 0;
+    z-index: 30;
     flex-shrink: 0;
     border-bottom: 1px solid rgba(255,255,255,.1);
   }
 
   .admin-mobile-brand {
-    display: flex; align-items: center; gap: 10px;
-    color: #fff; text-decoration: none; min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #fff;
+    text-decoration: none;
+    min-width: 0;
+    overflow: hidden;
   }
   .admin-mobile-brand > span {
-    width: 32px; height: 32px; border-radius: 8px;
+    width: 34px; height: 34px; border-radius: 8px;
     background: #fff; color: #234395;
-    font-weight: 900; font-size: .78rem;
-    display: grid; place-items: center; flex-shrink: 0;
+    font-weight: 900; font-size: .76rem;
+    display: grid; place-items: center;
+    flex-shrink: 0;
   }
   .admin-mobile-brand strong {
     font-size: .82rem; font-weight: 750; color: #e2e8f0;
@@ -1991,40 +2014,47 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
   }
 
   .admin-mobile-toggle {
-    width: 38px; height: 38px; border-radius: 9px;
-    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18);
+    width: 40px; height: 40px; border-radius: 9px;
+    background: rgba(255,255,255,.1);
+    border: 1px solid rgba(255,255,255,.18);
     color: #fff; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; transition: background 120ms;
+    flex-shrink: 0;
+    transition: background 120ms;
   }
-  .admin-mobile-toggle:hover { background: rgba(255,255,255,.18); }
-
-  /* ── Main content fills remaining height ── */
-  .admin-main { flex: 1; min-width: 0; overflow-x: hidden; }
+  .admin-mobile-toggle:hover,
+  .admin-mobile-toggle:focus-visible {
+    background: rgba(255,255,255,.2);
+    outline: none;
+  }
 
   /* ── Backdrop ── */
   .admin-mobile-backdrop {
     display: block;
-    position: fixed; inset: 0; z-index: 38;
-    background: rgba(10, 16, 32, .6);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
-    animation: admin-fade-in 180ms ease forwards;
+    position: fixed; inset: 0;
+    z-index: 38;
+    background: rgba(10, 16, 32, .65);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    animation: admin-backdrop-in 200ms ease forwards;
   }
-  @keyframes admin-fade-in {
+  @keyframes admin-backdrop-in {
     from { opacity: 0; }
     to   { opacity: 1; }
   }
 
-  /* ── Drawer ── */
+  /* ── Drawer panel ── */
   .admin-mobile-drawer {
-    display: flex; flex-direction: column;
-    position: fixed; inset: 0 0 0 auto;
-    width: min(300px, 85vw);
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0; right: 0; bottom: 0; left: auto;
+    width: min(300px, 88vw);
     z-index: 39;
-    background: #101b34; color: #fff;
+    background: #101b34;
+    color: #fff;
     transform: translateX(105%);
-    transition: transform 240ms cubic-bezier(0.32, 0.72, 0, 1);
+    transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
     visibility: hidden;
     overflow: hidden;
   }
@@ -2033,93 +2063,119 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
     visibility: visible;
   }
 
-  /* Identity block at the top of the drawer */
+  /* User identity block */
   .admin-mobile-identity {
     display: flex; align-items: center; gap: 12px;
-    padding: 18px 16px 14px;
+    padding: 20px 16px 16px;
     border-bottom: 1px solid rgba(255,255,255,.12);
     flex-shrink: 0;
   }
   .admin-mobile-avatar {
-    width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+    width: 42px; height: 42px; border-radius: 11px;
     background: #234395; color: #fff;
-    font-size: 1rem; font-weight: 900;
+    font-size: 1.1rem; font-weight: 900;
     display: grid; place-items: center;
+    flex-shrink: 0;
   }
 
-  /* Individual nav links inside the drawer */
+  /* Nav links inside the drawer */
   .admin-mobile-nav-link {
-    display: flex; align-items: center; gap: 12px;
-    padding: 13px 16px;
-    font-size: .88rem; font-weight: 600; color: #94a3b8;
-    text-decoration: none; border: none; background: none;
-    font-family: inherit; cursor: pointer; width: 100%; text-align: left;
-    transition: background 110ms, color 110ms;
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    font-size: .9rem !important;
+    font-weight: 600;
+    color: #94a3b8 !important;
+    text-decoration: none;
+    border: none;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
     border-left: 3px solid transparent;
+    transition: background 110ms, color 110ms;
   }
-  .admin-mobile-nav-link:hover {
-    background: rgba(255,255,255,.08); color: #fff;
+  .admin-mobile-nav-link:hover,
+  .admin-mobile-nav-link:focus-visible {
+    background: rgba(255,255,255,.08);
+    color: #fff !important;
+    outline: none;
   }
   .admin-mobile-nav-link.active {
-    background: rgba(99,102,241,.18); color: #c7d2fe;
+    background: rgba(99,102,241,.2);
+    color: #c7d2fe !important;
     border-left-color: #818cf8;
   }
   .admin-mobile-nav-link svg { flex-shrink: 0; }
 
+  /* Scrollable nav area */
+  .admin-mobile-drawer nav {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0 !important;
+    padding: 8px 0 !important;
+    margin: 0 !important;
+    font-size: inherit !important;
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
   /* Footer at the bottom of the drawer */
   .admin-mobile-footer {
     border-top: 1px solid rgba(255,255,255,.12);
-    padding: 8px 0 12px;
+    padding: 6px 0 16px;
     flex-shrink: 0;
+  }
+  .admin-mobile-footer .admin-mobile-nav-link {
+    color: #64748b !important;
+    font-size: .84rem !important;
+  }
+  .admin-mobile-footer .admin-mobile-nav-link:hover {
+    color: #94a3b8 !important;
+  }
+
+  /* Tighter admin content padding on mobile */
+  .admin-content {
+    width: min(100% - 24px, 1280px) !important;
+    padding-block: 24px 48px !important;
+  }
+  .admin-heading {
+    align-items: flex-start !important;
+    flex-direction: column !important;
   }
 }
 
-/* Reduced motion */
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .admin-mobile-drawer    { transition: none; }
-  .admin-mobile-backdrop  { animation: none; }
+  .admin-mobile-drawer   { transition: none; }
+  .admin-mobile-backdrop { animation: none; }
 }
-
 
 /* ════════════════════════════════════════════════════════════════════════════
-   MOBILE NAV DRAWERS — CRITICAL FIX (public header + admin shell)
-
-   The global rule at max-width:900px:
-     nav > a:not(.nav-action) { display: none; }
-   was written to hide desktop nav links on tablet/mobile. But it targets
-   ANY <nav> element, including the ones inside our mobile drawers — so
-   every <a> link inside both drawers gets hidden, leaving only <button>
-   elements (Sign out) visible.
-
-   These overrides use higher specificity + !important to reverse that for
-   both drawers. They must stay at the very end of the file.
+   GLOBAL NAV RULE FIX — both mobile drawers
+   ────────────────────────────────────────────────────────────────────────────
+   `nav > a:not(.nav-action) { display: none }` at max-width:900px hides
+   every <a> inside ANY <nav>, including our mobile drawers.
+   These overrides must remain last in the file.
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* ── Public site header mobile drawer ── */
-.mobile-nav-drawer nav a.mobile-nav-link {
-  display: flex !important;
-}
+/* Public site header drawer */
 .mobile-nav-drawer nav {
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
   gap: 0 !important;
 }
+.mobile-nav-drawer nav a.mobile-nav-link {
+  display: flex !important;
+}
 
-/* ── Admin shell mobile drawer ── */
-.admin-mobile-drawer nav a.admin-mobile-nav-link {
-  display: flex !important;
-}
-.admin-mobile-drawer nav {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
-  gap: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  font-size: inherit !important; /* undo font-size:0 from icon-only mode */
-}
-/* Also fix the footer link in the admin drawer */
+/* Admin shell drawer — already handled with !important above,
+   but repeat here for the footer link which is outside the nav */
 .admin-mobile-footer a.admin-mobile-nav-link {
   display: flex !important;
 }

@@ -325,7 +325,12 @@ export default function UserManagement() {
   // Render
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="admin-content" style={{ paddingRight: editing ? 500 : undefined, transition: "padding-right 280ms ease" }}>
+    <div className="admin-content" style={{
+      maxWidth:    editing ? "calc(100% - 500px - 24px)" : undefined,
+      marginLeft:  editing ? 0 : undefined,
+      marginRight: editing ? 0 : undefined,
+      transition:  "max-width 280ms ease",
+    }}>
 
       {/* ── Page header ── */}
       <header className="admin-heading">

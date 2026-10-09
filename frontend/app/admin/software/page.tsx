@@ -525,7 +525,6 @@ export default function SoftwareManagement() {
 
       <div
         className="admin-content"
-        style={{ marginLeft: 0, marginRight: 0 }}
       >
         {/* ── Page header ── */}
         <header className="admin-heading">

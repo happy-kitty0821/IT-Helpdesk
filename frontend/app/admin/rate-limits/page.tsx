@@ -278,7 +278,12 @@ export default function RateLimitsPage() {
   const ruleEditorOpen = editingRule !== null || creatingRule;
 
   return (
-    <div className="admin-content" style={{ paddingRight: ruleEditorOpen ? 500 : undefined, transition: "padding-right 280ms ease" }}>
+    <div className="admin-content" style={{
+      maxWidth:    ruleEditorOpen ? "calc(100% - 500px - 24px)" : undefined,
+      marginLeft:  ruleEditorOpen ? 0 : undefined,
+      marginRight: ruleEditorOpen ? 0 : undefined,
+      transition:  "max-width 280ms ease",
+    }}>
 
       {/* ── Page header ── */}
       <header className="admin-heading">

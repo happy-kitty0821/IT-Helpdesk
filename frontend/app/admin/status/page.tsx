@@ -146,9 +146,10 @@ export default function AdminStatusPage() {
     <div
       className="admin-content"
       style={{
-        maxWidth:      isOpen ? "calc(100% - 480px - 24px)" : undefined,
-        marginLeft:    0,
-        marginRight:   0,
+        maxWidth:    isOpen ? "calc(100% - 480px - 24px)" : undefined,
+        marginLeft:  isOpen ? 0 : undefined,
+        marginRight: isOpen ? 0 : undefined,
+        transition:  "max-width 280ms ease",
       }}
     >
       <header className="admin-heading">
