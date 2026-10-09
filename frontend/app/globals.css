@@ -2079,3 +2079,47 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
   .admin-mobile-drawer    { transition: none; }
   .admin-mobile-backdrop  { animation: none; }
 }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   MOBILE NAV DRAWERS — CRITICAL FIX (public header + admin shell)
+
+   The global rule at max-width:900px:
+     nav > a:not(.nav-action) { display: none; }
+   was written to hide desktop nav links on tablet/mobile. But it targets
+   ANY <nav> element, including the ones inside our mobile drawers — so
+   every <a> link inside both drawers gets hidden, leaving only <button>
+   elements (Sign out) visible.
+
+   These overrides use higher specificity + !important to reverse that for
+   both drawers. They must stay at the very end of the file.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Public site header mobile drawer ── */
+.mobile-nav-drawer nav a.mobile-nav-link {
+  display: flex !important;
+}
+.mobile-nav-drawer nav {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+}
+
+/* ── Admin shell mobile drawer ── */
+.admin-mobile-drawer nav a.admin-mobile-nav-link {
+  display: flex !important;
+}
+.admin-mobile-drawer nav {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-size: inherit !important; /* undo font-size:0 from icon-only mode */
+}
+/* Also fix the footer link in the admin drawer */
+.admin-mobile-footer a.admin-mobile-nav-link {
+  display: flex !important;
+}
