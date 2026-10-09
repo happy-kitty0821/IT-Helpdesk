@@ -132,6 +132,21 @@ function formatKey(key: string) {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatEvtValue(value: string, action: string): string {
+  if (!value) return value;
+  const PRIORITY_MAP: Record<string, string> = {
+    p1: "Critical", p2: "High", p3: "Normal", p4: "Low",
+  };
+  if (action === "priority_changed" && PRIORITY_MAP[value]) return PRIORITY_MAP[value];
+  const STATUS_MAP: Record<string, string> = {
+    submitted: "Submitted", triaged: "Triaged", in_progress: "In Progress",
+    waiting_requester: "Waiting for requester", waiting_approval: "Awaiting approval",
+    resolved: "Resolved", closed: "Closed", cancelled: "Cancelled",
+  };
+  if (action === "status_changed" && STATUS_MAP[value]) return STATUS_MAP[value];
+  return value;
+}
+
 function messageFrom(data: unknown): string {
   if (data && typeof data === "object") {
     const r = data as Record<string, unknown>;
@@ -1382,9 +1397,9 @@ export default function AdminTicketsPage() {
                             </div>
                             {(evt.old_value || evt.new_value) && (
                               <p style={{ margin: "3px 0 0", fontSize: ".76rem", color: "#64748b" }}>
-                                {evt.old_value && <span style={{ textDecoration: "line-through", opacity: 0.6 }}>{evt.old_value}</span>}
+                                {evt.old_value && <span style={{ textDecoration: "line-through", opacity: 0.6 }}>{formatEvtValue(evt.old_value, evt.action)}</span>}
                                 {evt.old_value && evt.new_value && <span style={{ margin: "0 5px" }}>→</span>}
-                                {evt.new_value && <strong style={{ color: "#234395" }}>{evt.new_value}</strong>}
+                                {evt.new_value && <strong style={{ color: "#234395" }}>{formatEvtValue(evt.new_value, evt.action)}</strong>}
                               </p>
                             )}
                             {evt.note && (

@@ -4263,3 +4263,111 @@ class FinalizeChunkedUploadView(APIView):
         upload.cleanup_chunks()
 
         return Response({'final_path': dest_relative}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Requester ticket priority promotion
+# ---------------------------------------------------------------------------
+
+
+class TicketPriorityView(APIView):
+    """
+    POST /api/v1/tickets/{pk}/priority/
+
+    Allows a ticket's requester to promote (escalate) its priority.
+
+    Rules
+    ─────
+    • Only the ticket's own requester may call this endpoint.
+    • Priority can only be promoted (increased urgency), not demoted.
+      p4 (Low) → p3 (Normal) → p2 (High) → p1 (Critical)
+    • The ticket must be in an active, non-terminal status:
+      submitted, triaged, in_progress, or waiting_requester.
+    • The requester may promote at most once per priority level — once the
+      ticket is already at Critical (p1) no further promotion is possible.
+
+    Body
+    ────
+    { "priority": "p1" | "p2" | "p3" | "p4",
+      "reason": "optional explanation shown in the history" }
+
+    Response
+    ────────
+    Full TicketSerializer representation of the updated ticket.
+
+    The priority change is recorded as a PRIORITY_CHANGED TicketEvent
+    automatically by the post_save signal.  The actor is set to the
+    requesting user so the history tab shows who changed it.
+    """
+
+    # Priority order — higher index = higher urgency
+    _PRIORITY_ORDER = ['p4', 'p3', 'p2', 'p1']
+    _PRIORITY_LABELS = {'p1': 'Critical', 'p2': 'High', 'p3': 'Normal', 'p4': 'Low'}
+
+    # Statuses from which a requester may promote priority
+    _PROMOTABLE_STATUSES = {
+        Ticket.Status.SUBMITTED,
+        Ticket.Status.TRIAGED,
+        Ticket.Status.IN_PROGRESS,
+        Ticket.Status.WAITING_REQUESTER,
+    }
+
+    def post(self, request, pk):
+        from uuid import UUID
+
+        # ── Look up ticket ────────────────────────────────────────────────
+        try:
+            ticket = Ticket.objects.select_related('requester').get(pk=UUID(str(pk)))
+        except (Ticket.DoesNotExist, ValueError):
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # ── Only the requester may call this ──────────────────────────────
+        if ticket.requester_id != request.user.pk:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # ── Ticket must be in a promotable status ─────────────────────────
+        if ticket.status not in self._PROMOTABLE_STATUSES:
+            return Response(
+                {'detail': f'Priority cannot be changed while the ticket is {ticket.get_status_display()}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Validate the requested priority ──────────────────────────────
+        new_priority = str(request.data.get('priority', '')).strip()
+        if new_priority not in self._PRIORITY_ORDER:
+            return Response(
+                {'priority': [f'Invalid priority. Choose from: {", ".join(self._PRIORITY_ORDER)}.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Must be a promotion (higher urgency), not a demotion ──────────
+        current_idx = self._PRIORITY_ORDER.index(ticket.priority)
+        new_idx     = self._PRIORITY_ORDER.index(new_priority)
+
+        if new_idx <= current_idx:
+            current_label = self._PRIORITY_LABELS[ticket.priority]
+            return Response(
+                {
+                    'detail': (
+                        f'You can only increase the urgency of your request. '
+                        f'The current priority is {current_label}.'
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Apply the change ──────────────────────────────────────────────
+        reason = str(request.data.get('reason', '')).strip()[:500]
+
+        # Set the event actor so the history tab shows the requester's name
+        ticket._event_actor = request.user
+        ticket.priority = new_priority
+        if reason:
+            # Store the reason as a note — we abuse status_reason momentarily
+            # but immediately restore it so it doesn't overwrite a staff note.
+            # Instead, attach as a temporary attribute read by the signal.
+            ticket._priority_change_reason = reason
+
+        ticket.save(update_fields=['priority', 'updated_at'])
+
+        return Response(TicketSerializer(ticket).data)

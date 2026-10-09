@@ -462,12 +462,14 @@ def record_ticket_event(sender, instance, created, **kwargs):
             ))
 
         if old_priority is not None and old_priority != instance.priority:
+            priority_note = getattr(instance, '_priority_change_reason', '') or note
             events.append(TicketEvent(
                 ticket    = instance,
                 actor     = actor,
                 action    = TicketEvent.Action.PRIORITY_CHANGED,
                 old_value = old_priority,
                 new_value = instance.priority,
+                note      = priority_note[:500],
             ))
 
         if old_stage is not None and old_stage != instance.current_stage:

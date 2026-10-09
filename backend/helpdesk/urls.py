@@ -78,6 +78,7 @@ from .views import (
     InitChunkedUploadView,
     UploadChunkView,
     FinalizeChunkedUploadView,
+    TicketPriorityView,
 )
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -177,6 +178,7 @@ urlpatterns = [
 
     # Ticket feedback
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/feedback/?$',           TicketFeedbackView.as_view(),             name='ticket-feedback'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/priority/?$',           TicketPriorityView.as_view(),             name='ticket-priority'),
     re_path(r'^admin/feedback/?$',                                 AdminFeedbackListView.as_view(),          name='admin-feedback-list'),
 
     # Chunked file uploads (bypass Cloudflare 100 MB body limit)

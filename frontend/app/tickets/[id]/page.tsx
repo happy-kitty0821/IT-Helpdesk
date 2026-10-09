@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft, Calendar, CheckCircle2, ChevronRight, CircleDot,
-  Clock, History, Info, MessageSquare, Send, Star, Tag, User, Wifi, WifiOff, XCircle,
+  Clock, History, Info, MessageSquare, Send, Star, Tag, TrendingUp, User, Wifi, WifiOff, XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -217,14 +217,16 @@ function EventTimeline({ events }: { events: TicketEvent[] }) {
                   <p style={{ margin: "4px 0 0", fontSize: ".8rem", color: "var(--muted)" }}>
                     {evt.old_value && (
                       <span style={{ textDecoration: "line-through", opacity: 0.6 }}>
-                        {evt.old_value}
+                        {formatEventValue(evt.old_value, evt.action)}
                       </span>
                     )}
                     {evt.old_value && evt.new_value && (
                       <span style={{ margin: "0 6px" }}>→</span>
                     )}
                     {evt.new_value && (
-                      <strong style={{ color: "var(--brand)" }}>{evt.new_value}</strong>
+                      <strong style={{ color: "var(--brand)" }}>
+                        {formatEventValue(evt.new_value, evt.action)}
+                      </strong>
                     )}
                   </p>
                 )}
@@ -245,7 +247,29 @@ function EventTimeline({ events }: { events: TicketEvent[] }) {
   );
 }
 
-// ── Visual progress tracker ────────────────────────────────────────────────
+function formatEventValue(value: string, action: string): string {
+  if (!value) return value;
+
+  // Priority keys → human labels
+  const PRIORITY_MAP: Record<string, string> = {
+    p1: "Critical", p2: "High", p3: "Normal", p4: "Low",
+  };
+  if (action === "priority_changed" && PRIORITY_MAP[value]) {
+    return PRIORITY_MAP[value];
+  }
+
+  // Status keys → human labels
+  const STATUS_MAP: Record<string, string> = {
+    submitted: "Submitted", triaged: "Triaged", in_progress: "In Progress",
+    waiting_requester: "Waiting for requester", waiting_approval: "Awaiting approval",
+    resolved: "Resolved", closed: "Closed", cancelled: "Cancelled",
+  };
+  if (action === "status_changed" && STATUS_MAP[value]) {
+    return STATUS_MAP[value];
+  }
+
+  return value;
+}
 
 function ProgressTracker({ stages, currentStage }: { stages: ServiceStage[]; currentStage: string }) {
   if (!stages.length) return null;
@@ -538,6 +562,13 @@ export default function TicketDetailPage() {
   const [feedbackDone, setFeedbackDone] = useState(false);
   const [existingFeedback, setExistingFeedback] = useState<{ rating: number; comment: string } | null>(null);
 
+  // Priority promotion state
+  const [showPriorityPromotion, setShowPriorityPromotion] = useState(false);
+  const [promotionPriority, setPromotionPriority] = useState<TicketPriority | "">("");
+  const [promotionReason, setPromotionReason] = useState("");
+  const [promotionSubmitting, setPromotionSubmitting] = useState(false);
+  const [promotionError, setPromotionError] = useState("");
+
   // ── SSE stream callbacks ───────────────────────────────────────────────
 
   const handleTicketUpdate = useCallback((snapshot: TicketSnapshot) => {
@@ -749,6 +780,48 @@ export default function TicketDetailPage() {
     }
   }
 
+  // ── Submit priority promotion ──────────────────────────────────────────
+
+  async function submitPriorityPromotion() {
+    if (!ticket || !promotionPriority || promotionSubmitting) return;
+    setPromotionSubmitting(true);
+    setPromotionError("");
+    try {
+      const token = await csrfToken();
+      const res = await fetch(`/api/v1/tickets/${ticket.id}/priority/`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify({ priority: promotionPriority, reason: promotionReason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPromotionError(messageFrom(data));
+      } else {
+        // Update ticket in state with new priority from server response
+        setTicket(data as FullTicket);
+        setShowPriorityPromotion(false);
+        setPromotionPriority("");
+        setPromotionReason("");
+        // Reload history so the PRIORITY_CHANGED event appears immediately
+        setEventsLoaded(false);
+        if (activeTab === "history") {
+          setLoadingEvents(true);
+          const evRes = await fetch(`/api/v1/tickets/${ticket.id}/events/`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (evRes.ok) setEvents(await evRes.json() as TicketEvent[]);
+          setEventsLoaded(true);
+          setLoadingEvents(false);
+        }
+      }
+    } catch {
+      setPromotionError("A network error occurred.");
+    } finally {
+      setPromotionSubmitting(false);
+    }
+  }
+
   // ── Loading / error states ─────────────────────────────────────────────
 
   if (loading) return (
@@ -786,6 +859,20 @@ export default function TicketDetailPage() {
   const canCancel = ticket.status === "submitted" || ticket.status === "triaged";
   const canClose  = ticket.status === "resolved";
   const isClosed  = ticket.status === "closed" || ticket.status === "cancelled";
+
+  // Promotion is available when the ticket is active (not terminal) and
+  // the current priority is not already Critical (p1).
+  const promotableStatuses: TicketStatus[] = ["submitted", "triaged", "in_progress", "waiting_requester"];
+  const canPromotePriority = promotableStatuses.includes(ticket.status) && ticket.priority !== "p1";
+
+  // Options the requester can promote to — only priorities higher (more urgent) than current
+  const PRIORITY_ORDER: TicketPriority[] = ["p4", "p3", "p2", "p1"];
+  const PRIORITY_LABELS_MAP: Record<TicketPriority, string> = {
+    p1: "Critical", p2: "High", p3: "Normal", p4: "Low",
+  };
+  const promotionOptions = PRIORITY_ORDER.slice(
+    PRIORITY_ORDER.indexOf(ticket.priority) + 1
+  ) as TicketPriority[];
 
   const extraEntries = Object.entries(ticket.extra_fields ?? {});
 
@@ -1084,6 +1171,133 @@ export default function TicketDetailPage() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Priority promotion widget */}
+            {canPromotePriority && !showReasonFor && (
+              <div style={{ marginTop: 16 }}>
+                {!showPriorityPromotion ? (
+                  <button
+                    onClick={() => { setShowPriorityPromotion(true); setPromotionError(""); }}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                      padding: "10px 16px", border: "1.5px solid #e0e7ff", borderRadius: 10,
+                      background: "#eef2ff", color: "#4338ca",
+                      cursor: "pointer", fontWeight: 700, fontSize: ".88rem",
+                      transition: "background 0.12s, border-color 0.12s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#e0e7ff"; e.currentTarget.style.borderColor = "#818cf8"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "#eef2ff"; e.currentTarget.style.borderColor = "#e0e7ff"; }}
+                  >
+                    <TrendingUp size={15} aria-hidden="true" />
+                    Increase priority
+                  </button>
+                ) : (
+                  <AnimatePresence>
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      style={{
+                        background: "#eef2ff", border: "1.5px solid #818cf8",
+                        borderRadius: 12, padding: 16,
+                      }}
+                    >
+                      <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: ".9rem", color: "#3730a3", display: "flex", alignItems: "center", gap: 7 }}>
+                        <TrendingUp size={15} aria-hidden="true" />
+                        Increase priority
+                      </p>
+
+                      {/* Priority selector */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                        {promotionOptions.map((p) => {
+                          const colors: Record<TicketPriority, { text: string; bg: string; border: string }> = {
+                            p1: { text: "#991b1b", bg: "#fee2e2", border: "#fca5a5" },
+                            p2: { text: "#92400e", bg: "#fef3c7", border: "#fcd34d" },
+                            p3: { text: "#475569", bg: "#f1f5f9", border: "#cbd5e1" },
+                            p4: { text: "#166534", bg: "#dcfce7", border: "#86efac" },
+                          };
+                          const c = colors[p];
+                          const selected = promotionPriority === p;
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setPromotionPriority(p)}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 8,
+                                padding: "8px 12px", borderRadius: 8, cursor: "pointer",
+                                border: `1.5px solid ${selected ? c.border : "#c7d2fe"}`,
+                                background: selected ? c.bg : "#fff",
+                                color: selected ? c.text : "#475569",
+                                fontWeight: selected ? 700 : 500,
+                                fontSize: ".85rem",
+                                transition: "all 0.1s",
+                              }}
+                            >
+                              <span style={{
+                                width: 8, height: 8, borderRadius: "50%",
+                                background: c.text, flexShrink: 0,
+                              }} aria-hidden="true" />
+                              {PRIORITY_LABELS_MAP[p]}
+                              {p === "p1" && (
+                                <span style={{ marginLeft: "auto", fontSize: ".72rem", color: "#991b1b", fontWeight: 700 }}>
+                                  Urgent
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Optional reason */}
+                      <textarea
+                        rows={2}
+                        value={promotionReason}
+                        onChange={(e) => setPromotionReason(e.target.value)}
+                        placeholder="Why does this need higher priority? (optional)"
+                        maxLength={500}
+                        style={{
+                          width: "100%", border: "1px solid #c7d2fe", borderRadius: 8,
+                          padding: "8px 10px", resize: "vertical",
+                          fontSize: ".85rem", fontFamily: "inherit",
+                          background: "#fff", marginBottom: 10,
+                        }}
+                      />
+
+                      {promotionError && (
+                        <p style={{ margin: "0 0 8px", color: "#991b1b", fontSize: ".82rem" }} role="alert">
+                          {promotionError}
+                        </p>
+                      )}
+
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          disabled={!promotionPriority || promotionSubmitting}
+                          onClick={submitPriorityPromotion}
+                          style={{
+                            flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            padding: "9px 14px", border: "none", borderRadius: 8,
+                            background: !promotionPriority ? "#e0e7ff" : "#4338ca",
+                            color: !promotionPriority ? "#a5b4fc" : "#fff",
+                            fontWeight: 700, cursor: !promotionPriority ? "not-allowed" : "pointer",
+                            fontSize: ".85rem", transition: "background 0.1s",
+                          }}
+                        >
+                          <TrendingUp size={13} aria-hidden="true" />
+                          {promotionSubmitting ? "Updating…" : "Confirm"}
+                        </button>
+                        <button
+                          className="secondary-button"
+                          onClick={() => { setShowPriorityPromotion(false); setPromotionPriority(""); setPromotionReason(""); setPromotionError(""); }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
+                )}
+              </div>
+            )}
 
             {/* Closed notice */}
             {isClosed && (
