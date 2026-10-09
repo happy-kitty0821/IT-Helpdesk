@@ -351,7 +351,10 @@ class EmailTemplate(models.Model):
         TICKET_SUBMITTED = 'ticket_submitted', 'Ticket Submitted'
         TICKET_RESOLVED = 'ticket_resolved', 'Ticket Resolved'
         TICKET_ASSIGNED = 'ticket_assigned', 'Ticket Assigned'
+        TICKET_REPLY = 'ticket_reply', 'Staff Reply Sent'
         STATUS_CHANGED = 'status_changed', 'Status Changed'
+        WAITING_REQUESTER = 'waiting_requester', 'Ticket Waiting for Requester'
+        PRIORITY_CHANGED = 'priority_changed', 'Priority Changed (by Requester)'
         ACCOUNT_RECOVERY = 'account_recovery', 'Account Recovery — Send Credentials'
         RECOVERY_UNABLE_TO_VERIFY = 'recovery_unable_to_verify', 'Account Recovery — Unable to Verify'
 

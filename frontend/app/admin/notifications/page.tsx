@@ -42,7 +42,10 @@ type EventType =
   | "ticket_submitted"
   | "ticket_resolved"
   | "ticket_assigned"
+  | "ticket_reply"
   | "status_changed"
+  | "waiting_requester"
+  | "priority_changed"
   | "account_recovery"
   | "recovery_unable_to_verify";
 
@@ -194,6 +197,40 @@ const EVENT_META: Record<EventType, { label: string; variables: string[] }> = {
       "support_email", "helpdesk_url",
     ],
   },
+  ticket_reply: {
+    label: "Staff Reply Sent",
+    variables: [
+      "ticket_reference",
+      "ticket_subject",
+      "requester_name",
+      "staff_name",
+      "reply_body",
+      "helpdesk_url",
+    ],
+  },
+  waiting_requester: {
+    label: "Ticket Waiting for Requester",
+    variables: [
+      "ticket_reference",
+      "ticket_subject",
+      "requester_name",
+      "old_status",
+      "new_status",
+      "helpdesk_url",
+    ],
+  },
+  priority_changed: {
+    label: "Priority Changed (by Requester)",
+    variables: [
+      "ticket_reference",
+      "ticket_subject",
+      "requester_name",
+      "old_priority",
+      "new_priority",
+      "reason",
+      "helpdesk_url",
+    ],
+  },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -275,12 +312,14 @@ export default function NotificationsPage() {
 
   // Template editor state
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [templateForm, setTemplateForm] = useState<{
     name: string;
+    event_type: EventType;
     subject_template: string;
     body_html_template: string;
     is_active: boolean;
-  }>({ name: "", subject_template: "", body_html_template: "", is_active: true });
+  }>({ name: "", event_type: "ticket_submitted", subject_template: "", body_html_template: "", is_active: true });
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
@@ -501,8 +540,10 @@ export default function NotificationsPage() {
 
   function openEditTemplate(template: EmailTemplate) {
     setEditingTemplate(template);
+    setCreatingTemplate(false);
     setTemplateForm({
       name: template.name,
+      event_type: template.event_type,
       subject_template: template.subject_template,
       body_html_template: template.body_html_template,
       is_active: template.is_active,
@@ -512,8 +553,24 @@ export default function NotificationsPage() {
     setPreviewHtml(null);
   }
 
+  function openCreateTemplate() {
+    setEditingTemplate(null);
+    setCreatingTemplate(true);
+    setTemplateForm({
+      name: "",
+      event_type: "ticket_submitted",
+      subject_template: "",
+      body_html_template: "<p>Hi {{requester_name}},</p>\n<p></p>\n<p>— IIC IT &amp; NOC Department</p>",
+      is_active: true,
+    });
+    setTemplateError("");
+    setTemplateNotice("");
+    setPreviewHtml(null);
+  }
+
   function closeTemplateEditor() {
     setEditingTemplate(null);
+    setCreatingTemplate(false);
     setTemplateError("");
     setTemplateNotice("");
     setPreviewHtml(null);
@@ -546,31 +603,37 @@ export default function NotificationsPage() {
   }
 
   async function saveTemplate() {
-    if (!editingTemplate) return;
+    if (!editingTemplate && !creatingTemplate) return;
     setSavingTemplate(true);
     setTemplateError("");
     setTemplateNotice("");
     try {
       const token = await csrfToken();
-      const res = await fetch(
-        `/api/v1/admin/notifications/templates/${editingTemplate.id}/`,
-        {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json", "X-CSRFToken": token },
-          body: JSON.stringify(templateForm),
-        }
-      );
+      const isCreate = creatingTemplate && !editingTemplate;
+      const url = isCreate
+        ? "/api/v1/admin/notifications/templates/"
+        : `/api/v1/admin/notifications/templates/${editingTemplate!.id}/`;
+      const res = await fetch(url, {
+        method: isCreate ? "POST" : "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify(templateForm),
+      });
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok) {
         setTemplateError(messageFrom(data));
       } else {
-        setTemplateNotice("Template saved.");
-        setTemplates((prev) =>
-          prev.map((t) =>
-            t.id === editingTemplate.id ? { ...t, ...(data as Partial<EmailTemplate>) } : t
-          )
-        );
+        setTemplateNotice(isCreate ? "Template created." : "Template saved.");
+        if (isCreate) {
+          setTemplates((prev) => [...prev, data as unknown as EmailTemplate]);
+          closeTemplateEditor();
+        } else {
+          setTemplates((prev) =>
+            prev.map((t) =>
+              t.id === editingTemplate!.id ? { ...t, ...(data as Partial<EmailTemplate>) } : t
+            )
+          );
+        }
       }
     } catch {
       setTemplateError("A network error occurred.");
@@ -657,6 +720,7 @@ export default function NotificationsPage() {
   }
 
   const channelEditorOpen = editingChannel !== null || creatingChannel;
+  const templateEditorOpen = editingTemplate !== null || creatingTemplate;
   const activeChannels = channels.filter((c) => c.is_active).length;
   const activeTemplates = templates.filter((t) => t.is_active).length;
 
@@ -847,6 +911,9 @@ export default function NotificationsPage() {
                   <h2>Email templates</h2>
                   <p>Customise the subject and body for each automated notification event.</p>
                 </div>
+                <button className="primary-button" style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }} onClick={openCreateTemplate}>
+                  <Plus aria-hidden="true" size={16} /> New template
+                </button>
               </div>
 
               <div className="notif-templates">
@@ -1176,9 +1243,9 @@ export default function NotificationsPage() {
 
       {/* ── Template editor panel ── */}
       <AnimatePresence>
-        {editingTemplate && (
+        {templateEditorOpen && (
           <motion.aside
-            key={editingTemplate.id}
+            key={editingTemplate?.id ?? "new-template"}
             className="editor-panel guide-editor"
             initial={{ opacity: 0, x: 28, scale: 0.985 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
@@ -1189,9 +1256,15 @@ export default function NotificationsPage() {
             <header>
               <div>
                 <span>
-                  {EVENT_META[editingTemplate.event_type]?.label ?? editingTemplate.event_type}
+                  {creatingTemplate
+                    ? "New template"
+                    : (EVENT_META[editingTemplate!.event_type]?.label ?? editingTemplate!.event_type)}
                 </span>
-                <h2>{templateForm.name || editingTemplate.name}</h2>
+                <h2>
+                  {creatingTemplate
+                    ? (templateForm.name || "Add template")
+                    : (templateForm.name || editingTemplate!.name)}
+                </h2>
               </div>
               <button aria-label="Close editor" onClick={closeTemplateEditor}>
                 <X aria-hidden="true" />
@@ -1199,6 +1272,26 @@ export default function NotificationsPage() {
             </header>
 
             <div style={{ padding: "20px", display: "grid", gap: 16, maxHeight: "calc(100vh - 130px)", overflowY: "auto" }}>
+              {/* Event type — only shown when creating a new template */}
+              {creatingTemplate && (
+                <label className="notif-form-group">
+                  Event type <span style={{ color: "#ef4444" }}>*</span>
+                  <select
+                    value={templateForm.event_type}
+                    onChange={(e) =>
+                      setTemplateForm((p) => ({ ...p, event_type: e.target.value as EventType }))
+                    }
+                  >
+                    {(Object.keys(EVENT_META) as EventType[]).map((et) => (
+                      <option key={et} value={et}>{EVENT_META[et].label}</option>
+                    ))}
+                  </select>
+                  <small style={{ color: "#64748b", fontSize: ".76rem" }}>
+                    Each event type can have multiple templates — only the first active one is used.
+                  </small>
+                </label>
+              )}
+
               {/* Template name */}
               <label className="notif-form-group">
                 Template name
@@ -1247,7 +1340,7 @@ export default function NotificationsPage() {
                     Click to insert into {lastFocusedField === "subject" ? "subject" : "body"}:
                   </small>
                   <div className="notif-var-chips">
-                    {(EVENT_META[editingTemplate.event_type]?.variables ?? []).map((v) => (
+                    {(EVENT_META[templateForm.event_type]?.variables ?? []).map((v) => (
                       <button
                         key={v}
                         type="button"
@@ -1317,7 +1410,7 @@ export default function NotificationsPage() {
                   onClick={saveTemplate}
                   disabled={savingTemplate}
                 >
-                  {savingTemplate ? "Saving…" : "Save changes"}
+                  {savingTemplate ? "Saving…" : creatingTemplate ? "Create template" : "Save changes"}
                 </button>
               </div>
             </div>

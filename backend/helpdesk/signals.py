@@ -347,8 +347,8 @@ def ticket_notification_dispatch(sender, instance, created, **kwargs):
             except Exception as exc:
                 logger.exception('Error sending ticket_resolved notification: %s', exc)
 
-        # Assigned event (newly assigned from unassigned)
-        if old_assigned_to is None and new_assigned_to is not None:
+        # Assigned event — fires for BOTH first assignment AND reassignment
+        if old_assigned_to != new_assigned_to and new_assigned_to is not None:
             assignee = instance.assigned_to
             assignee_name = assignee.get_full_name() or assignee.username if assignee else ''
             ctx = _ticket_context(instance, {'assignee_name': assignee_name})
@@ -367,6 +367,14 @@ def ticket_notification_dispatch(sender, instance, created, **kwargs):
                 send_event('status_changed', ctx, ticket=instance)
             except Exception as exc:
                 logger.exception('Error sending status_changed notification: %s', exc)
+
+            # Dedicated event when ticket moves to waiting_requester — sends a
+            # targeted "we need more info from you" email to the requester.
+            if new_status == 'waiting_requester':
+                try:
+                    send_event('waiting_requester', ctx, ticket=instance)
+                except Exception as exc:
+                    logger.exception('Error sending waiting_requester notification: %s', exc)
 
     except Exception as exc:
         logger.exception('Unexpected error in ticket_notification_dispatch: %s', exc)

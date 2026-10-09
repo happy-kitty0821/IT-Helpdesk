@@ -356,6 +356,22 @@ def build_webhook_text(event_type: str, context: dict) -> str:
             f'From: {context.get("staff_name", "Staff")}\n'
             f'{url}'
         )
+    elif event_type == 'waiting_requester':
+        return (
+            f'⏳ Ticket {ref} is waiting for requester action\n'
+            f'Subject: {subject}\n'
+            f'Requester: {requester}\n'
+            f'{url}'
+        )
+    elif event_type == 'priority_changed':
+        old_p = context.get('old_priority', '')
+        new_p = context.get('new_priority', '')
+        return (
+            f'📈 Priority escalated on ticket {ref}: {subject}\n'
+            f'Priority: {old_p} → {new_p}\n'
+            f'By: {requester}\n'
+            f'{url}'
+        )
     else:
         return f'IIC Helpdesk notification [{event_type}]: {ref} — {subject}'
 

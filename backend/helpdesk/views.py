@@ -4370,4 +4370,30 @@ class TicketPriorityView(APIView):
 
         ticket.save(update_fields=['priority', 'updated_at'])
 
+        # Notify assigned staff (or all_staff rule) that the requester escalated.
+        # The notification rule's recipient_type controls who actually receives it.
+        try:
+            from .notifications import send_event as _notify
+            from .signals import _ticket_context
+            ctx = _ticket_context(ticket, {
+                'old_priority': self._PRIORITY_LABELS.get(
+                    getattr(ticket, '_old_priority', ''), ticket.priority
+                ),
+                'new_priority': self._PRIORITY_LABELS[new_priority],
+                'reason':       reason,
+                # Default to_email is assignee if present — routing rule overrides
+                'to_email': (
+                    ticket.assigned_to.email
+                    if ticket.assigned_to
+                    else ''
+                ),
+            })
+            _notify('priority_changed', ctx, ticket=ticket)
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).exception(
+                'Error sending priority_changed notification for ticket %s: %s',
+                ticket.reference, exc,
+            )
+
         return Response(TicketSerializer(ticket).data)
