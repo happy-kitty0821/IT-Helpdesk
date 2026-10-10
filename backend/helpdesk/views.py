@@ -690,6 +690,14 @@ class TicketAssignView(APIView):
         if team is not None:
             ticket.team = team
 
+        # ── Auto-progress: intern self-assignment → in_progress ──────────
+        # When an intern takes ownership, move the ticket out of its
+        # initial/waiting state so everyone knows work has started.
+        if caller_is_intern_only and assignee_id is not None:
+            STALE_STATUSES = {'submitted', 'triaged', 'waiting_requester', 'waiting_approval'}
+            if ticket.status in STALE_STATUSES:
+                ticket.status = 'in_progress'
+
         ticket.save()
         return Response(TicketSerializer(ticket).data)
 

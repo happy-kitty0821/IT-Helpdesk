@@ -577,10 +577,13 @@ export default function AdminTicketsPage() {
       if (!res.ok) {
         setPanelError(typeof data.detail === "string" ? data.detail : "Could not take ownership.");
       } else {
-        const updated = { ...selected, assigned_to: currentUser.id, assignee_name: currentUser.name };
+        // Backend returns the full updated ticket — use it directly so the
+        // auto-promoted status (in_progress) is reflected without a second fetch.
+        const updated = { ...selected, ...(data as Partial<AdminTicket>) };
         setSelected(updated);
+        setDraftStatus(updated.status);
         setTickets((prev) => prev.map((t) => t.id === selected.id ? { ...t, ...updated } : t));
-        setPanelNotice("Ticket assigned to you.");
+        setPanelNotice("Ticket assigned to you and set to In Progress.");
       }
     } catch {
       setPanelError("A network error occurred.");
