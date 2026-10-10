@@ -601,7 +601,18 @@ class AssignableStaffView(APIView):
         return Response(data)
 
 class TicketAssignView(APIView):
-    permission_classes = (IsServiceLead,)
+    """
+    PATCH /api/v1/tickets/{pk}/assign/
+
+    Who can call this:
+    - Service leads and administrators: can assign any eligible staff member,
+      change the team, or unassign.
+    - IT agents: same as service leads.
+    - IT NOC interns (scope-only): can ONLY self-assign (assigned_to must equal
+      their own user ID) and only on tickets within their category scope.
+      They cannot assign other users or change the team field.
+    """
+    permission_classes = (IsITAgent,)
 
     def patch(self, request, pk):
         from rest_framework.exceptions import ValidationError
@@ -612,8 +623,40 @@ class TicketAssignView(APIView):
         except Ticket.DoesNotExist:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+        caller_is_intern_only = user_has_intern_scope_only(request.user)
+
         assignee_id = request.data.get('assigned_to')
         team = request.data.get('team')
+
+        # ── Intern restriction: self-assign only ──────────────────────────
+        if caller_is_intern_only:
+            # Interns can only assign themselves — not arbitrary users
+            if assignee_id is not None and int(assignee_id) != request.user.pk:
+                return Response(
+                    {
+                        'code': 'intern_self_assign_only',
+                        'detail': 'IT NOC interns can only assign tickets to themselves.',
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            # Interns cannot change the team field
+            if team is not None:
+                return Response(
+                    {
+                        'code': 'intern_no_team_change',
+                        'detail': 'IT NOC interns cannot change the team.',
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            # Interns can only act on tickets in their category scope
+            if ticket.category.slug not in get_intern_scope_slugs():
+                return Response(
+                    {
+                        'code': 'category_not_in_scope',
+                        'detail': 'This ticket category is not within your permitted scope.',
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         if assignee_id is not None:
             User = get_user_model()
@@ -631,7 +674,7 @@ class TicketAssignView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # If assignee is intern-only, check category scope
+            # If assignee is intern-only, check their category scope
             if user_has_intern_scope_only(assignee):
                 if ticket.category.slug not in get_intern_scope_slugs():
                     return Response(

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { csrfToken } from "@/lib/auth";
+import type { AuthUser } from "@/lib/auth";
 import type { ServiceStage } from "@/lib/admin-api";
 import { useTicketStream, type TicketSnapshot, type StreamMessage } from "@/hooks/use-ticket-stream";
 
@@ -233,6 +234,9 @@ export default function AdminTicketsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Current logged-in staff member
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
   // Filters — changes trigger a fresh server-side fetch
   const [searchQuery, setSearchQuery]     = useState("");
   const [statusFilter, setStatusFilter]   = useState("");
@@ -409,8 +413,12 @@ export default function AdminTicketsPage() {
       fetch("/api/v1/tickets/assignable-staff/", { credentials: "include" })
         .then((r) => (r.ok ? (r.json() as Promise<StaffUser[]>) : []))
         .catch(() => [] as StaffUser[]),
-    ]).then(([, staffData]) => {
+      fetch("/api/v1/auth/me/", { credentials: "include", cache: "no-store" })
+        .then((r) => (r.ok ? (r.json() as Promise<AuthUser>) : null))
+        .catch(() => null),
+    ]).then(([, staffData, meData]) => {
       setStaffUsers(Array.isArray(staffData) ? staffData : []);
+      if (meData) setCurrentUser(meData);
     });
   }, [fetchTickets]);
 
@@ -537,6 +545,42 @@ export default function AdminTicketsPage() {
         setTickets((prev) => prev.map((t) => (t.id === selected.id ? { ...t, ...data } : t)));
         setSelected({ ...selected, ...data });
         setPanelNotice("Ticket saved.");
+      }
+    } catch {
+      setPanelError("A network error occurred.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Intern helpers ───────────────────────────────────────────────────────
+
+  // True when the logged-in user is purely an intern (no elevated role on top)
+  const ELEVATED_ROLES = new Set(["administrator", "service_lead", "it_agent"]);
+  const isInternOnly =
+    (currentUser?.roles.includes("it_noc_intern") ?? false) &&
+    !(currentUser?.roles.some((r) => ELEVATED_ROLES.has(r)) ?? false);
+
+  async function takeOwnership() {
+    if (!selected || !currentUser) return;
+    setSaving(true);
+    setPanelError("");
+    try {
+      const token = await csrfToken();
+      const res = await fetch(`/api/v1/tickets/${selected.id}/assign/`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify({ assigned_to: currentUser.id }),
+      });
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (!res.ok) {
+        setPanelError(typeof data.detail === "string" ? data.detail : "Could not take ownership.");
+      } else {
+        const updated = { ...selected, assigned_to: currentUser.id, assignee_name: currentUser.name };
+        setSelected(updated);
+        setTickets((prev) => prev.map((t) => t.id === selected.id ? { ...t, ...updated } : t));
+        setPanelNotice("Ticket assigned to you.");
       }
     } catch {
       setPanelError("A network error occurred.");
@@ -1064,22 +1108,71 @@ export default function AdminTicketsPage() {
                     </label>
                   )}
 
-                  <label className="atq-full">
-                    Assign to
-                    <select
-                      value={draftAssignedTo}
-                      onChange={(e) => setDraftAssignedTo(e.target.value === "" ? "" : Number(e.target.value))}
-                    >
-                      <option value="">— Unassigned —</option>
-                      {staffUsers.map((u) => (
-                        <option key={u.id} value={u.id}>{u.name} (@{u.username})</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="atq-full">
-                    Team
-                    <input type="text" value={draftTeam} onChange={(e) => setDraftTeam(e.target.value)} placeholder="e.g. IT Support, NOC Team" />
-                  </label>
+                  {isInternOnly ? (
+                    /* Interns: show a simple take-ownership button instead of the full dropdown */
+                    <div className="atq-full" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <span style={{ fontSize: ".8rem", fontWeight: 700, color: "#374151" }}>Assignment</span>
+                      {selected.assigned_to === currentUser?.id ? (
+                        <p style={{ margin: 0, fontSize: ".85rem", color: "#166534", display: "flex", alignItems: "center", gap: 6 }}>
+                          <CheckCircle2 size={14} aria-hidden="true" />
+                          Assigned to you
+                        </p>
+                      ) : (
+                        <>
+                          {selected.assignee_name && (
+                            <p style={{ margin: "0 0 4px", fontSize: ".82rem", color: "#64748b" }}>
+                              Currently: <strong>{selected.assignee_name}</strong>
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={takeOwnership}
+                            disabled={saving}
+                            style={{
+                              alignSelf: "flex-start",
+                              border: "1.5px solid #86efac",
+                              borderRadius: 8,
+                              padding: "8px 16px",
+                              background: "#f0fdf4",
+                              color: "#15803d",
+                              fontWeight: 700,
+                              fontSize: ".85rem",
+                              cursor: saving ? "wait" : "pointer",
+                              fontFamily: "inherit",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 7,
+                              opacity: saving ? 0.7 : 1,
+                              transition: "opacity 120ms",
+                            }}
+                          >
+                            {saving
+                              ? <><Loader2 size={14} className="spin" aria-hidden="true" /> Taking ownership…</>
+                              : <><User size={14} aria-hidden="true" /> Take ownership</>}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <label className="atq-full">
+                        Assign to
+                        <select
+                          value={draftAssignedTo}
+                          onChange={(e) => setDraftAssignedTo(e.target.value === "" ? "" : Number(e.target.value))}
+                        >
+                          <option value="">— Unassigned —</option>
+                          {staffUsers.map((u) => (
+                            <option key={u.id} value={u.id}>{u.name} (@{u.username})</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="atq-full">
+                        Team
+                        <input type="text" value={draftTeam} onChange={(e) => setDraftTeam(e.target.value)} placeholder="e.g. IT Support, NOC Team" />
+                      </label>
+                    </>
+                  )}
                   <label className="atq-full">
                     Subject
                     <input type="text" value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} />
