@@ -2230,12 +2230,14 @@ class TicketExportView(APIView):
     def _build_workbook(self, tickets):
         import openpyxl
         from openpyxl.styles import (
-            PatternFill, Font, Alignment, Border, Side, GradientFill,
+            PatternFill, Font, Alignment, Border, Side,
         )
         from openpyxl.utils import get_column_letter
+        from openpyxl.drawing.image import Image as XLImage
         from django.utils import timezone
-        from collections import Counter, defaultdict
+        from collections import Counter
         from datetime import timedelta
+        import os
 
         wb = openpyxl.Workbook()
 
@@ -2272,6 +2274,21 @@ class TicketExportView(APIView):
             "p4": PatternFill("solid", fgColor="DCFCE7"),
         }
 
+        action_fills = {
+            "created":          PatternFill("solid", fgColor="DCFCE7"),
+            "status_changed":   PatternFill("solid", fgColor="DBEAFE"),
+            "priority_changed": PatternFill("solid", fgColor="FEF3C7"),
+            "assigned":         PatternFill("solid", fgColor="EDE9FE"),
+            "stage_changed":    PatternFill("solid", fgColor="F3E8FF"),
+            "subject_changed":  PatternFill("solid", fgColor="FFEDD5"),
+            "team_changed":     PatternFill("solid", fgColor="E0F2FE"),
+        }
+
+        role_action_fills = {
+            "granted": PatternFill("solid", fgColor="DCFCE7"),
+            "revoked":  PatternFill("solid", fgColor="FEE2E2"),
+        }
+
         priority_labels = {"p1": "Critical", "p2": "High", "p3": "Normal", "p4": "Low"}
         status_labels   = {
             "submitted": "Submitted", "triaged": "Triaged",
@@ -2279,106 +2296,178 @@ class TicketExportView(APIView):
             "waiting_approval": "Awaiting Approval", "resolved": "Resolved",
             "closed": "Closed", "cancelled": "Cancelled",
         }
+        action_labels = {
+            "created":          "Created",
+            "status_changed":   "Status changed",
+            "priority_changed": "Priority changed",
+            "assigned":         "Assigned / reassigned",
+            "stage_changed":    "Stage changed",
+            "subject_changed":  "Subject edited",
+            "team_changed":     "Team changed",
+        }
 
         now_utc  = timezone.now()
         iso_now  = now_utc.strftime("%Y-%m-%d %H:%M UTC")
-        date_now = now_utc.strftime("%Y-%m-%d")
 
-        def header_row(ws, col_defs: list[tuple[str, int]]):
-            """Write a styled header row and set column widths."""
+        # -- Shared helpers --------------------------------------------------
+
+        def write_sheet_logo(ws, anchor: str = "A1"):
+            """Insert the IIC logo into a worksheet if the file exists."""
+            logo_path = os.path.join(os.path.dirname(__file__), "iic-logo.png")
+            if os.path.exists(logo_path):
+                img = XLImage(logo_path)
+                # Scale to ~120px tall keeping aspect ratio (860x460 → ~225x120)
+                img.width  = 225
+                img.height = 120
+                ws.add_image(img, anchor)
+
+        def styled_header_row(ws, row_num: int, col_defs: list[tuple[str, int]]):
             for col_idx, (title, width) in enumerate(col_defs, start=1):
-                cell = ws.cell(row=1, column=col_idx, value=title)
+                cell = ws.cell(row=row_num, column=col_idx, value=title)
                 cell.fill      = brand_fill
                 cell.font      = header_font
                 cell.alignment = header_align
                 cell.border    = border
                 ws.column_dimensions[get_column_letter(col_idx)].width = width
+            ws.row_dimensions[row_num].height = 28
 
-        def style_data_row(ws, row_num: int, num_cols: int, alt: bool):
-            fill = alt_fill if alt else white_fill
+        def style_data_row(ws, row_num: int, num_cols: int, alt: bool,
+                           override_fill=None):
+            base = override_fill if override_fill else (alt_fill if alt else white_fill)
             for c in range(1, num_cols + 1):
                 cell = ws.cell(row=row_num, column=c)
-                cell.fill   = fill
+                if not override_fill:
+                    cell.fill = base
                 cell.font   = normal_font
                 cell.border = border
 
-        # -- Collect all extra_field keys across all tickets -----------------
+        # -- Collect extra_field keys ----------------------------------------
 
         extra_keys: list[str] = []
-        seen_extra: set[str] = set()
+        seen_extra: set[str]  = set()
         for t in tickets:
             for k in (t.extra_fields or {}).keys():
                 if k not in seen_extra:
                     extra_keys.append(k)
                     seen_extra.add(k)
 
-        # -- Sheet 1: Ticket Register ----------------------------------------
+        ticket_ids = [t.pk for t in tickets]
+
+        # =================================================================
+        # SHEET 1 — Ticket Register
+        # =================================================================
 
         ws1 = wb.active
         ws1.title = "Ticket Register"
-        ws1.freeze_panes = "A2"
-
-        # Add report metadata in rows before data (audit header)
         ws1.sheet_view.showGridLines = True
 
-        # Title block
-        ws1.merge_cells("A1:H1")
-        title_cell = ws1["A1"]
-        title_cell.value = "IIC IT Helpdesk — Ticket Register (Audit Export)"
-        title_cell.font  = Font(bold=True, size=13, color="234395", name="Calibri")
-        title_cell.alignment = Alignment(horizontal="left", vertical="center")
+        # Logo block (rows 1-6, cols A-C)
+        write_sheet_logo(ws1, "A1")
+        ws1.row_dimensions[1].height = 30
+        ws1.row_dimensions[2].height = 30
+        ws1.row_dimensions[3].height = 30
+        ws1.row_dimensions[4].height = 30
 
-        ws1.merge_cells("A2:H2")
-        ws1["A2"].value = f"Generated: {iso_now}    Tickets included: {len(tickets)}"
-        ws1["A2"].font  = Font(size=9, color="64748B", italic=True, name="Calibri")
+        # Title / meta block (to the right of logo, col D+)
+        LOGO_ROWS = 5   # logo occupies ~120px ≈ 5 rows at default height
 
-        ws1.row_dimensions[1].height = 22
-        ws1.row_dimensions[2].height = 16
+        ws1.merge_cells(f"D1:L1")
+        tc = ws1["D1"]
+        tc.value     = "IIC IT Helpdesk — Ticket Register (Audit Export)"
+        tc.font      = Font(bold=True, size=14, color="234395", name="Calibri")
+        tc.alignment = Alignment(horizontal="left", vertical="center")
 
-        # Fixed column definitions
+        ws1.merge_cells(f"D2:L2")
+        ws1["D2"].value = f"Generated: {iso_now}    Tickets included: {len(tickets)}"
+        ws1["D2"].font  = Font(size=9, italic=True, color="64748B", name="Calibri")
+
+        ws1.merge_cells(f"D3:L3")
+        ws1["D3"].value = "Itahari International College — IT & NOC Support"
+        ws1["D3"].font  = Font(size=9, color="64748B", name="Calibri")
+
+        # Column definitions
         fixed_cols: list[tuple[str, int]] = [
-            ("Reference",       14),
-            ("Category",        22),
-            ("Subject",         40),
-            ("Status",          16),
-            ("Priority",        12),
-            ("Stage",           18),
-            ("Requester Name",  22),
-            ("Requester Email", 28),
-            ("Assigned To",     22),
-            ("Team",            16),
-            ("Created (UTC)",   20),
-            ("Updated (UTC)",   20),
-            ("Resolved (UTC)",  20),
-            ("Age at Export",   16),
-            ("Resolution Time", 16),
-            ("SLA Bucket",      12),
-            ("Status Reason",   30),
+            ("Reference",        14),
+            ("Category",         22),
+            ("Subject",          40),
+            ("Status",           16),
+            ("Priority",         12),
+            ("Stage",            18),
+            ("Requester Name",   22),
+            ("Requester Email",  28),
+            ("Assigned To",      22),
+            ("Team",             16),
+            ("Created (UTC)",    20),
+            ("Updated (UTC)",    20),
+            ("Resolved (UTC)",   20),
+            ("Age at Export",    16),
+            ("Resolution Time",  16),
+            ("First-Response",   16),
+            ("SLA Bucket",       12),
+            ("Reopened Count",   14),
+            ("Feedback Rating",  14),
+            ("Feedback Comment", 36),
+            ("Status Reason",    30),
+            ("Messages",         10),
         ]
         extra_col_defs = [(k, max(len(k) + 4, 18)) for k in extra_keys]
-        all_cols = fixed_cols + extra_col_defs
-        num_cols = len(all_cols)
+        all_cols  = fixed_cols + extra_col_defs
+        num_cols  = len(all_cols)
+        HEADER_ROW = LOGO_ROWS + 2
 
-        # Header row at row 3
-        HEADER_ROW = 3
-        for col_idx, (title, width) in enumerate(all_cols, start=1):
-            cell = ws1.cell(row=HEADER_ROW, column=col_idx, value=title)
-            cell.fill      = brand_fill
-            cell.font      = header_font
-            cell.alignment = header_align
-            cell.border    = border
-            ws1.column_dimensions[get_column_letter(col_idx)].width = width
+        styled_header_row(ws1, HEADER_ROW, all_cols)
+        ws1.freeze_panes = f"A{HEADER_ROW + 1}"
+        ws1.auto_filter.ref = (
+            f"A{HEADER_ROW}:{get_column_letter(num_cols)}{HEADER_ROW}"
+        )
 
-        ws1.row_dimensions[HEADER_ROW].height = 28
+        # Pre-fetch first-response times (first staff message per ticket)
+        from .models import TicketMessage, TicketEvent, TicketFeedback
+        from django.db.models import Min, Count
 
-        # Enable auto-filter on data range
-        ws1.auto_filter.ref = f"A{HEADER_ROW}:{get_column_letter(num_cols)}{HEADER_ROW}"
+        first_reply_qs = (
+            TicketMessage.objects
+            .filter(ticket_id__in=ticket_ids, is_staff_reply=True)
+            .values('ticket_id')
+            .annotate(first_at=Min('created_at'))
+        )
+        first_reply_map = {str(r['ticket_id']): r['first_at'] for r in first_reply_qs}
 
-        # Data rows
+        # Pre-fetch reopen counts (status_changed events where new_value = 'In Progress'
+        # and old_value = 'Resolved')
+        reopen_qs = (
+            TicketEvent.objects
+            .filter(
+                ticket_id__in=ticket_ids,
+                action='status_changed',
+                old_value__icontains='resolved',
+                new_value__icontains='progress',
+            )
+            .values('ticket_id')
+            .annotate(cnt=Count('id'))
+        )
+        reopen_map = {str(r['ticket_id']): r['cnt'] for r in reopen_qs}
+
+        # Pre-fetch message counts
+        msg_count_qs = (
+            TicketMessage.objects
+            .filter(ticket_id__in=ticket_ids)
+            .values('ticket_id')
+            .annotate(cnt=Count('id'))
+        )
+        msg_count_map = {str(r['ticket_id']): r['cnt'] for r in msg_count_qs}
+
+        # Pre-fetch feedback
+        feedback_map = {
+            str(f.ticket_id): f
+            for f in TicketFeedback.objects.filter(ticket_id__in=ticket_ids)
+        }
+
         for row_offset, ticket in enumerate(tickets):
-            row_num = HEADER_ROW + 1 + row_offset
-            is_alt  = (row_offset % 2 == 1)
+            row_num  = HEADER_ROW + 1 + row_offset
+            is_alt   = (row_offset % 2 == 1)
             base_fill = alt_fill if is_alt else white_fill
+            tid = str(ticket.pk)
 
             # Resolution time
             if ticket.status in ("resolved", "closed", "cancelled") and ticket.updated_at:
@@ -2386,16 +2475,34 @@ class TicketExportView(APIView):
                 res_hours = res_td.total_seconds() / 3600
                 res_str   = self._duration_str(res_td)
                 sla       = self._sla_bucket(res_hours)
+                res_utc   = ticket.updated_at.strftime("%Y-%m-%d %H:%M") if ticket.status in ("resolved","closed") else "—"
             else:
-                age_td    = now_utc - ticket.created_at
-                res_str   = "—"
-                sla       = self._sla_bucket(age_td.total_seconds() / 3600)
+                age_td  = now_utc - ticket.created_at
+                res_str = "—"
+                sla     = self._sla_bucket(age_td.total_seconds() / 3600)
+                res_utc = "—"
 
             age_str = self._duration_str(now_utc - ticket.created_at)
 
+            # First-response time
+            first_reply_at = first_reply_map.get(tid)
+            if first_reply_at and ticket.created_at:
+                frt_str = self._duration_str(first_reply_at - ticket.created_at)
+            else:
+                frt_str = "—"
+
+            reopen_cnt = reopen_map.get(tid, 0)
+            msg_cnt    = msg_count_map.get(tid, 0)
+
+            feedback = feedback_map.get(tid)
+            fb_rating  = feedback.rating if feedback else "—"
+            fb_comment = feedback.comment if feedback else "—"
+
             requester_name  = ticket.requester.get_full_name() if ticket.requester else "—"
             requester_email = ticket.requester.email if ticket.requester else "—"
-            assignee        = (ticket.assigned_to.get_full_name() or ticket.assigned_to.username) if ticket.assigned_to else "Unassigned"
+            assignee        = (
+                ticket.assigned_to.get_full_name() or ticket.assigned_to.username
+            ) if ticket.assigned_to else "Unassigned"
 
             row_vals = [
                 ticket.reference,
@@ -2410,218 +2517,454 @@ class TicketExportView(APIView):
                 ticket.team or "—",
                 ticket.created_at.strftime("%Y-%m-%d %H:%M") if ticket.created_at else "—",
                 ticket.updated_at.strftime("%Y-%m-%d %H:%M") if ticket.updated_at else "—",
-                ticket.updated_at.strftime("%Y-%m-%d %H:%M") if ticket.status in ("resolved", "closed") else "—",
+                res_utc,
                 age_str,
                 res_str,
+                frt_str,
                 sla,
+                reopen_cnt,
+                fb_rating,
+                fb_comment,
                 ticket.status_reason or "—",
+                msg_cnt,
             ]
-            # Extra fields
             for k in extra_keys:
-                row_vals.append(str(ticket.extra_fields.get(k, "")) if ticket.extra_fields else "")
+                row_vals.append(
+                    str(ticket.extra_fields.get(k, "")) if ticket.extra_fields else ""
+                )
 
+            CENTER_COLS = {4, 5, 6, 11, 12, 13, 14, 15, 16, 17, 18, 19}
             for col_idx, val in enumerate(row_vals, start=1):
                 cell = ws1.cell(row=row_num, column=col_idx, value=val)
                 cell.fill      = base_fill
                 cell.font      = normal_font
                 cell.border    = border
-                cell.alignment = center_align if col_idx in (4, 5, 6, 11, 12, 13, 14, 15, 16) else left_align
+                cell.alignment = center_align if col_idx in CENTER_COLS else left_align
 
-            # Highlight status and priority cells
             ws1.cell(row=row_num, column=4).fill = status_fills.get(ticket.status, base_fill)
             ws1.cell(row=row_num, column=5).fill = priority_fills.get(ticket.priority, base_fill)
-
             ws1.row_dimensions[row_num].height = 16
 
-        # -- Sheet 2: Analytics Summary --------------------------------------
+        # =================================================================
+        # SHEET 2 — Analytics Summary
+        # =================================================================
 
         ws2 = wb.create_sheet("Analytics Summary")
         ws2.sheet_view.showGridLines = False
-        ws2.column_dimensions["A"].width = 32
+        ws2.column_dimensions["A"].width = 34
         ws2.column_dimensions["B"].width = 18
         ws2.column_dimensions["C"].width = 18
         ws2.column_dimensions["D"].width = 18
 
-        section_fill  = PatternFill("solid", fgColor="234395")
-        section_font  = Font(bold=True, color="FFFFFF", size=11, name="Calibri")
+        write_sheet_logo(ws2, "A1")
+
+        section_fill   = PatternFill("solid", fgColor="234395")
+        section_font   = Font(bold=True, color="FFFFFF", size=11, name="Calibri")
         kpi_label_font = Font(bold=True, size=10, color="334155", name="Calibri")
-        kpi_val_font   = Font(bold=True, size=20, color="234395", name="Calibri")
         sub_fill       = PatternFill("solid", fgColor="EEF2FF")
         sub_font       = Font(bold=True, size=9, color="234395", name="Calibri")
 
-        row = 1
+        a2_row = [1, 2, 3, 4, 5]   # mutable via list so nested fns can close over it
+        row2   = [LOGO_ROWS + 2]
 
-        def section_header(title: str):
-            nonlocal row
-            ws2.merge_cells(f"A{row}:D{row}")
-            cell = ws2.cell(row=row, column=1, value=title)
+        def row_():
+            return row2[0]
+
+        def inc_():
+            row2[0] += 1
+
+        ws2.merge_cells(f"A{row_()}:D{row_()}")
+        ws2[f"A{row_()}"].value = "IIC IT Helpdesk — Analytics Summary"
+        ws2[f"A{row_()}"].font  = Font(bold=True, size=14, color="234395", name="Calibri")
+        ws2[f"A{row_()}"].alignment = Alignment(horizontal="left", vertical="center")
+        ws2.row_dimensions[row_()].height = 26
+        inc_()
+
+        ws2.merge_cells(f"A{row_()}:D{row_()}")
+        ws2.cell(row=row_(), column=1, value=f"Generated: {iso_now}    Total tickets: {len(tickets)}").font = Font(size=9, italic=True, color="64748B", name="Calibri")
+        inc_()
+        inc_()
+
+        def section_header2(title: str):
+            ws2.merge_cells(f"A{row_()}:D{row_()}")
+            cell = ws2.cell(row=row_(), column=1, value=title)
             cell.fill      = section_fill
             cell.font      = section_font
             cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-            ws2.row_dimensions[row].height = 24
-            row += 1
+            ws2.row_dimensions[row_()].height = 24
+            inc_()
 
-        def write_kv(label: str, value, bold_val: bool = True):
-            nonlocal row
-            lc = ws2.cell(row=row, column=1, value=label)
+        def write_kv2(label: str, value, bold_val: bool = True):
+            lc = ws2.cell(row=row_(), column=1, value=label)
             lc.font = kpi_label_font
-            vc = ws2.cell(row=row, column=2, value=value)
+            vc = ws2.cell(row=row_(), column=2, value=value)
             vc.font = Font(bold=bold_val, size=10, name="Calibri")
             vc.alignment = Alignment(horizontal="right")
-            ws2.row_dimensions[row].height = 16
-            row += 1
+            ws2.row_dimensions[row_()].height = 16
+            inc_()
 
-        def write_table(header: list[str], rows_data: list[tuple], fills: list[PatternFill | None] | None = None):
-            nonlocal row
-            # Header
+        def write_table2(header: list[str], rows_data: list[tuple],
+                         fills=None):
             for ci, h in enumerate(header, start=1):
-                c = ws2.cell(row=row, column=ci, value=h)
+                c = ws2.cell(row=row_(), column=ci, value=h)
                 c.fill      = sub_fill
                 c.font      = sub_font
                 c.alignment = Alignment(horizontal="center", vertical="center")
                 c.border    = border
-            ws2.row_dimensions[row].height = 18
-            row += 1
+            ws2.row_dimensions[row_()].height = 18
+            inc_()
             for ri, data_row in enumerate(rows_data):
-                alt = ri % 2 == 1
-                f   = fills[ri] if fills and ri < len(fills) else (alt_fill if alt else white_fill)
+                f = fills[ri] if fills and ri < len(fills) else (alt_fill if ri % 2 else white_fill)
                 for ci, val in enumerate(data_row, start=1):
-                    c = ws2.cell(row=row, column=ci, value=val)
-                    c.fill      = f or (alt_fill if alt else white_fill)
+                    c = ws2.cell(row=row_(), column=ci, value=val)
+                    c.fill      = f or (alt_fill if ri % 2 else white_fill)
                     c.font      = normal_font
                     c.border    = border
                     c.alignment = Alignment(horizontal="right" if ci > 1 else "left")
-                ws2.row_dimensions[row].height = 15
-                row += 1
-            row += 1  # blank spacer
+                ws2.row_dimensions[row_()].height = 15
+                inc_()
+            inc_()  # blank spacer
 
-        # -- Report metadata -------------------------------------------------
+        total         = len(tickets)
+        open_count    = sum(1 for t in tickets if t.status not in ("resolved","closed","cancelled"))
+        resolved_cnt  = sum(1 for t in tickets if t.status == "resolved")
+        closed_cnt    = sum(1 for t in tickets if t.status == "closed")
+        cancelled_cnt = sum(1 for t in tickets if t.status == "cancelled")
+        critical_cnt  = sum(1 for t in tickets if t.priority == "p1")
+        unassigned    = sum(1 for t in tickets if not t.assigned_to and t.status not in ("closed","cancelled"))
 
-        ws2.merge_cells("A1:D1")
-        title_a2 = ws2["A1"]
-        title_a2.value = "IIC IT Helpdesk — Analytics Summary"
-        title_a2.font  = Font(bold=True, size=14, color="234395", name="Calibri")
-        title_a2.alignment = Alignment(horizontal="left", vertical="center")
-        ws2.row_dimensions[1].height = 26
-        row = 2
-
-        ws2.merge_cells(f"A{row}:D{row}")
-        ws2.cell(row=row, column=1, value=f"Generated: {iso_now}    Total tickets: {len(tickets)}").font = Font(size=9, italic=True, color="64748B", name="Calibri")
-        row += 2
-
-        # -- KPIs ------------------------------------------------------------
-
-        section_header("Key Performance Indicators")
-
-        total        = len(tickets)
-        open_count   = sum(1 for t in tickets if t.status not in ("resolved", "closed", "cancelled"))
-        resolved_cnt = sum(1 for t in tickets if t.status == "resolved")
-        closed_cnt   = sum(1 for t in tickets if t.status == "closed")
-        cancelled_cnt= sum(1 for t in tickets if t.status == "cancelled")
-        critical_cnt = sum(1 for t in tickets if t.priority == "p1")
-        unassigned   = sum(1 for t in tickets if not t.assigned_to and t.status not in ("closed","cancelled"))
-
-        # Average resolution time for resolved/closed tickets
         res_times = []
+        frt_list  = []
         for t in tickets:
-            if t.status in ("resolved", "closed") and t.updated_at and t.created_at:
+            tid = str(t.pk)
+            if t.status in ("resolved","closed") and t.updated_at and t.created_at:
                 res_times.append((t.updated_at - t.created_at).total_seconds() / 3600)
+            fr = first_reply_map.get(tid)
+            if fr and t.created_at:
+                frt_list.append((fr - t.created_at).total_seconds() / 3600)
+
         avg_res = (sum(res_times) / len(res_times)) if res_times else None
+        avg_frt = (sum(frt_list)  / len(frt_list))  if frt_list  else None
 
-        write_kv("Total tickets in export", total)
-        write_kv("Open tickets",            open_count)
-        write_kv("Resolved",                resolved_cnt)
-        write_kv("Closed (confirmed)",      closed_cnt)
-        write_kv("Cancelled",               cancelled_cnt)
-        write_kv("Critical (P1) tickets",   critical_cnt)
-        write_kv("Unassigned & open",       unassigned)
-        write_kv("Avg resolution time",     f"{avg_res:.1f}h" if avg_res is not None else "—")
-        row += 1
+        section_header2("Key Performance Indicators")
+        write_kv2("Total tickets in export",     total)
+        write_kv2("Open tickets",                open_count)
+        write_kv2("Resolved",                    resolved_cnt)
+        write_kv2("Closed (confirmed)",          closed_cnt)
+        write_kv2("Cancelled",                   cancelled_cnt)
+        write_kv2("Critical (P1) tickets",       critical_cnt)
+        write_kv2("Unassigned & open",           unassigned)
+        write_kv2("Avg resolution time",         f"{avg_res:.1f}h" if avg_res is not None else "—")
+        write_kv2("Avg first-response time",     f"{avg_frt:.1f}h" if avg_frt is not None else "—")
+        total_reopens = sum(reopen_map.values())
+        write_kv2("Total ticket re-opens",       total_reopens)
+        fb_all     = list(feedback_map.values())
+        avg_rating = round(sum(f.rating for f in fb_all) / len(fb_all), 2) if fb_all else "—"
+        write_kv2("Avg satisfaction rating",     f"{avg_rating} / 5" if fb_all else "—")
+        inc_()
 
-        # -- By status -------------------------------------------------------
-
-        section_header("Tickets by Status")
+        section_header2("Tickets by Status")
         status_counts = Counter(t.status for t in tickets)
-        write_table(
+        write_table2(
             ["Status", "Count", "% of Total"],
             [(status_labels.get(s, s), c, f"{c/total*100:.1f}%" if total else "—")
              for s, c in sorted(status_counts.items(), key=lambda x: -x[1])],
             fills=[status_fills.get(s) for s, _ in sorted(status_counts.items(), key=lambda x: -x[1])],
         )
 
-        # -- By priority -----------------------------------------------------
-
-        section_header("Tickets by Priority")
+        section_header2("Tickets by Priority")
         prio_counts = Counter(t.priority for t in tickets)
-        write_table(
+        write_table2(
             ["Priority", "Count", "% of Total"],
             [(priority_labels.get(p, p), c, f"{c/total*100:.1f}%" if total else "—")
              for p, c in sorted(prio_counts.items())],
             fills=[priority_fills.get(p) for p, _ in sorted(prio_counts.items())],
         )
 
-        # -- By category -----------------------------------------------------
-
-        section_header("Tickets by Service Category")
+        section_header2("Tickets by Service Category")
         cat_counts = Counter(
             (t.category.name if t.category else "Unknown") for t in tickets
         )
-        write_table(
+        write_table2(
             ["Category", "Count", "% of Total"],
             [(cat, c, f"{c/total*100:.1f}%" if total else "—")
              for cat, c in sorted(cat_counts.items(), key=lambda x: -x[1])],
         )
 
-        # -- SLA distribution ------------------------------------------------
-
-        section_header("SLA Bucket Distribution (Time to Resolve / Current Age)")
-        sla_buckets = Counter()
+        section_header2("SLA Bucket Distribution (Time to Resolve / Current Age)")
+        sla_buckets: Counter[str] = Counter()
         for t in tickets:
-            if t.status in ("resolved", "closed") and t.updated_at and t.created_at:
+            if t.status in ("resolved","closed") and t.updated_at and t.created_at:
                 h = (t.updated_at - t.created_at).total_seconds() / 3600
             else:
                 h = (now_utc - t.created_at).total_seconds() / 3600
             sla_buckets[self._sla_bucket(h)] += 1
-
-        bucket_order = ["= 4h", "= 8h", "= 24h", "= 3d", "= 7d", "> 7d"]
-        write_table(
+        bucket_order = ["= 4h","= 8h","= 24h","= 3d","= 7d","> 7d"]
+        write_table2(
             ["SLA Bucket", "Count", "% of Total"],
             [(b, sla_buckets[b], f"{sla_buckets[b]/total*100:.1f}%" if total else "—")
              for b in bucket_order if sla_buckets[b] > 0],
         )
 
-        # -- Assignee workload ------------------------------------------------
-
-        section_header("Assignee Workload")
+        section_header2("Assignee Workload")
         assignee_counts: Counter[str] = Counter()
+        open_by_assignee: Counter[str] = Counter()
         for t in tickets:
-            name = (t.assigned_to.get_full_name() or t.assigned_to.username) if t.assigned_to else "Unassigned"
+            name = (
+                t.assigned_to.get_full_name() or t.assigned_to.username
+            ) if t.assigned_to else "Unassigned"
             assignee_counts[name] += 1
-        write_table(
-            ["Assignee", "Tickets"],
-            [(a, c) for a, c in sorted(assignee_counts.items(), key=lambda x: -x[1])],
+            if t.status not in ("resolved","closed","cancelled"):
+                open_by_assignee[name] += 1
+        write_table2(
+            ["Assignee", "Total", "Open"],
+            [(a, assignee_counts[a], open_by_assignee.get(a, 0))
+             for a in sorted(assignee_counts, key=lambda x: -assignee_counts[x])],
         )
 
-        # -- Submission by day-of-week ---------------------------------------
+        section_header2("Satisfaction Ratings")
+        if fb_all:
+            rating_counts = Counter(f.rating for f in fb_all)
+            rating_labels = {1:"Very dissatisfied",2:"Dissatisfied",3:"Neutral",4:"Satisfied",5:"Very satisfied"}
+            write_table2(
+                ["Rating", "Label", "Count", "% of Responses"],
+                [(r, rating_labels.get(r,""), rating_counts.get(r,0),
+                  f"{rating_counts.get(r,0)/len(fb_all)*100:.1f}%")
+                 for r in range(1, 6)],
+            )
+        else:
+            write_kv2("No feedback submitted yet", "—", bold_val=False)
+            inc_()
 
-        section_header("Submissions by Day of Week")
-        dow_labels = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        section_header2("Submissions by Day of Week")
+        dow_labels_list = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
         dow_counts: Counter[int] = Counter(t.created_at.weekday() for t in tickets if t.created_at)
-        write_table(
+        write_table2(
             ["Day", "Count"],
-            [(dow_labels[d], dow_counts[d]) for d in range(7)],
+            [(dow_labels_list[d], dow_counts[d]) for d in range(7)],
         )
 
-        # -- Submission by month ---------------------------------------------
-
-        section_header("Submissions by Month")
+        section_header2("Submissions by Month")
         month_counts: Counter[str] = Counter(
             t.created_at.strftime("%Y-%m") for t in tickets if t.created_at
         )
-        write_table(
+        write_table2(
             ["Month", "Count"],
             [(m, c) for m, c in sorted(month_counts.items())],
         )
+
+        # =================================================================
+        # SHEET 3 — Ticket Audit Trail
+        # =================================================================
+
+        ws3 = wb.create_sheet("Ticket Audit Trail")
+        ws3.sheet_view.showGridLines = True
+
+        write_sheet_logo(ws3, "A1")
+
+        ws3.merge_cells(f"D1:J1")
+        ws3["D1"].value = "IIC IT Helpdesk — Ticket Audit Trail"
+        ws3["D1"].font  = Font(bold=True, size=13, color="234395", name="Calibri")
+        ws3["D1"].alignment = Alignment(horizontal="left", vertical="center")
+
+        ws3.merge_cells(f"D2:J2")
+        ws3["D2"].value = f"Generated: {iso_now}    Scope: {len(tickets)} ticket(s)"
+        ws3["D2"].font  = Font(size=9, italic=True, color="64748B", name="Calibri")
+
+        AUDIT_HEADER_ROW = LOGO_ROWS + 2
+        audit_cols: list[tuple[str, int]] = [
+            ("#",             5),
+            ("Timestamp (UTC)", 22),
+            ("Ticket Ref",    14),
+            ("Category",      22),
+            ("Action",        22),
+            ("Actor",         24),
+            ("Actor Role",    20),
+            ("From",          22),
+            ("To",            22),
+            ("Note / Reason", 40),
+        ]
+        styled_header_row(ws3, AUDIT_HEADER_ROW, audit_cols)
+        ws3.freeze_panes = f"A{AUDIT_HEADER_ROW + 1}"
+        ws3.auto_filter.ref = (
+            f"A{AUDIT_HEADER_ROW}:{get_column_letter(len(audit_cols))}{AUDIT_HEADER_ROW}"
+        )
+
+        # Fetch all events for the exported tickets in one query
+        from .models import RoleGrant
+        events_qs = (
+            TicketEvent.objects
+            .filter(ticket_id__in=ticket_ids)
+            .select_related('ticket', 'ticket__category', 'actor')
+            .order_by('created_at')
+        )
+
+        # Build actor → highest role map for display
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        actor_ids = {e.actor_id for e in events_qs if e.actor_id}
+        from django.utils import timezone as tz2
+        now_tz = tz2.now()
+        active_grants = (
+            RoleGrant.objects
+            .filter(user_id__in=actor_ids)
+            .filter(
+                Q(expires_at__isnull=True) | Q(expires_at__gt=now_tz)
+            )
+            .values('user_id', 'role')
+        )
+        ROLE_ORDER = ["administrator","service_lead","it_agent","it_noc_intern",
+                      "designated_approver","content_editor","faculty_staff","student","visitor"]
+        actor_role_map: dict = {}
+        for g in active_grants:
+            uid = g['user_id']
+            if uid not in actor_role_map:
+                actor_role_map[uid] = g['role']
+            else:
+                # Keep highest role
+                curr_idx = ROLE_ORDER.index(actor_role_map[uid]) if actor_role_map[uid] in ROLE_ORDER else 99
+                new_idx  = ROLE_ORDER.index(g['role']) if g['role'] in ROLE_ORDER else 99
+                if new_idx < curr_idx:
+                    actor_role_map[uid] = g['role']
+
+        ticket_ref_map = {str(t.pk): t for t in tickets}
+
+        for seq, evt in enumerate(events_qs, start=1):
+            row_num = AUDIT_HEADER_ROW + seq
+            is_alt  = seq % 2 == 1
+            af      = action_fills.get(evt.action, alt_fill if is_alt else white_fill)
+
+            actor_name = "System"
+            actor_role = "—"
+            if evt.actor:
+                actor_name = evt.actor.get_full_name() or evt.actor.username
+                actor_role = actor_role_map.get(evt.actor_id, "—").replace("_", " ").title()
+
+            t_ref = evt.ticket.reference if evt.ticket else "—"
+            t_cat = evt.ticket.category.name if (evt.ticket and evt.ticket.category) else "—"
+
+            row_vals = [
+                seq,
+                evt.created_at.strftime("%Y-%m-%d %H:%M:%S") if evt.created_at else "—",
+                t_ref,
+                t_cat,
+                action_labels.get(evt.action, evt.action),
+                actor_name,
+                actor_role,
+                evt.old_value or "—",
+                evt.new_value or "—",
+                evt.note      or "—",
+            ]
+            for col_idx, val in enumerate(row_vals, start=1):
+                cell = ws3.cell(row=row_num, column=col_idx, value=val)
+                cell.fill   = af
+                cell.font   = normal_font
+                cell.border = border
+                cell.alignment = center_align if col_idx in (1, 2, 5, 6, 7) else left_align
+            ws3.row_dimensions[row_num].height = 15
+
+        if not list(events_qs):
+            ws3.cell(row=AUDIT_HEADER_ROW + 1, column=1,
+                     value="No audit events recorded for these tickets.").font = Font(
+                italic=True, color="94A3B8", name="Calibri", size=10)
+
+        # =================================================================
+        # SHEET 4 — Role Audit Events
+        # =================================================================
+
+        from .models import RoleAuditEvent
+
+        ws4 = wb.create_sheet("Role Audit Events")
+        ws4.sheet_view.showGridLines = True
+
+        write_sheet_logo(ws4, "A1")
+
+        ws4.merge_cells(f"D1:J1")
+        ws4["D1"].value = "IIC IT Helpdesk — Role Grant / Revocation Audit"
+        ws4["D1"].font  = Font(bold=True, size=13, color="234395", name="Calibri")
+        ws4["D1"].alignment = Alignment(horizontal="left", vertical="center")
+
+        ws4.merge_cells(f"D2:J2")
+        ws4["D2"].value = (
+            f"Generated: {iso_now}    "
+            "All-time role audit log (not filtered by ticket date range)"
+        )
+        ws4["D2"].font = Font(size=9, italic=True, color="64748B", name="Calibri")
+
+        ROLE_HEADER_ROW = LOGO_ROWS + 2
+        role_cols: list[tuple[str, int]] = [
+            ("#",               5),
+            ("Timestamp (UTC)", 22),
+            ("Action",          12),
+            ("Role",            22),
+            ("Target User",     26),
+            ("Target Email",    30),
+            ("Target Dept.",    22),
+            ("Performed By",    26),
+            ("Performer Email", 30),
+            ("Performer Role",  22),
+        ]
+        styled_header_row(ws4, ROLE_HEADER_ROW, role_cols)
+        ws4.freeze_panes = f"A{ROLE_HEADER_ROW + 1}"
+        ws4.auto_filter.ref = (
+            f"A{ROLE_HEADER_ROW}:{get_column_letter(len(role_cols))}{ROLE_HEADER_ROW}"
+        )
+
+        role_events_qs = (
+            RoleAuditEvent.objects
+            .select_related('actor', 'target')
+            .order_by('-timestamp')
+        )
+
+        # Fetch UserProfile for dept info
+        from .models import UserProfile
+        profile_ids = set()
+        role_event_list = list(role_events_qs)
+        for re in role_event_list:
+            if re.target_id: profile_ids.add(re.target_id)
+            if re.actor_id:  profile_ids.add(re.actor_id)
+        profiles = {
+            p.user_id: p
+            for p in UserProfile.objects.filter(user_id__in=profile_ids)
+        }
+
+        for seq, re in enumerate(role_event_list, start=1):
+            row_num  = ROLE_HEADER_ROW + seq
+            rf       = role_action_fills.get(re.action, white_fill)
+
+            target_name  = (re.target.get_full_name() or re.target.username) if re.target else "—"
+            target_email = re.target.email if re.target else "—"
+            target_prof  = profiles.get(re.target_id)
+            target_dept  = (target_prof.department or "—") if target_prof else "—"
+
+            actor_name   = (re.actor.get_full_name() or re.actor.username) if re.actor else "System"
+            actor_email  = re.actor.email if re.actor else "—"
+            actor_r      = actor_role_map.get(re.actor_id, "—").replace("_", " ").title() if re.actor_id else "—"
+
+            row_vals = [
+                seq,
+                re.timestamp.strftime("%Y-%m-%d %H:%M:%S") if re.timestamp else "—",
+                re.action.capitalize(),
+                re.role.replace("_", " ").title(),
+                target_name,
+                target_email,
+                target_dept,
+                actor_name,
+                actor_email,
+                actor_r,
+            ]
+            for col_idx, val in enumerate(row_vals, start=1):
+                cell = ws4.cell(row=row_num, column=col_idx, value=val)
+                cell.fill   = rf
+                cell.font   = normal_font
+                cell.border = border
+                cell.alignment = center_align if col_idx in (1, 2, 3, 4) else left_align
+            ws4.row_dimensions[row_num].height = 15
+
+        if not role_event_list:
+            ws4.cell(row=ROLE_HEADER_ROW + 1, column=1,
+                     value="No role audit events recorded.").font = Font(
+                italic=True, color="94A3B8", name="Calibri", size=10)
 
         return wb
 
