@@ -8,7 +8,7 @@ import { type NextRequest, NextResponse } from "next/server";
 export const runtime    = "nodejs";
 export const maxDuration = 120;
 
-const DJANGO = "http://127.0.0.1:8000";
+const DJANGO = process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000";
 
 export async function POST(
   request: NextRequest,

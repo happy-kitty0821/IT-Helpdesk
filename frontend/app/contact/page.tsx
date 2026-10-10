@@ -47,7 +47,7 @@ const FALLBACK: SiteSettings = {
 
 async function getSiteSettings(): Promise<SiteSettings> {
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/v1/settings/site/", {
+    const res = await fetch(`${process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000"}/api/v1/settings/site/`, {
       cache: "no-store",
     });
     if (!res.ok) return FALLBACK;

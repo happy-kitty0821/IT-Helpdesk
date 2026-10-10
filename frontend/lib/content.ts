@@ -1,10 +1,10 @@
 ﻿import type { Guide, Software } from "@/lib/admin-api";
 
 // Server-side fetches go directly to Django. build_absolute_uri returns
-// http://127.0.0.1:8000/... so we strip the origin so the browser
-// resolves all paths through the Next.js proxy at localhost:3000.
-const serverBase = "http://127.0.0.1:8000/api/v1";
-const djangoOrigin = "http://127.0.0.1:8000";
+// the Django origin so we strip it so the browser resolves all paths
+// through the Next.js proxy at localhost:3000.
+const djangoOrigin = process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000";
+const serverBase = `${djangoOrigin}/api/v1`;
 
 function rewriteServerUrls<T>(obj: T): T {
   if (typeof obj !== "object" || obj === null) return obj;

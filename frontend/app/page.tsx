@@ -78,7 +78,7 @@ async function getOfficeHours(): Promise<OfficeHourRow[]> {
     { day: "Saturday",  hours: "Closed" },
   ];
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/v1/settings/site/", { cache: "no-store" });
+    const res = await fetch(`${process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000"}/api/v1/settings/site/`, { cache: "no-store" });
     if (!res.ok) return FALLBACK;
     const data = await res.json() as { office_hours?: OfficeHourRow[] };
     const rows = data.office_hours;

@@ -39,15 +39,16 @@ export const fallbackServices: Service[] = [
 
 // ── Server-side fetcher ────────────────────────────────────────────────────
 
-const serverBase = 'http://127.0.0.1:8000/api/v1';
+const serverBase = `${process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000"}/api/v1`;
+const djangoOrigin = process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000";
 
 function rewriteMediaUrls<T>(obj: T): T {
   if (typeof obj !== 'object' || obj === null) return obj;
   if (Array.isArray(obj)) return obj.map(rewriteMediaUrls) as unknown as T;
   const result = {} as Record<string, unknown>;
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    if (typeof value === 'string' && value.startsWith('http://127.0.0.1:8000/media/')) {
-      result[key] = value.replace('http://127.0.0.1:8000', '');
+    if (typeof value === 'string' && value.startsWith(`${djangoOrigin}/media/`)) {
+      result[key] = value.replace(djangoOrigin, '');
     } else {
       result[key] = rewriteMediaUrls(value);
     }

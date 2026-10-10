@@ -1,5 +1,7 @@
 ﻿import type { NextConfig } from "next";
 
+const djangoInternal = process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   skipTrailingSlashRedirect: true,
@@ -33,31 +35,32 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
+    const d = djangoInternal;
     return [
       // /api/v1/upload/* is handled by Next.js Route Handlers under
       // app/api/v1/upload/ — do NOT add a rewrite for that path prefix
       // or the rewrite will intercept before the Route Handler runs.
       // We list every other top-level segment explicitly to avoid a
       // catch-all that would swallow the upload paths.
-      { source: "/api/v1/auth/:path*",          destination: "http://127.0.0.1:8000/api/v1/auth/:path*/" },
-      { source: "/api/v1/services",              destination: "http://127.0.0.1:8000/api/v1/services/" },
-      { source: "/api/v1/services/:path*",       destination: "http://127.0.0.1:8000/api/v1/services/:path*/" },
-      { source: "/api/v1/tickets",               destination: "http://127.0.0.1:8000/api/v1/tickets/" },
-      { source: "/api/v1/tickets/:path*",        destination: "http://127.0.0.1:8000/api/v1/tickets/:path*/" },
-      { source: "/api/v1/guides",                destination: "http://127.0.0.1:8000/api/v1/guides/" },
-      { source: "/api/v1/guides/:path*",         destination: "http://127.0.0.1:8000/api/v1/guides/:path*/" },
-      { source: "/api/v1/software",              destination: "http://127.0.0.1:8000/api/v1/software/" },
-      { source: "/api/v1/software/:path*",       destination: "http://127.0.0.1:8000/api/v1/software/:path*/" },
-      { source: "/api/v1/status",                destination: "http://127.0.0.1:8000/api/v1/status/" },
-      { source: "/api/v1/status/:path*",         destination: "http://127.0.0.1:8000/api/v1/status/:path*/" },
-      { source: "/api/v1/announcement",          destination: "http://127.0.0.1:8000/api/v1/announcement/" },
-      { source: "/api/v1/announcement/:path*",   destination: "http://127.0.0.1:8000/api/v1/announcement/:path*/" },
-      { source: "/api/v1/admin/:path*",          destination: "http://127.0.0.1:8000/api/v1/admin/:path*/" },
-      { source: "/api/v1/settings/:path*",       destination: "http://127.0.0.1:8000/api/v1/settings/:path*/" },
-      { source: "/api/v1/health",                destination: "http://127.0.0.1:8000/api/v1/health/" },
-      { source: "/api/v1/health/:path*",         destination: "http://127.0.0.1:8000/api/v1/health/:path*/" },
+      { source: "/api/v1/auth/:path*",          destination: `${d}/api/v1/auth/:path*/` },
+      { source: "/api/v1/services",              destination: `${d}/api/v1/services/` },
+      { source: "/api/v1/services/:path*",       destination: `${d}/api/v1/services/:path*/` },
+      { source: "/api/v1/tickets",               destination: `${d}/api/v1/tickets/` },
+      { source: "/api/v1/tickets/:path*",        destination: `${d}/api/v1/tickets/:path*/` },
+      { source: "/api/v1/guides",                destination: `${d}/api/v1/guides/` },
+      { source: "/api/v1/guides/:path*",         destination: `${d}/api/v1/guides/:path*/` },
+      { source: "/api/v1/software",              destination: `${d}/api/v1/software/` },
+      { source: "/api/v1/software/:path*",       destination: `${d}/api/v1/software/:path*/` },
+      { source: "/api/v1/status",                destination: `${d}/api/v1/status/` },
+      { source: "/api/v1/status/:path*",         destination: `${d}/api/v1/status/:path*/` },
+      { source: "/api/v1/announcement",          destination: `${d}/api/v1/announcement/` },
+      { source: "/api/v1/announcement/:path*",   destination: `${d}/api/v1/announcement/:path*/` },
+      { source: "/api/v1/admin/:path*",          destination: `${d}/api/v1/admin/:path*/` },
+      { source: "/api/v1/settings/:path*",       destination: `${d}/api/v1/settings/:path*/` },
+      { source: "/api/v1/health",                destination: `${d}/api/v1/health/` },
+      { source: "/api/v1/health/:path*",         destination: `${d}/api/v1/health/:path*/` },
       // NOTE: /api/v1/upload/* intentionally omitted — handled by Route Handlers
-      { source: "/media/:path*",                 destination: "http://127.0.0.1:8000/media/:path*/" },
+      { source: "/media/:path*",                 destination: `${d}/media/:path*/` },
     ];
   },
 };
