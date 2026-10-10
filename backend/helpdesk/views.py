@@ -466,6 +466,41 @@ class TicketListCreate(generics.ListCreateAPIView):
             )
 
 
+# ── Ticket status state machine ───────────────────────────────────────────────
+#
+# Defines the legal forward transitions for staff.  Terminal states (closed,
+# cancelled) have no outgoing edges — they are intentionally absent as keys.
+# "resolved" allows → in_progress so a ticket can be re-opened if the fix
+# didn't hold.
+#
+# Interns get a narrower slice: they can only move to resolved (not close,
+# not cancel) since closing/cancelling is a service-lead action.
+
+STAFF_TRANSITIONS: dict[str, tuple[str, ...]] = {
+    'submitted':         ('triaged', 'in_progress', 'cancelled'),
+    'triaged':           ('in_progress', 'cancelled'),
+    'in_progress':       ('waiting_requester', 'waiting_approval', 'resolved'),
+    'waiting_requester': ('in_progress', 'resolved', 'cancelled'),
+    'waiting_approval':  ('in_progress', 'resolved', 'cancelled'),
+    'resolved':          ('closed', 'in_progress'),   # re-open path
+}
+
+INTERN_TRANSITIONS: dict[str, tuple[str, ...]] = {
+    'submitted':         ('in_progress',),
+    'triaged':           ('in_progress',),
+    'in_progress':       ('waiting_requester', 'resolved'),
+    'waiting_requester': ('in_progress', 'resolved'),
+    'waiting_approval':  ('in_progress', 'resolved'),
+    'resolved':          ('in_progress',),
+}
+
+
+def get_allowed_transitions(user) -> dict[str, tuple[str, ...]]:
+    """Return the correct transition table for the given user."""
+    from .permissions import user_has_intern_scope_only
+    return INTERN_TRANSITIONS if user_has_intern_scope_only(user) else STAFF_TRANSITIONS
+
+
 class TicketDetail(generics.RetrieveUpdateAPIView):
     serializer_class = TicketSerializer
     http_method_names = ['get', 'patch', 'head', 'options']
@@ -519,12 +554,9 @@ class TicketStatusView(APIView):
     POST /api/v1/tickets/{pk}/status/
 
     Rules:
-    - Requester can: cancel (if status is submitted or triaged), close (if status is resolved)
-    - Staff can: transition to any valid status
-
-    Valid transitions:
-    Requester: submitted/triaged -> cancelled, resolved -> closed
-    Staff: any -> any (except from closed/cancelled)
+    - Requester can: cancel (if submitted/triaged), close (if resolved).
+    - Staff/intern: must follow STAFF_TRANSITIONS / INTERN_TRANSITIONS tables.
+      Terminal states (closed, cancelled) have no outgoing edges.
     """
 
     def post(self, request, pk):
@@ -539,11 +571,12 @@ class TicketStatusView(APIView):
         serializer = TicketStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         new_status = serializer.validated_data['status']
+        reason     = serializer.validated_data.get('reason', '')
 
         roles = get_user_roles(request.user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
                        'content_editor', 'designated_approver'}
-        is_staff = bool(roles.intersection(staff_roles))
+        is_staff    = bool(roles.intersection(staff_roles))
         is_requester = ticket.requester_id == request.user.pk
 
         if not is_staff and not is_requester:
@@ -551,28 +584,46 @@ class TicketStatusView(APIView):
 
         current = ticket.status
 
+        if current == new_status:
+            # No-op — return current state without error
+            return Response(TicketSerializer(ticket).data)
+
         if is_staff:
-            # Staff cannot reopen from closed/cancelled
-            if current in ('closed', 'cancelled'):
+            table   = get_allowed_transitions(request.user)
+            allowed = table.get(current, ())
+            if new_status not in allowed:
+                label = lambda s: s.replace('_', ' ')
                 return Response(
-                    {'detail': 'Closed or cancelled tickets cannot be transitioned.'},
+                    {
+                        'code':   'invalid_transition',
+                        'detail': (
+                            f'Cannot move from "{label(current)}" to "{label(new_status)}". '
+                            f'Allowed: {", ".join(label(s) for s in allowed) or "none (terminal state)"}.'
+                        ),
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
-            # Requester rules
-            allowed = {
+            # Requester: limited set of self-service transitions
+            REQUESTER_ALLOWED: dict[str, tuple[str, ...]] = {
                 'submitted': ('cancelled',),
-                'triaged': ('cancelled',),
-                'resolved': ('closed',),
+                'triaged':   ('cancelled',),
+                'resolved':  ('closed',),
             }
-            if new_status not in allowed.get(current, ()):
+            if new_status not in REQUESTER_ALLOWED.get(current, ()):
                 return Response(
                     {'detail': f'You cannot move this ticket from "{current}" to "{new_status}".'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
         ticket.status = new_status
-        ticket.save(update_fields=['status', 'updated_at'])
+        # Persist the reason for closed/cancelled/resolved transitions
+        if reason:
+            ticket.status_reason = reason
+        update_fields = ['status', 'updated_at']
+        if reason:
+            update_fields.append('status_reason')
+        ticket.save(update_fields=update_fields)
         return Response(TicketSerializer(ticket).data)
 
 

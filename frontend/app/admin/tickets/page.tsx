@@ -104,6 +104,32 @@ const PRIORITY_COLORS: Record<string, { text: string; bg: string }> = {
 
 const ACCOUNT_RECOVERY_SLUGS = new Set(["account-recovery", "college-account-recovery"]);
 
+// ── Status state machine (mirrors backend STAFF_TRANSITIONS / INTERN_TRANSITIONS) ──
+// Keys are the current status; values are the statuses the user may move to.
+// The current status itself is always included so the dropdown has a selected value.
+
+const STAFF_TRANSITIONS: Record<string, string[]> = {
+  submitted:         ["triaged", "in_progress", "cancelled"],
+  triaged:           ["in_progress", "cancelled"],
+  in_progress:       ["waiting_requester", "waiting_approval", "resolved"],
+  waiting_requester: ["in_progress", "resolved", "cancelled"],
+  waiting_approval:  ["in_progress", "resolved", "cancelled"],
+  resolved:          ["closed", "in_progress"],
+  closed:            [],   // terminal
+  cancelled:         [],   // terminal
+};
+
+const INTERN_TRANSITIONS: Record<string, string[]> = {
+  submitted:         ["in_progress"],
+  triaged:           ["in_progress"],
+  in_progress:       ["waiting_requester", "resolved"],
+  waiting_requester: ["in_progress", "resolved"],
+  waiting_approval:  ["in_progress", "resolved"],
+  resolved:          ["in_progress"],
+  closed:            [],
+  cancelled:         [],
+};
+
 // ── Small components ──────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -538,9 +564,20 @@ export default function AdminTicketsPage() {
           current_stage: draftStage,
         }),
       });
-      const data = await res.json().catch(() => ({})) as AdminTicket;
+      const data = await res.json().catch(() => ({})) as AdminTicket & { code?: string; detail?: string };
       if (!res.ok) {
-        setPanelError(messageFrom(data));
+        // Special-case: the ticket status changed externally while the panel
+        // was open, making the drafted transition illegal. Sync the draft back
+        // to the current server status and show a clear explanation.
+        if ((data as { code?: string }).code === "invalid_transition") {
+          setDraftStatus(selected.status);
+          setPanelError(
+            "The ticket status changed while you had it open — your status change couldn't be applied. " +
+            "The status field has been reset. Review and save again."
+          );
+        } else {
+          setPanelError(messageFrom(data));
+        }
       } else {
         setTickets((prev) => prev.map((t) => (t.id === selected.id ? { ...t, ...data } : t)));
         setSelected({ ...selected, ...data });
@@ -1085,7 +1122,15 @@ export default function AdminTicketsPage() {
                   <label>
                     Status
                     <select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value)}>
-                      {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      {/* Always include the current saved status so the control has a value,
+                          then append only the legal forward transitions for this user. */}
+                      {(() => {
+                        const table = isInternOnly ? INTERN_TRANSITIONS : STAFF_TRANSITIONS;
+                        const reachable = new Set([selected.status, ...(table[selected.status] ?? [])]);
+                        return Object.entries(STATUS_LABELS)
+                          .filter(([v]) => reachable.has(v))
+                          .map(([v, l]) => <option key={v} value={v}>{l}</option>);
+                      })()}
                     </select>
                   </label>
                   <label>

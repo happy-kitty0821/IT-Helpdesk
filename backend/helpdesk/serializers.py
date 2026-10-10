@@ -292,6 +292,31 @@ class TicketUpdateSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_status(self, new_status):
+        """Enforce the state machine: only allow legal forward transitions."""
+        # Only meaningful when updating an existing ticket (instance is set).
+        if self.instance is None:
+            return new_status
+
+        current = self.instance.status
+        if current == new_status:
+            return new_status  # no-op, always fine
+
+        # Import here to avoid a circular import at module level.
+        from .views import get_allowed_transitions
+        request = self.context.get('request')
+        table = get_allowed_transitions(request.user) if request else {}
+
+        allowed = table.get(current, ())
+        if new_status not in allowed:
+            from django.utils.text import capfirst
+            label = lambda s: s.replace('_', ' ')
+            raise serializers.ValidationError(
+                f'Cannot move from "{label(current)}" to "{label(new_status)}". '
+                f'Allowed next states: {", ".join(label(s) for s in allowed) or "none (terminal state)"}.'
+            )
+        return new_status
+
 
 class TicketStatusSerializer(serializers.Serializer):
     """Used for the POST /tickets/{id}/status/ transition endpoint."""
