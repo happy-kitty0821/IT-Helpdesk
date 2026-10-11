@@ -3367,8 +3367,6 @@ class TicketStreamView(View):
         response["X-Accel-Buffering"] = "no"
         return response
 
-        return response
-
 
 # ---------------------------------------------------------------------------
 # Announcement views

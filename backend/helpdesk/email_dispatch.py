@@ -103,7 +103,7 @@ def _resolve_template(event_type: str, context: dict) -> tuple[str, str] | tuple
 # ── Transport dispatch ────────────────────────────────────────────────────────
 
 def _dispatch_smtp(config: dict, to_email: str, subject: str, html_body: str,
-                   from_email: str, log_tag: str) -> None:
+                   from_email: str, log_tag: str, event_type: str = '') -> None:
     """Raw smtplib send — used for NotificationChannel email_smtp transport."""
     import smtplib
     import ssl
@@ -111,6 +111,8 @@ def _dispatch_smtp(config: dict, to_email: str, subject: str, html_body: str,
     from email.mime.text import MIMEText
 
     def _send() -> None:
+        success = False
+        error_msg = ''
         try:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
@@ -135,20 +137,25 @@ def _dispatch_smtp(config: dict, to_email: str, subject: str, html_body: str,
                     srv.login(config['username'], config['password'])
                     srv.sendmail(from_email, to_email, msg.as_string())
 
+            success = True
             logger.info('Email [%s] sent to %s via SMTP channel.', log_tag, to_email)
         except Exception as exc:
-            logger.error('SMTP channel send failed [%s] to %s: %s', log_tag, to_email,
-                         type(exc).__name__)
+            error_msg = type(exc).__name__
+            logger.error('SMTP channel send failed [%s] to %s: %s', log_tag, to_email, error_msg)
+        finally:
+            _write_transactional_log(event_type, success, error_msg)
 
     threading.Thread(target=_send, daemon=True).start()
 
 
 def _dispatch_mailgun(config: dict, to_email: str, subject: str, html_body: str,
-                      from_email: str, log_tag: str) -> None:
+                      from_email: str, log_tag: str, event_type: str = '') -> None:
     """Mailgun HTTP API send — used for NotificationChannel email_mailgun transport."""
     import requests as http_requests
 
     def _send() -> None:
+        success = False
+        error_msg = ''
         try:
             api_url = config['api_url'].rstrip('/')
             domain  = config['domain']
@@ -161,23 +168,28 @@ def _dispatch_mailgun(config: dict, to_email: str, subject: str, html_body: str,
                 timeout=10,
             )
             if resp.status_code in (200, 201):
+                success = True
                 logger.info('Email [%s] sent to %s via Mailgun.', log_tag, to_email)
             else:
-                logger.error('Mailgun send failed [%s]: HTTP %s %s',
-                             log_tag, resp.status_code, resp.text[:200])
+                error_msg = f'HTTP {resp.status_code}'
+                logger.error('Mailgun send failed [%s]: %s %s', log_tag, error_msg, resp.text[:200])
         except Exception as exc:
-            logger.error('Mailgun send failed [%s] to %s: %s', log_tag, to_email,
-                         type(exc).__name__)
+            error_msg = type(exc).__name__
+            logger.error('Mailgun send failed [%s] to %s: %s', log_tag, to_email, error_msg)
+        finally:
+            _write_transactional_log(event_type, success, error_msg)
 
     threading.Thread(target=_send, daemon=True).start()
 
 
 def _dispatch_django_mailer(to_email: str, subject: str, html_body: str,
-                             from_email: str, log_tag: str) -> None:
+                             from_email: str, log_tag: str, event_type: str = '') -> None:
     """Django send_mail() — routes through settings.MAILERS["default"]."""
     from django.core.mail import send_mail
 
     def _send() -> None:
+        success = False
+        error_msg = ''
         try:
             send_mail(
                 subject=subject,
@@ -186,12 +198,32 @@ def _dispatch_django_mailer(to_email: str, subject: str, html_body: str,
                 recipient_list=[to_email],
                 html_message=html_body,
             )
+            success = True
             logger.info('Email [%s] sent to %s via Django mailer.', log_tag, to_email)
         except Exception as exc:
-            logger.error('Django mailer send failed [%s] to %s: %s',
-                         log_tag, to_email, type(exc).__name__)
+            error_msg = type(exc).__name__
+            logger.error('Django mailer send failed [%s] to %s: %s', log_tag, to_email, error_msg)
+        finally:
+            _write_transactional_log(event_type, success, error_msg)
 
     threading.Thread(target=_send, daemon=True).start()
+
+
+def _write_transactional_log(event_type: str, success: bool, error_msg: str) -> None:
+    """Write a NotificationLog entry for a transactional (non-channel) email send."""
+    if not event_type:
+        return
+    try:
+        from .models import NotificationLog
+        NotificationLog.objects.create(
+            channel=None,        # no channel — transactional send
+            event_type=event_type,
+            ticket=None,
+            status='sent' if success else 'failed',
+            error_message='' if success else error_msg,
+        )
+    except Exception as exc:
+        logger.warning('_write_transactional_log failed for %s: %s', event_type, exc)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -244,10 +276,10 @@ def resolve_and_send(
     # 3 — Dispatch
     if backend == 'smtp':
         _dispatch_smtp(transport['config'], to_email, final_subject, html_body,
-                       from_email, tag)
+                       from_email, tag, event_type)
     elif backend == 'mailgun':
         _dispatch_mailgun(transport['config'], to_email, final_subject, html_body,
-                          from_email, tag)
+                          from_email, tag, event_type)
     else:
         # django_mailer — applies current MAILERS["default"]
-        _dispatch_django_mailer(to_email, final_subject, html_body, from_email, tag)
+        _dispatch_django_mailer(to_email, final_subject, html_body, from_email, tag, event_type)
