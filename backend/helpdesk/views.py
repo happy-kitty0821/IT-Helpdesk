@@ -1736,6 +1736,7 @@ class RecoveryActionView(APIView):
         ref          = ticket.reference
         helpdesk_url = get_helpdesk_url()
 
+        from .signals import get_support_email as _get_support_email
         from .email_dispatch import resolve_and_send as _dispatch_unverified
 
         _dispatch_unverified(
