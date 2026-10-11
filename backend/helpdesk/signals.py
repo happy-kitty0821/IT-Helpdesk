@@ -512,3 +512,45 @@ def record_ticket_event(sender, instance, created, **kwargs):
 
     except Exception as exc:
         logger.exception('record_ticket_event failed for ticket %s: %s', getattr(instance, 'reference', '?'), exc)
+
+
+# ---------------------------------------------------------------------------
+# SLA / overdue — clear is_overdue when a ticket is acted on
+# ---------------------------------------------------------------------------
+
+@receiver(post_save, sender='helpdesk.Ticket')
+def clear_overdue_on_activity(sender, instance, created, update_fields, **kwargs):
+    """
+    When any meaningful change is saved to a ticket (status change, assignment,
+    reply, stage move — anything that advances the work), clear the is_overdue
+    flag so the Celery beat task can re-evaluate from scratch.
+
+    We only act when:
+    - The ticket already had is_overdue=True
+    - This is not a save triggered by the Celery task itself
+      (the task saves ONLY is_overdue + last_stale_alert_at + updated_at — we
+       detect this by checking update_fields)
+
+    The Celery beat task saves with:
+        update_fields=['is_overdue', 'last_stale_alert_at', 'updated_at']
+    Any save that does NOT exclusively touch those fields is treated as
+    real staff activity and clears the flag.
+    """
+    if created:
+        return  # brand-new ticket — nothing to clear
+
+    # If the save was triggered by the Celery task itself, skip to avoid loop
+    CELERY_TASK_FIELDS = frozenset(['is_overdue', 'last_stale_alert_at', 'updated_at'])
+    if update_fields is not None and frozenset(update_fields) <= CELERY_TASK_FIELDS:
+        return
+
+    if instance.is_overdue:
+        try:
+            # Use update() to avoid triggering this signal again
+            sender.objects.filter(pk=instance.pk).update(is_overdue=False)
+            instance.is_overdue = False   # keep in-memory object consistent
+        except Exception as exc:
+            logger.exception(
+                'clear_overdue_on_activity: failed to clear is_overdue for %s: %s',
+                getattr(instance, 'reference', instance.pk), exc,
+            )

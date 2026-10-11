@@ -372,6 +372,21 @@ def build_webhook_text(event_type: str, context: dict) -> str:
             f'By: {requester}\n'
             f'{url}'
         )
+    elif event_type == 'ticket_stale':
+        age_h      = context.get('age_hours', '?')
+        threshold  = context.get('threshold_hours', '?')
+        assignee   = context.get('assignee_name', 'Unassigned')
+        status     = context.get('ticket_status', '')
+        escalation = context.get('is_escalation', False)
+        flag       = '🚨 ESCALATION' if escalation else '⚠️ SLA Breach'
+        return (
+            f'{flag} — Ticket {ref} is overdue ({age_h}h / threshold {threshold}h)\n'
+            f'Subject:  {subject}\n'
+            f'Status:   {status}\n'
+            f'Assignee: {assignee}\n'
+            f'Requester: {requester}\n'
+            f'{url}'
+        )
     else:
         return f'IIC Helpdesk notification [{event_type}]: {ref} — {subject}'
 

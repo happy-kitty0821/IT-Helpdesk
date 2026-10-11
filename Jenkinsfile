@@ -13,6 +13,39 @@ pipeline {
 
     stages {
 
+        stage('Infrastructure - Redis') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Checking Redis installation..."
+
+                    if ! command -v redis-server > /dev/null 2>&1; then
+                        echo "ERROR: redis-server is not installed."
+                        echo "Install it on the server with: sudo apt install redis-server"
+                        echo "Then enable and start it with:"
+                        echo "  sudo systemctl enable redis-server"
+                        echo "  sudo systemctl start redis-server"
+                        exit 1
+                    fi
+
+                    echo "Redis binary found: $(which redis-server)"
+
+                    echo "Checking Redis service status..."
+
+                    if ! sudo -n /usr/bin/systemctl is-active --quiet redis-server; then
+                        echo "Redis service is not running. Attempting to start..."
+                        sudo -n /usr/bin/systemctl start redis-server
+                    fi
+
+                    echo "Verifying Redis connectivity..."
+                    redis-cli ping | grep -q PONG
+
+                    echo "Redis check passed."
+                '''
+            }
+        }
+
         stage('Backend - Install Dependencies') {
             steps {
                 sh '''
@@ -203,6 +236,28 @@ pipeline {
             }
         }
 
+        stage('Restart Celery') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Restarting Celery worker..."
+
+                    sudo -n /usr/bin/systemctl \
+                        restart iic-helpdesk-celery-worker.service
+
+                    echo "Celery worker restarted."
+
+                    echo "Restarting Celery beat..."
+
+                    sudo -n /usr/bin/systemctl \
+                        restart iic-helpdesk-celery-beat.service
+
+                    echo "Celery beat restarted."
+                '''
+            }
+        }
+
         stage('Restart Frontend') {
             steps {
                 sh '''
@@ -230,6 +285,11 @@ pipeline {
 
                     echo
                     echo "Backend health check passed."
+
+                    echo "Checking Redis..."
+
+                    redis-cli ping | grep -q PONG
+                    echo "Redis health check passed."
 
                     echo "Checking frontend..."
 

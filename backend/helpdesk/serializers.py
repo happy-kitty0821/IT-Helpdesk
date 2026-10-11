@@ -155,7 +155,7 @@ class TicketSerializer(serializers.ModelSerializer):
             'status', 'status_reason', 'priority',
             'assigned_to', 'team', 'assignee_name',
             'extra_fields', 'elapsed', 'created_at', 'updated_at',
-            'current_stage',
+            'current_stage', 'is_overdue',
         )
 
     def get_requester_name(self, obj):

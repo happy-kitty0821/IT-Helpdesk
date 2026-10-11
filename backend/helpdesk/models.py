@@ -87,6 +87,19 @@ class Ticket(models.Model):
     status_reason = models.TextField(max_length=1000, blank=True, default='')
     current_stage = models.CharField(max_length=80, blank=True, default='')
 
+    # ── SLA / overdue tracking ─────────────────────────────────────────────
+    is_overdue = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='Set by the Celery beat task when the ticket breaches its SLA threshold.',
+    )
+    last_stale_alert_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Timestamp of the last stale-ticket alert sent for this ticket. '
+                  'Used to enforce the alert cooldown period.',
+    )
+
     class Meta:
         ordering = ('-created_at',)
 
@@ -357,6 +370,7 @@ class EmailTemplate(models.Model):
         PRIORITY_CHANGED = 'priority_changed', 'Priority Changed (by Requester)'
         ACCOUNT_RECOVERY = 'account_recovery', 'Account Recovery — Send Credentials'
         RECOVERY_UNABLE_TO_VERIFY = 'recovery_unable_to_verify', 'Account Recovery — Unable to Verify'
+        TICKET_STALE = 'ticket_stale', 'Ticket Stale / SLA Breach Alert'
 
     event_type = models.CharField(max_length=30, choices=EventType.choices)
     name = models.CharField(max_length=200)

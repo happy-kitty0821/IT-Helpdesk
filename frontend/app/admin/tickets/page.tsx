@@ -36,6 +36,7 @@ interface AdminTicket {
   created_at: string;
   updated_at: string;
   current_stage: string;
+  is_overdue: boolean;
 }
 
 interface StaffUser {
@@ -960,7 +961,14 @@ export default function AdminTicketsPage() {
                   </span>
                   <span className="atq-subject" title={ticket.subject}>{ticket.subject}</span>
                   <span className="atq-meta">{ticket.category_name ?? `#${ticket.category}`}</span>
-                  <span><StatusBadge status={ticket.status} /></span>
+                  <span>
+                    <StatusBadge status={ticket.status} />
+                    {ticket.is_overdue && (
+                      <span title="Ticket has breached its SLA threshold" style={{ marginLeft: 5, background: "#fee2e2", color: "#991b1b", borderRadius: 999, padding: "2px 7px", fontSize: ".7rem", fontWeight: 800, whiteSpace: "nowrap" }}>
+                        ⚠ Overdue
+                      </span>
+                    )}
+                  </span>
                   <span><PriorityBadge priority={ticket.priority} /></span>
                   <span className="atq-meta" style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <Calendar size={12} aria-hidden="true" />{ticket.elapsed}
@@ -1015,6 +1023,20 @@ export default function AdminTicketsPage() {
               <div className="atq-panel-title">
                 <span className="atq-panel-ref">{selected.reference}</span>
                 <StatusBadge status={selected.status} />
+                {selected.is_overdue && (
+                  <span
+                    title="This ticket has breached its SLA threshold and is overdue"
+                    style={{
+                      background: "#fee2e2", color: "#991b1b",
+                      borderRadius: 999, padding: "2px 8px",
+                      fontSize: ".72rem", fontWeight: 800,
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      border: "1px solid #fca5a5",
+                    }}
+                  >
+                    ⚠ Overdue
+                  </span>
+                )}
                 {/* SSE live indicator */}
                 <span
                   title={streamConnected ? (sseUpdated ? "Updated just now" : "Live updates active") : "Connecting…"}

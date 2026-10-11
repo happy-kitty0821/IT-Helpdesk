@@ -229,6 +229,40 @@ PASSWORD_RESET_TOKEN_EXPIRY_HOURS = int(os.environ.get('PASSWORD_RESET_TOKEN_EXP
 HELPDESK_INTERN_SCOPE_SLUGS = ['device-support', 'wifi-issue', 'general-support']
 HELPDESK_URL = os.environ.get('HELPDESK_URL', 'http://localhost:3000')
 
+# ── Celery + Redis ─────────────────────────────────────────────────────────────
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')
+
+CELERY_BROKER_URL          = REDIS_URL
+CELERY_RESULT_BACKEND      = REDIS_URL
+CELERY_ACCEPT_CONTENT      = ['json']
+CELERY_TASK_SERIALIZER     = 'json'
+CELERY_RESULT_SERIALIZER   = 'json'
+CELERY_TIMEZONE            = TIME_ZONE          # reuse Django's timezone
+CELERY_TASK_TRACK_STARTED  = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Beat schedule — stale-ticket check runs every 15 minutes
+from celery.schedules import crontab  # noqa: E402 — safe at module bottom
+
+CELERY_BEAT_SCHEDULE = {
+    'check-stale-tickets': {
+        'task':     'helpdesk.tasks.check_stale_tickets',
+        'schedule': 60 * 15,   # every 15 minutes (seconds)
+    },
+}
+
+# ── SLA thresholds (hours before a ticket is considered overdue) ───────────────
+# First threshold  → is_overdue flag set + alert sent to assignee (or service leads if unassigned)
+# Second threshold → escalation alert also sent to service leads / admins
+SLA_SUBMITTED_HOURS        = int(os.environ.get('SLA_SUBMITTED_HOURS',        '2'))
+SLA_TRIAGED_HOURS          = int(os.environ.get('SLA_TRIAGED_HOURS',          '4'))
+SLA_IN_PROGRESS_HOURS      = int(os.environ.get('SLA_IN_PROGRESS_HOURS',      '24'))
+SLA_WAITING_REQUESTER_HOURS= int(os.environ.get('SLA_WAITING_REQUESTER_HOURS','48'))
+# Escalation = 2× the first threshold for each status
+SLA_ESCALATION_MULTIPLIER  = float(os.environ.get('SLA_ESCALATION_MULTIPLIER', '2.0'))
+# Minimum hours between repeated stale alerts for the same ticket
+SLA_ALERT_COOLDOWN_HOURS   = int(os.environ.get('SLA_ALERT_COOLDOWN_HOURS',   '4'))
+
 SPECTACULAR_SETTINGS = {
     'TITLE': 'IIC IT-NOC Help Desk Application',
     'DESCRIPTION': 'API documentation generated automatically',
