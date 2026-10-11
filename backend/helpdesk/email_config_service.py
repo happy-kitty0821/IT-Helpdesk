@@ -45,12 +45,21 @@ _SMTP_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 #   }
 
 
-def _env_transport() -> dict:
-    """Build a transport descriptor from the current settings.MAILERS."""
-    mailer = dict(settings.MAILERS.get('default', {
+def _env_mailer_dict() -> dict:
+    """
+    Return the current settings.MAILERS["default"] as-is.
+    Kept as a named function for backward compatibility with tests and
+    any code that imports it directly.
+    """
+    return dict(settings.MAILERS.get('default', {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
         'OPTIONS': {},
     }))
+
+
+def _env_transport() -> dict:
+    """Build a transport descriptor from the current settings.MAILERS."""
+    mailer = _env_mailer_dict()
     opts = mailer.get('OPTIONS', {})
     return {
         'source':     'env',
@@ -187,3 +196,16 @@ def apply_mailers_override() -> None:
             )
     except Exception as exc:
         logger.error('apply_mailers_override failed: %s', type(exc).__name__)
+
+
+def get_effective_mailer() -> dict:
+    """
+    Return the MAILERS["default"]-compatible dict for the active config.
+
+    Kept for backward compatibility — existing tests and any external code
+    that imports this function continue to work unchanged.
+    """
+    t = _db_config_transport()
+    if t and '_mailer' in t:
+        return t['_mailer']
+    return _env_mailer_dict()

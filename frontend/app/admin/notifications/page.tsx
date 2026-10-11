@@ -48,7 +48,9 @@ type EventType =
   | "priority_changed"
   | "account_recovery"
   | "recovery_unable_to_verify"
-  | "ticket_stale";
+  | "ticket_stale"
+  | "email_verification"
+  | "password_reset";
 
 interface EmailTemplate {
   id: number;
@@ -245,6 +247,27 @@ const EVENT_META: Record<EventType, { label: string; variables: string[] }> = {
       "age_hours",
       "threshold_hours",
       "is_escalation",
+      "helpdesk_url",
+    ],
+  },
+  email_verification: {
+    label: "Email Verification",
+    variables: [
+      "name",
+      "email",
+      "verify_url",
+      "expires_hours",
+      "support_email",
+      "helpdesk_url",
+    ],
+  },
+  password_reset: {
+    label: "Password Reset",
+    variables: [
+      "name",
+      "reset_url",
+      "expiry_hours",
+      "support_email",
       "helpdesk_url",
     ],
   },
