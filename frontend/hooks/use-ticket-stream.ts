@@ -13,6 +13,7 @@ export interface TicketSnapshot {
   assignee_name: string | null;
   team: string;
   updated_at: string | null;
+  is_overdue: boolean;
 }
 
 export interface StreamMessage {

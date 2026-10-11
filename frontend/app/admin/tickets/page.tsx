@@ -339,6 +339,7 @@ export default function AdminTicketsPage() {
         assignee_name: snapshot.assignee_name,
         team:          snapshot.team,
         updated_at:    snapshot.updated_at ?? t.updated_at,
+        is_overdue:    snapshot.is_overdue,
       } : t
     ));
     setSelected((prev) => {
@@ -355,6 +356,7 @@ export default function AdminTicketsPage() {
         assignee_name: snapshot.assignee_name,
         team:          snapshot.team,
         updated_at:    snapshot.updated_at ?? prev.updated_at,
+        is_overdue:    snapshot.is_overdue,
       };
     });
     // Briefly pulse the live indicator instead of a notice banner

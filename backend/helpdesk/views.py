@@ -3298,6 +3298,7 @@ class TicketStreamView(View):
                                   if t.assigned_to else None,
                 "team":          t.team,
                 "updated_at":    t.updated_at.isoformat() if t.updated_at else None,
+                "is_overdue":    t.is_overdue,
             }
 
         def _message_dict(m, is_staff_viewer):

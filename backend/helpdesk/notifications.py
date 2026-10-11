@@ -176,6 +176,17 @@ def send_to_channel(channel, event_type: str, context: dict, ticket=None) -> tup
                 event_type=event_type, is_active=True
             ).first()
             if not template:
+                # Log the skip so it's visible in the dashboard
+                try:
+                    NotificationLog.objects.create(
+                        channel=channel,
+                        event_type=event_type,
+                        ticket=ticket,
+                        status='failed',
+                        error_message='No active email template found for this event type.',
+                    )
+                except Exception:
+                    pass
                 return True, 'No active template — skipped.'
 
             to_email = context.get('to_email') or context.get('requester_email', '')
