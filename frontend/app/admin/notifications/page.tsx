@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
+  AlertTriangle,
   Bell,
   CheckCircle2,
   Mail,
@@ -14,6 +15,9 @@ import {
   Trash2,
   X,
   XCircle,
+  BarChart2,
+  Clock,
+  ScrollText,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { csrfToken } from "@/lib/auth";
@@ -76,6 +80,19 @@ interface NotificationRule {
   custom_emails: string;
   created_at: string;
   updated_at: string;
+}
+
+interface NotificationLog {
+  id: number;
+  channel: number | null;
+  channel_name: string | null;
+  channel_type: string | null;
+  event_type: string;
+  ticket: string | null;
+  ticket_reference: string | null;
+  status: "sent" | "failed";
+  error_message: string;
+  created_at: string;
 }
 
 interface ConfigField {
@@ -321,13 +338,18 @@ function CustomEmailInput({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NotificationsPage() {
-  const [activeTab, setActiveTab] = useState<"channels" | "templates" | "routing">("channels");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "channels" | "templates" | "routing" | "logs">("dashboard");
 
   // List state
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Logs state
+  const [logs, setLogs] = useState<NotificationLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logStatusFilter, setLogStatusFilter] = useState<"" | "sent" | "failed">("");
 
   // Channel editor state
   const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null);
@@ -402,6 +424,24 @@ export default function NotificationsPage() {
   }
 
   useEffect(loadAll, []);
+
+  function loadLogs(statusFilter: "" | "sent" | "failed" = logStatusFilter) {
+    setLogsLoading(true);
+    const params = statusFilter ? `?status=${statusFilter}` : "";
+    fetch(`/api/v1/admin/notifications/logs/${params}`, { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? (r.json() as Promise<{ results?: NotificationLog[] } | NotificationLog[]>) : { results: [] })
+      .then((data) => {
+        const items = Array.isArray(data) ? data : (data as { results?: NotificationLog[] }).results ?? [];
+        setLogs(items);
+      })
+      .catch(() => setLogs([]))
+      .finally(() => setLogsLoading(false));
+  }
+
+  useEffect(() => {
+    if (activeTab === "logs" || activeTab === "dashboard") loadLogs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // ─── Channel editor helpers ──────────────────────────────────────────────────
 
@@ -811,6 +851,15 @@ export default function NotificationsPage() {
       <div className="notif-tabs" role="tablist">
         <button
           role="tab"
+          aria-selected={activeTab === "dashboard"}
+          className={`notif-tab${activeTab === "dashboard" ? " active" : ""}`}
+          onClick={() => setActiveTab("dashboard")}
+        >
+          <BarChart2 aria-hidden="true" size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+          Dashboard
+        </button>
+        <button
+          role="tab"
           aria-selected={activeTab === "channels"}
           className={`notif-tab${activeTab === "channels" ? " active" : ""}`}
           onClick={() => setActiveTab("channels")}
@@ -836,12 +885,127 @@ export default function NotificationsPage() {
           <Route aria-hidden="true" size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
           Routing
         </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === "logs"}
+          className={`notif-tab${activeTab === "logs" ? " active" : ""}`}
+          onClick={() => setActiveTab("logs")}
+        >
+          <ScrollText aria-hidden="true" size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+          Logs
+        </button>
       </div>
 
       {loading ? (
         <div className="admin-loading">Loading notifications…</div>
       ) : (
         <>
+          {/* ── Dashboard tab ── */}
+          {activeTab === "dashboard" && (() => {
+            const totalLogs   = logs.length;
+            const sentLogs    = logs.filter((l) => l.status === "sent").length;
+            const failedLogs  = logs.filter((l) => l.status === "failed").length;
+            const failRate    = totalLogs > 0 ? ((failedLogs / totalLogs) * 100).toFixed(1) : "0.0";
+            const recentFails = logs.filter((l) => l.status === "failed").slice(0, 8);
+            // Channel failure counts
+            const failByChannel: Record<string, number> = {};
+            logs.filter((l) => l.status === "failed").forEach((l) => {
+              const k = l.channel_name ?? "Unknown";
+              failByChannel[k] = (failByChannel[k] ?? 0) + 1;
+            });
+            const eventCounts: Record<string, number> = {};
+            logs.forEach((l) => { eventCounts[l.event_type] = (eventCounts[l.event_type] ?? 0) + 1; });
+
+            return (
+              <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
+                <div className="notif-section-header" style={{ marginBottom: 20 }}>
+                  <div className="notif-section-header-text">
+                    <h2>Notification dashboard</h2>
+                    <p>At-a-glance health of your notification pipeline.</p>
+                  </div>
+                  <button className="secondary-button" style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={() => loadLogs()}>
+                    <Clock size={14} aria-hidden="true" /> Refresh
+                  </button>
+                </div>
+
+                {/* KPI cards */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 14, marginBottom: 28 }}>
+                  {[
+                    { label: "Active channels",   value: activeChannels,                color: "#234395", bg: "#eff6ff" },
+                    { label: "Active templates",  value: activeTemplates,               color: "#166534", bg: "#dcfce7" },
+                    { label: "Total sends (log)", value: totalLogs,                     color: "#475569", bg: "#f1f5f9" },
+                    { label: "Successful",        value: sentLogs,                      color: "#166534", bg: "#dcfce7" },
+                    { label: "Failed",            value: failedLogs,                    color: "#991b1b", bg: "#fee2e2" },
+                    { label: "Failure rate",      value: `${failRate}%`,                color: failedLogs > 0 ? "#92400e" : "#166534", bg: failedLogs > 0 ? "#fef3c7" : "#dcfce7" },
+                  ].map(({ label, value, color, bg }) => (
+                    <div key={label} style={{ background: bg, border: `1px solid ${color}22`, borderRadius: 12, padding: "16px 18px" }}>
+                      <p style={{ margin: "0 0 6px", fontSize: ".74rem", fontWeight: 700, color, textTransform: "uppercase", letterSpacing: ".08em" }}>{label}</p>
+                      <p style={{ margin: 0, fontSize: "1.6rem", fontWeight: 800, color, lineHeight: 1 }}>{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
+                  {/* Recent failures */}
+                  <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ padding: "14px 18px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
+                      <AlertTriangle size={15} style={{ color: "#991b1b" }} aria-hidden="true" />
+                      <strong style={{ fontSize: ".88rem", color: "#0f172a" }}>Recent failures</strong>
+                    </div>
+                    {logsLoading ? (
+                      <p style={{ padding: "16px 18px", color: "#64748b", fontSize: ".85rem" }}>Loading…</p>
+                    ) : recentFails.length === 0 ? (
+                      <p style={{ padding: "16px 18px", color: "#166534", fontSize: ".85rem", display: "flex", alignItems: "center", gap: 6 }}>
+                        <CheckCircle2 size={14} /> No failures — everything looks good.
+                      </p>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".8rem" }}>
+                        <tbody>
+                          {recentFails.map((l) => (
+                            <tr key={l.id} style={{ borderBottom: "1px solid #f8fafc" }}>
+                              <td style={{ padding: "9px 18px", color: "#475569" }}>
+                                <div style={{ fontWeight: 700, color: "#0f172a" }}>{EVENT_META[l.event_type as EventType]?.label ?? l.event_type}</div>
+                                <div style={{ fontSize: ".74rem", color: "#94a3b8" }}>{l.channel_name ?? "—"} · {new Date(l.created_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</div>
+                              </td>
+                              <td style={{ padding: "9px 18px", color: "#991b1b", fontSize: ".76rem", maxWidth: 160, wordBreak: "break-word" }}>
+                                {l.error_message || "Unknown error"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Sends by event type */}
+                  <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ padding: "14px 18px", borderBottom: "1px solid #f1f5f9" }}>
+                      <strong style={{ fontSize: ".88rem", color: "#0f172a" }}>Volume by event type</strong>
+                    </div>
+                    {logsLoading ? (
+                      <p style={{ padding: "16px 18px", color: "#64748b", fontSize: ".85rem" }}>Loading…</p>
+                    ) : Object.keys(eventCounts).length === 0 ? (
+                      <p style={{ padding: "16px 18px", color: "#64748b", fontSize: ".85rem" }}>No log entries yet.</p>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".8rem" }}>
+                        <tbody>
+                          {Object.entries(eventCounts).sort((a, b) => b[1] - a[1]).map(([et, cnt]) => (
+                            <tr key={et} style={{ borderBottom: "1px solid #f8fafc" }}>
+                              <td style={{ padding: "9px 18px", color: "#475569" }}>
+                                {EVENT_META[et as EventType]?.label ?? et}
+                              </td>
+                              <td style={{ padding: "9px 18px", fontWeight: 700, color: "#234395", textAlign: "right" }}>{cnt}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })()}
+
           {/* ── Channels tab ── */}
           {activeTab === "channels" && (
             <motion.div
@@ -1114,6 +1278,96 @@ export default function NotificationsPage() {
                     <span>◻ Disabled — channel skipped for this event</span>
                     <span style={{ color: "#94a3b8" }}>Grey columns are globally inactive</span>
                   </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* ── Logs tab ── */}
+          {activeTab === "logs" && (
+            <motion.div key="logs" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
+              <div className="notif-section-header" style={{ marginBottom: 16 }}>
+                <div className="notif-section-header-text">
+                  <h2>Notification log</h2>
+                  <p>A record of every notification the system has attempted to send.</p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                  <select
+                    value={logStatusFilter}
+                    onChange={(e) => {
+                      const v = e.target.value as "" | "sent" | "failed";
+                      setLogStatusFilter(v);
+                      loadLogs(v);
+                    }}
+                    style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "7px 10px", fontSize: ".83rem", background: "#fff" }}
+                    aria-label="Filter log by status"
+                  >
+                    <option value="">All statuses</option>
+                    <option value="sent">Sent only</option>
+                    <option value="failed">Failed only</option>
+                  </select>
+                  <button className="secondary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => loadLogs()}>
+                    <Clock size={14} aria-hidden="true" /> Refresh
+                  </button>
+                </div>
+              </div>
+
+              {logsLoading ? (
+                <div className="admin-loading">Loading logs…</div>
+              ) : logs.length === 0 ? (
+                <div className="admin-loading" style={{ textAlign: "center", color: "#64748b" }}>
+                  <ScrollText size={32} style={{ display: "block", margin: "0 auto 12px", color: "#94a3b8" }} aria-hidden="true" />
+                  No log entries {logStatusFilter ? `with status "${logStatusFilter}"` : "yet"}.
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
+                        {["Time", "Event", "Channel", "Ticket", "Status", "Error"].map((h) => (
+                          <th key={h} style={{ padding: "10px 14px", fontWeight: 800, color: "#475569", fontSize: ".74rem", textAlign: "left", textTransform: "uppercase", letterSpacing: ".07em", whiteSpace: "nowrap" }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.map((log, i) => (
+                        <tr key={log.id} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 1 ? "#fafafa" : "#fff" }}>
+                          <td style={{ padding: "9px 14px", color: "#64748b", whiteSpace: "nowrap" }}>
+                            {new Date(log.created_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+                          </td>
+                          <td style={{ padding: "9px 14px", color: "#0f172a", fontWeight: 600 }}>
+                            {EVENT_META[log.event_type as EventType]?.label ?? log.event_type}
+                          </td>
+                          <td style={{ padding: "9px 14px", color: "#475569" }}>
+                            {log.channel_name
+                              ? <><span style={{ marginRight: 5 }}>{CHANNEL_META[log.channel_type as ChannelType]?.emoji ?? "📢"}</span>{log.channel_name}</>
+                              : <span style={{ color: "#94a3b8" }}>—</span>}
+                          </td>
+                          <td style={{ padding: "9px 14px", color: "#475569", fontFamily: "ui-monospace,monospace", fontSize: ".78rem" }}>
+                            {log.ticket_reference ?? <span style={{ color: "#94a3b8" }}>—</span>}
+                          </td>
+                          <td style={{ padding: "9px 14px" }}>
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              background: log.status === "sent" ? "#dcfce7" : "#fee2e2",
+                              color:      log.status === "sent" ? "#166534" : "#991b1b",
+                              borderRadius: 999, padding: "2px 9px", fontSize: ".74rem", fontWeight: 800,
+                            }}>
+                              {log.status === "sent"
+                                ? <CheckCircle2 size={10} aria-hidden="true" />
+                                : <XCircle size={10} aria-hidden="true" />}
+                              {log.status === "sent" ? "Sent" : "Failed"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "9px 14px", color: "#991b1b", fontSize: ".76rem", maxWidth: 260, wordBreak: "break-word" }}>
+                            {log.error_message || <span style={{ color: "#94a3b8" }}>—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </motion.div>
