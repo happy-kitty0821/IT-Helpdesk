@@ -2636,35 +2636,77 @@ class TicketExportView(APIView):
 
         # ── Chart helper ──────────────────────────────────────────────────
         from openpyxl.chart import BarChart, PieChart, LineChart, Reference
-        from openpyxl.chart.series import DataPoint
         from openpyxl.chart.label import DataLabelList
+        from openpyxl.chart.axis import ChartLines
 
-        CHART_W = 14    # columns wide  (~430px)
-        CHART_H = 15    # rows tall     (~280px)
+        CHART_W = 14    # columns wide
+        CHART_H = 15    # rows tall
 
-        # Palette for bar/line series (brand colours)
+        # Brand palette — used consistently across all charts
         CHART_COLORS = [
-            "234395","3B82F6","10B981","F59E0B","EF4444",
-            "8B5CF6","EC4899","14B8A6","F97316","6366F1",
+            "234395",  # 0 brand blue
+            "3B82F6",  # 1 sky blue
+            "10B981",  # 2 green
+            "F59E0B",  # 3 amber
+            "EF4444",  # 4 red
+            "8B5CF6",  # 5 violet
+            "EC4899",  # 6 pink
+            "14B8A6",  # 7 teal
+            "F97316",  # 8 orange
+            "6366F1",  # 9 indigo
         ]
+        # Per-status slice colours for the status pie chart
+        STATUS_PIE_COLORS = {
+            "submitted":         "BFDBFE",
+            "triaged":           "DDD6FE",
+            "in_progress":       "FDE68A",
+            "waiting_requester": "FDBA74",
+            "waiting_approval":  "E9D5FF",
+            "resolved":          "86EFAC",
+            "closed":            "CBD5E1",
+            "cancelled":         "FCA5A5",
+        }
 
         def place_chart(chart, title: str):
-            """Set chart title and place it in the chart column, advancing cursor."""
             chart.title  = title
-            chart.style  = 10
-            chart.width  = CHART_W * 6.4     # EMU approximation openpyxl uses cm
+            chart.style  = 2          # clean, minimal Office style
+            chart.width  = CHART_W * 6.4
             chart.height = CHART_H * 0.525
             ws2.add_chart(chart, f"F{chart_row[0]}")
-            chart_row[0] += CHART_H + 1
+            chart_row[0] += CHART_H + 2
 
-        def _data_labels():
+        def _bar_labels(show_val=True, show_cat=False):
             dl = DataLabelList()
-            dl.showVal     = True
-            dl.showPercent = False
+            dl.showVal      = show_val
+            dl.showPercent  = False
             dl.showLegendKey = False
-            dl.showSerName = False
-            dl.showCatName = False
+            dl.showSerName  = False
+            dl.showCatName  = show_cat
             return dl
+
+        def _pie_labels():
+            dl = DataLabelList()
+            dl.showVal      = False
+            dl.showPercent  = True
+            dl.showCatName  = True
+            dl.showLegendKey = False
+            dl.showSerName  = False
+            return dl
+
+        def _safe_set_fill(series_list, idx, color):
+            """Set solidFill only if the series exists (guards empty data)."""
+            if idx < len(series_list):
+                series_list[idx].graphicalProperties.solidFill = color
+
+        def _set_axis(chart, x_title=None, y_title=None):
+            """Set axis titles where the chart type supports them."""
+            try:
+                if x_title and hasattr(chart, 'x_axis'):
+                    chart.x_axis.title = x_title
+                if y_title and hasattr(chart, 'y_axis'):
+                    chart.y_axis.title = y_title
+            except Exception:
+                pass
 
         total         = len(tickets)
         open_count    = sum(1 for t in tickets if t.status not in ("resolved","closed","cancelled"))
@@ -2716,14 +2758,14 @@ class TicketExportView(APIView):
         )
         if s_start <= s_end:
             pc = PieChart()
-            pc.dLbls = _data_labels()
-            pc.dLbls.showPercent = True
-            pc.dLbls.showVal     = False
+            pc.dLbls = _pie_labels()
+            # include header row so Excel knows the series name
             labels = Reference(ws2, min_col=1, min_row=s_start, max_row=s_end)
-            data   = Reference(ws2, min_col=2, min_row=s_start, max_row=s_end)
-            pc.add_data(data)
+            data   = Reference(ws2, min_col=2, min_row=s_start - 1, max_row=s_end)
+            pc.add_data(data, titles_from_data=True)
             pc.set_categories(labels)
-            place_chart(pc, "Tickets by Status")
+            pc.legend.position = 'r'
+            place_chart(pc, "Ticket Distribution by Status")
 
         # ── Priority table + PIE chart ────────────────────────────────────
         section_header2("Tickets by Priority")
@@ -2737,16 +2779,15 @@ class TicketExportView(APIView):
         )
         if p_start <= p_end:
             pc2 = PieChart()
-            pc2.dLbls = _data_labels()
-            pc2.dLbls.showPercent = True
-            pc2.dLbls.showVal     = False
+            pc2.dLbls = _pie_labels()
             labels2 = Reference(ws2, min_col=1, min_row=p_start, max_row=p_end)
-            data2   = Reference(ws2, min_col=2, min_row=p_start, max_row=p_end)
-            pc2.add_data(data2)
+            data2   = Reference(ws2, min_col=2, min_row=p_start - 1, max_row=p_end)
+            pc2.add_data(data2, titles_from_data=True)
             pc2.set_categories(labels2)
-            place_chart(pc2, "Tickets by Priority")
+            pc2.legend.position = 'r'
+            place_chart(pc2, "Ticket Distribution by Priority")
 
-        # ── Category table + BAR chart ────────────────────────────────────
+        # ── Category table + horizontal BAR chart ─────────────────────────
         section_header2("Tickets by Service Category")
         cat_counts = Counter(
             (t.category.name if t.category else "Unknown") for t in tickets
@@ -2759,18 +2800,19 @@ class TicketExportView(APIView):
         )
         if c_start <= c_end:
             bc = BarChart()
-            bc.type    = "bar"    # horizontal
-            bc.barDir  = "bar"
+            bc.barDir   = "bar"     # horizontal bars
             bc.grouping = "clustered"
-            bc.dLbls   = _data_labels()
-            bc_labels  = Reference(ws2, min_col=1, min_row=c_start, max_row=c_end)
-            bc_data    = Reference(ws2, min_col=2, min_row=c_start - 1, max_row=c_end)
+            bc.dLbls    = _bar_labels(show_val=True, show_cat=False)
+            bc_labels   = Reference(ws2, min_col=1, min_row=c_start, max_row=c_end)
+            bc_data     = Reference(ws2, min_col=2, min_row=c_start - 1, max_row=c_end)
             bc.add_data(bc_data, titles_from_data=True)
             bc.set_categories(bc_labels)
-            bc.series[0].graphicalProperties.solidFill = CHART_COLORS[0]
-            place_chart(bc, "Tickets by Service Category")
+            _safe_set_fill(bc.series, 0, CHART_COLORS[0])
+            _set_axis(bc, x_title="Number of Tickets", y_title="Service Category")
+            bc.legend = None
+            place_chart(bc, "Volume of Tickets by Service Category")
 
-        # ── SLA table + BAR chart ─────────────────────────────────────────
+        # ── SLA table + column BAR chart ──────────────────────────────────
         section_header2("SLA Bucket Distribution (Time to Resolve / Current Age)")
         sla_buckets: Counter[str] = Counter()
         for t in tickets:
@@ -2785,18 +2827,19 @@ class TicketExportView(APIView):
         sla_start, sla_end = write_table2(["SLA Bucket", "Count", "% of Total"], sla_rows)
         if sla_start <= sla_end:
             bc2 = BarChart()
-            bc2.type    = "col"
-            bc2.barDir  = "col"
+            bc2.barDir   = "col"    # vertical columns
             bc2.grouping = "clustered"
-            bc2.dLbls   = _data_labels()
-            sla_labels  = Reference(ws2, min_col=1, min_row=sla_start, max_row=sla_end)
-            sla_data    = Reference(ws2, min_col=2, min_row=sla_start - 1, max_row=sla_end)
+            bc2.dLbls    = _bar_labels(show_val=True)
+            sla_labels   = Reference(ws2, min_col=1, min_row=sla_start, max_row=sla_end)
+            sla_data     = Reference(ws2, min_col=2, min_row=sla_start - 1, max_row=sla_end)
             bc2.add_data(sla_data, titles_from_data=True)
             bc2.set_categories(sla_labels)
-            bc2.series[0].graphicalProperties.solidFill = CHART_COLORS[1]
-            place_chart(bc2, "SLA Bucket Distribution")
+            _safe_set_fill(bc2.series, 0, CHART_COLORS[1])
+            _set_axis(bc2, x_title="Time Bucket", y_title="Number of Tickets")
+            bc2.legend = None
+            place_chart(bc2, "SLA Bucket Distribution (Resolution / Age)")
 
-        # ── Assignee workload table + BAR chart ───────────────────────────
+        # ── Assignee workload table + clustered BAR chart ─────────────────
         section_header2("Assignee Workload")
         assignee_counts: Counter[str] = Counter()
         open_by_assignee: Counter[str] = Counter()
@@ -2812,23 +2855,25 @@ class TicketExportView(APIView):
         asgn_start, asgn_end = write_table2(["Assignee", "Total", "Open"], asgn_rows)
         if asgn_start <= asgn_end:
             bc3 = BarChart()
-            bc3.type     = "bar"
-            bc3.barDir   = "bar"
+            bc3.barDir   = "bar"    # horizontal, easier to read with long names
             bc3.grouping = "clustered"
-            bc3.dLbls    = _data_labels()
+            bc3.dLbls    = _bar_labels(show_val=True)
             asgn_labels  = Reference(ws2, min_col=1, min_row=asgn_start, max_row=asgn_end)
-            asgn_data    = Reference(ws2, min_col=2, min_row=asgn_start - 1, max_row=asgn_end, max_col=3)
+            asgn_data    = Reference(ws2, min_col=2, min_row=asgn_start - 1,
+                                     max_row=asgn_end, max_col=3)
             bc3.add_data(asgn_data, titles_from_data=True)
             bc3.set_categories(asgn_labels)
-            bc3.series[0].graphicalProperties.solidFill = CHART_COLORS[0]
-            bc3.series[1].graphicalProperties.solidFill = CHART_COLORS[2]
-            place_chart(bc3, "Assignee Workload (Total vs Open)")
+            _safe_set_fill(bc3.series, 0, CHART_COLORS[0])
+            _safe_set_fill(bc3.series, 1, CHART_COLORS[2])
+            _set_axis(bc3, x_title="Ticket Count", y_title="Staff Member")
+            place_chart(bc3, "Assignee Workload — Total vs Open Tickets")
 
-        # ── Satisfaction ratings table + BAR chart ────────────────────────
+        # ── Satisfaction ratings table + column BAR chart ─────────────────
         section_header2("Satisfaction Ratings")
         if fb_all:
             rating_counts = Counter(f.rating for f in fb_all)
-            rating_labels = {1:"Very dissatisfied",2:"Dissatisfied",3:"Neutral",4:"Satisfied",5:"Very satisfied"}
+            rating_labels = {1:"Very dissatisfied",2:"Dissatisfied",3:"Neutral",
+                             4:"Satisfied",5:"Very satisfied"}
             rat_rows = [(r, rating_labels.get(r,""), rating_counts.get(r,0),
                          f"{rating_counts.get(r,0)/len(fb_all)*100:.1f}%")
                         for r in range(1, 6)]
@@ -2836,21 +2881,22 @@ class TicketExportView(APIView):
                 ["Rating", "Label", "Count", "% of Responses"], rat_rows)
             if rat_start <= rat_end:
                 bc4 = BarChart()
-                bc4.type     = "col"
                 bc4.barDir   = "col"
                 bc4.grouping = "clustered"
-                bc4.dLbls    = _data_labels()
+                bc4.dLbls    = _bar_labels(show_val=True)
                 rat_labels_ref = Reference(ws2, min_col=2, min_row=rat_start, max_row=rat_end)
                 rat_data_ref   = Reference(ws2, min_col=3, min_row=rat_start - 1, max_row=rat_end)
                 bc4.add_data(rat_data_ref, titles_from_data=True)
                 bc4.set_categories(rat_labels_ref)
-                bc4.series[0].graphicalProperties.solidFill = CHART_COLORS[4]
-                place_chart(bc4, "Satisfaction Rating Distribution")
+                _safe_set_fill(bc4.series, 0, CHART_COLORS[4])
+                _set_axis(bc4, x_title="Rating", y_title="Number of Responses")
+                bc4.legend = None
+                place_chart(bc4, "Requester Satisfaction Rating Distribution")
         else:
             write_kv2("No feedback submitted yet", "—", bold_val=False)
             inc_()
 
-        # ── Day of week table (no chart — small) ──────────────────────────
+        # ── Day of week table + column BAR chart ──────────────────────────
         section_header2("Submissions by Day of Week")
         dow_labels_list = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
         dow_counts: Counter[int] = Counter(t.created_at.weekday() for t in tickets if t.created_at)
@@ -2858,18 +2904,19 @@ class TicketExportView(APIView):
         dow_start, dow_end = write_table2(["Day", "Count"], dow_rows)
         if dow_start <= dow_end:
             bc5 = BarChart()
-            bc5.type     = "col"
             bc5.barDir   = "col"
             bc5.grouping = "clustered"
-            bc5.dLbls    = _data_labels()
+            bc5.dLbls    = _bar_labels(show_val=True)
             dow_labels_ref = Reference(ws2, min_col=1, min_row=dow_start, max_row=dow_end)
             dow_data_ref   = Reference(ws2, min_col=2, min_row=dow_start - 1, max_row=dow_end)
             bc5.add_data(dow_data_ref, titles_from_data=True)
             bc5.set_categories(dow_labels_ref)
-            bc5.series[0].graphicalProperties.solidFill = CHART_COLORS[5]
-            place_chart(bc5, "Submissions by Day of Week")
+            _safe_set_fill(bc5.series, 0, CHART_COLORS[5])
+            _set_axis(bc5, x_title="Day of Week", y_title="Tickets Submitted")
+            bc5.legend = None
+            place_chart(bc5, "New Ticket Volume by Day of Week")
 
-        # ── Monthly volume table + LINE chart ─────────────────────────────
+        # ── Monthly volume table + smooth LINE chart ───────────────────────
         section_header2("Submissions by Month")
         month_counts: Counter[str] = Counter(
             t.created_at.strftime("%Y-%m") for t in tickets if t.created_at
@@ -2880,13 +2927,20 @@ class TicketExportView(APIView):
             lc2 = LineChart()
             lc2.grouping = "standard"
             lc2.smooth   = True
-            lc2.dLbls    = _data_labels()
+            lc2.dLbls    = _bar_labels(show_val=True)
             mo_labels = Reference(ws2, min_col=1, min_row=mo_start, max_row=mo_end)
             mo_data   = Reference(ws2, min_col=2, min_row=mo_start - 1, max_row=mo_end)
             lc2.add_data(mo_data, titles_from_data=True)
             lc2.set_categories(mo_labels)
-            lc2.series[0].graphicalProperties.line.solidFill = CHART_COLORS[0]
-            place_chart(lc2, "Ticket Volume by Month")
+            if lc2.series:
+                lc2.series[0].graphicalProperties.line.solidFill = CHART_COLORS[0]
+                lc2.series[0].graphicalProperties.line.width = 25000  # 2.5pt
+                lc2.series[0].marker.symbol = "circle"
+                lc2.series[0].marker.size   = 6
+                lc2.series[0].marker.graphicalProperties.solidFill = CHART_COLORS[0]
+                lc2.series[0].marker.graphicalProperties.line.solidFill = CHART_COLORS[0]
+            _set_axis(lc2, x_title="Month", y_title="Tickets Submitted")
+            place_chart(lc2, "Monthly Ticket Volume Trend")
 
         # =================================================================
         # SHEET 3 — Ticket Audit Trail
