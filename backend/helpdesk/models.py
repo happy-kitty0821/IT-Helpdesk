@@ -371,6 +371,8 @@ class EmailTemplate(models.Model):
         ACCOUNT_RECOVERY = 'account_recovery', 'Account Recovery — Send Credentials'
         RECOVERY_UNABLE_TO_VERIFY = 'recovery_unable_to_verify', 'Account Recovery — Unable to Verify'
         TICKET_STALE = 'ticket_stale', 'Ticket Stale / SLA Breach Alert'
+        EMAIL_VERIFICATION = 'email_verification', 'Email Verification'
+        PASSWORD_RESET = 'password_reset', 'Password Reset'
 
     event_type = models.CharField(max_length=30, choices=EventType.choices)
     name = models.CharField(max_length=200)

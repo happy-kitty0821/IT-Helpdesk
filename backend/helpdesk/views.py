@@ -1645,8 +1645,6 @@ class RecoveryActionView(APIView):
 
     def _send_credentials(self, request, ticket, requester, send_event, get_helpdesk_url):
         import random, string
-        from .email_config_service import get_effective_from_email
-        from .email_utils import render_email, send_email_async
         from .signals import get_support_email as _get_support_email
         from .models import SiteSettings
 
@@ -1705,35 +1703,21 @@ class RecoveryActionView(APIView):
                     ref, requester.email,
                 )
 
-        plain = (
-            f"Hi {name},\n\n"
-            f"Your IIC college account recovery credentials are ready (ref: {ref}).\n\n"
-            f"  College email     : {requester.email}\n"
-            f"  Backup code       : {email_backup_code}\n"
-            f"  Temporary password: {email_temp_password}\n\n"
-            f"Please change your password immediately after signing in.\n"
-            f"These credentials are single-use and should not be shared.\n\n"
-            f"If you did not request this, contact us at {_get_support_email()} immediately.\n\n"
-            f"Helpdesk: {helpdesk_url}\n\n"
-            f"\u2014 IIC IT & NOC Department"
-        )
+        from .email_dispatch import resolve_and_send as _dispatch_recovery
 
-        html = render_email('email/recovery_credentials.html', {
-            'name':             name,
-            'college_email':    requester.email,
-            'ticket_reference': ref,
-            'backup_code':      email_backup_code,
-            'temp_password':    email_temp_password,
-            'support_email':    _get_support_email(),
-            'helpdesk_url':     helpdesk_url,
-        })
-
-        send_email_async(
+        _dispatch_recovery(
+            event_type = 'account_recovery',
+            context    = {
+                'name':             name,
+                'college_email':    requester.email,
+                'ticket_reference': ref,
+                'backup_code':      email_backup_code,
+                'temp_password':    email_temp_password,
+                'support_email':    _get_support_email(),
+                'helpdesk_url':     helpdesk_url,
+            },
+            to_email   = to_email,
             subject    = f'[IIC IT Helpdesk] Account recovery credentials \u2014 {ref}',
-            plain      = plain,
-            html       = html,
-            to         = to_email,
-            from_email = get_effective_from_email(),
             log_tag    = f'recovery_credentials ticket={ref} dest={destination_label}',
         )
 
@@ -1748,40 +1732,23 @@ class RecoveryActionView(APIView):
     # ── unable_to_verify ──────────────────────────────────────────────────────
 
     def _unable_to_verify(self, request, ticket, requester, send_event, get_helpdesk_url):
-        from .email_config_service import get_effective_from_email
-        from .email_utils import render_email, send_email_async
-
         name         = requester.get_full_name() or requester.username
         ref          = ticket.reference
         helpdesk_url = get_helpdesk_url()
 
-        plain = (
-            f"Hi {name},\n\n"
-            f"Thank you for submitting an account recovery request (ref: {ref}).\n\n"
-            f"Unfortunately, the IIC IT team was unable to verify your identity with the "
-            f"information provided. Your request cannot be processed at this time.\n\n"
-            f"Please visit the IIC IT & NOC department in person with a valid college ID "
-            f"or other approved identification.\n\n"
-            f"Office hours: Sunday\u2013Friday, 10:00 AM \u2013 4:00 PM\n\n"
-            f"Questions? Contact us at {_get_support_email()}.\n\n"
-            f"Helpdesk: {helpdesk_url}\n\n"
-            f"\u2014 IIC IT & NOC Department"
-        )
+        from .email_dispatch import resolve_and_send as _dispatch_unverified
 
-        html = render_email('email/recovery_unable_to_verify.html', {
-            'name':             name,
-            'college_email':    requester.email,
-            'ticket_reference': ref,
-            'support_email':    _get_support_email(),
-            'helpdesk_url':     helpdesk_url,
-        })
-
-        send_email_async(
+        _dispatch_unverified(
+            event_type = 'recovery_unable_to_verify',
+            context    = {
+                'name':             name,
+                'college_email':    requester.email,
+                'ticket_reference': ref,
+                'support_email':    _get_support_email(),
+                'helpdesk_url':     helpdesk_url,
+            },
+            to_email   = requester.email,
             subject    = f'[IIC IT Helpdesk] Account recovery update \u2014 {ref}',
-            plain      = plain,
-            html       = html,
-            to         = requester.email,
-            from_email = get_effective_from_email(),
             log_tag    = f'recovery_unable_to_verify ticket={ref}',
         )
 
@@ -4096,13 +4063,10 @@ class ResendVerificationView(APIView):
 
 def _send_password_reset_email(user, raw_token: str) -> None:
     """
-    Dispatch the password-reset email in a background thread.
+    Dispatch the password-reset email through the unified email dispatcher.
     The raw token is NEVER logged — only passed inside the email body.
-
-    HTML body rendered from helpdesk/templates/email/password_reset.html.
     """
-    from .email_config_service import get_effective_from_email
-    from .email_utils import render_email, send_email_async
+    from .email_dispatch import resolve_and_send
     from .signals import get_support_email as _pwd_support_email
 
     helpdesk_url = getattr(settings, 'HELPDESK_URL', 'http://localhost:3000').rstrip('/')
@@ -4110,29 +4074,17 @@ def _send_password_reset_email(user, raw_token: str) -> None:
     name         = user.get_full_name() or user.username
     expiry_hours = int(getattr(settings, 'PASSWORD_RESET_TOKEN_EXPIRY_HOURS', 2))
 
-    plain = (
-        f'Hi {name},\n\n'
-        f'You requested a password reset for your IIC IT Helpdesk account.\n\n'
-        f'Click the link below to set a new password:\n\n'
-        f'{reset_url}\n\n'
-        f'This link expires in {expiry_hours} hour(s).\n\n'
-        f'If you did not request this, you can safely ignore this email.\n\n'
-        f'— IIC IT & NOC Department'
-    )
-
-    html = render_email('email/password_reset.html', {
-        'name':          name,
-        'reset_url':     reset_url,
-        'expiry_hours':  expiry_hours,
-        'support_email': _pwd_support_email(),
-    })
-
-    send_email_async(
+    resolve_and_send(
+        event_type = 'password_reset',
+        context    = {
+            'name':          name,
+            'reset_url':     reset_url,
+            'expiry_hours':  expiry_hours,
+            'support_email': _pwd_support_email(),
+            'helpdesk_url':  helpdesk_url,
+        },
+        to_email   = user.email,
         subject    = '[IIC IT Helpdesk] Reset your password',
-        plain      = plain,
-        html       = html,
-        to         = user.email,
-        from_email = get_effective_from_email(),
         log_tag    = f'password_reset user_id={user.pk}',
     )
 

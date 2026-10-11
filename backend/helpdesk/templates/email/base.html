@@ -1,23 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}IIC IT Helpdesk{% endblock %}</title>
 </head>
-<body style="font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#f8fafc;margin:0;padding:32px 0;">
-  <table width="100%" cellpadding="0" cellspacing="0">
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 0;">
     <tr><td align="center">
+
       <table width="580" cellpadding="0" cellspacing="0"
-             style="background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;max-width:580px;">
+             style="background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;
+                    overflow:hidden;max-width:580px;width:100%;">
 
         {# ── Header ── #}
         <tr>
-          <td style="{% block header_style %}background:linear-gradient(135deg,#183474,#234395);{% endblock %} padding:32px 40px;">
-            <p style="margin:0 0 6px;font-size:.72rem;font-weight:800;color:{% block header_eyebrow_color %}#93c5fd{% endblock %};text-transform:uppercase;letter-spacing:.14em;">
-              IIC IT &amp; NOC Helpdesk
-            </p>
-            <h1 style="margin:0;font-size:1.5rem;color:#ffffff;letter-spacing:-.03em;line-height:1.25;">
+          <td style="{% block header_style %}background:linear-gradient(135deg,#1a2f6b 0%,#234395 100%);{% endblock %} padding:28px 40px 24px;">
+
+            {# Logo + wordmark row #}
+            <table cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td style="vertical-align:middle;" width="52">
+                  <img
+                    src="{{ helpdesk_url|default:'http://localhost:3000' }}/iic-logo.png"
+                    alt="IIC logo"
+                    width="44"
+                    height="24"
+                    style="display:block;border:0;width:44px;height:auto;border-radius:4px;"
+                  />
+                </td>
+                <td style="vertical-align:middle;padding-left:10px;">
+                  <p style="margin:0;font-size:.68rem;font-weight:800;color:{% block header_eyebrow_color %}#93c5fd{% endblock %};
+                             text-transform:uppercase;letter-spacing:.13em;line-height:1;">
+                    IIC IT &amp; NOC Helpdesk
+                  </p>
+                </td>
+              </tr>
+            </table>
+
+            {# Heading #}
+            <h1 style="margin:18px 0 0;font-size:1.45rem;font-weight:800;color:#ffffff;
+                        letter-spacing:-.03em;line-height:1.25;">
               {% block heading %}{% endblock %}
             </h1>
             {% block header_meta %}{% endblock %}
@@ -26,26 +50,34 @@
 
         {# ── Body ── #}
         <tr>
-          <td style="padding:36px 40px;">
+          <td style="padding:32px 40px 28px;">
             {% block body %}{% endblock %}
-
-            {# ── CTA button ── #}
             {% block cta %}{% endblock %}
           </td>
         </tr>
 
         {# ── Footer ── #}
         <tr>
-          <td style="padding:20px 40px;border-top:1px solid #e2e8f0;background:#f8fafc;">
-            <p style="margin:0;font-size:.75rem;color:#94a3b8;text-align:center;line-height:1.6;">
-              Itahari International College &middot; IT &amp; NOC Department<br>
-              <a href="mailto:{{ support_email|default:'support@iic.edu.np' }}" style="color:#94a3b8;text-decoration:none;">{{ support_email|default:'support@iic.edu.np' }}</a>
+          <td style="padding:18px 40px 22px;border-top:1px solid #e2e8f0;background:#f8fafc;">
+            <p style="margin:0;font-size:.73rem;color:#94a3b8;text-align:center;line-height:1.7;">
+              Itahari International College &nbsp;&middot;&nbsp; IT &amp; NOC Department<br>
+              Questions? Write to us at
+              <a href="mailto:{{ support_email|default:'support@iic.edu.np' }}"
+                 style="color:#94a3b8;text-decoration:underline;">
+                {{ support_email|default:'support@iic.edu.np' }}
+              </a>
+            </p>
+            <p style="margin:8px 0 0;font-size:.68rem;color:#cbd5e1;text-align:center;">
+              This email was sent by the IIC IT &amp; NOC Helpdesk system.
+              Please do not reply directly to this message.
             </p>
           </td>
         </tr>
 
       </table>
+
     </td></tr>
   </table>
+
 </body>
 </html>

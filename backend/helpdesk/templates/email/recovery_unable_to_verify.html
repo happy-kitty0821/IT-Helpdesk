@@ -2,75 +2,93 @@
 
 {% block title %}Account Recovery Update — IIC IT Helpdesk{% endblock %}
 
-{% block header_style %}background:linear-gradient(135deg,#7c2d12,#b45309);{% endblock %}
+{% block header_style %}background:linear-gradient(135deg,#7c2d12 0%,#b45309 100%);{% endblock %}
 {% block header_eyebrow_color %}#fde68a{% endblock %}
 
-{% block heading %}Unable to Verify Identity{% endblock %}
+{% block heading %}We weren't able to verify your identity{% endblock %}
 
 {% block header_meta %}
-  <p style="margin:8px 0 0;color:#fef3c7;font-size:.88rem;">
+  <p style="margin:10px 0 0;color:#fef3c7;font-size:.86rem;line-height:1.5;">
     Reference: <strong>{{ ticket_reference }}</strong>
   </p>
 {% endblock %}
 
 {% block body %}
-  <p style="margin:0 0 20px;color:#475569;line-height:1.65;font-size:.95rem;">
-    Hi <strong style="color:#0f172a;">{{ name }}</strong>,
+  <p style="margin:0 0 18px;color:#1e293b;font-size:.97rem;font-weight:600;">
+    Hi {{ name }},
   </p>
-  <p style="margin:0 0 20px;color:#475569;line-height:1.65;font-size:.95rem;">
-    Thank you for submitting an account recovery request. Our IT team has reviewed your
-    request but was <strong>unable to verify your identity</strong> using the information
-    provided. Your request cannot be processed remotely at this time.
+  <p style="margin:0 0 16px;color:#475569;line-height:1.7;font-size:.93rem;">
+    Thank you for getting in touch. We've had a look at your account recovery request
+    and unfortunately we weren't able to confirm your identity remotely with the
+    details you provided.
   </p>
-  <p style="margin:0 0 16px;color:#475569;line-height:1.65;font-size:.95rem;">
-    To complete the verification process, please visit the
-    <strong>IIC IT &amp; NOC department in person</strong> with one of the following:
+  <p style="margin:0 0 22px;color:#475569;line-height:1.7;font-size:.93rem;">
+    The quickest way to sort this out is to come see us in person. Bring along
+    any one of the following:
   </p>
-  <ul style="margin:0 0 24px;padding-left:22px;color:#475569;font-size:.92rem;line-height:1.85;">
-    <li>Valid IIC student / staff ID card</li>
+
+  <ul style="margin:0 0 26px;padding-left:22px;color:#475569;font-size:.92rem;line-height:1.9;">
+    <li>Your IIC student or staff ID card</li>
     <li>National ID card or passport</li>
-    <li>Any other approved college identification</li>
+    <li>Any other college-approved photo identification</li>
   </ul>
 
-  {# ── Office info box ── #}
+  {# Office info #}
   <table width="100%" cellpadding="0" cellspacing="0"
          style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;margin-bottom:28px;">
-    <tr><td style="padding:16px 18px;">
-      <p style="margin:0 0 6px;font-size:.85rem;font-weight:800;color:#1e40af;">
-        &#128205; Office information
+    <tr><td style="padding:16px 20px;">
+      <p style="margin:0 0 10px;font-size:.84rem;font-weight:800;color:#1e40af;">
+        &#128205;&nbsp; Where to find us
       </p>
       <table cellpadding="0" cellspacing="0">
         <tr>
-          <td style="padding:3px 12px 3px 0;font-size:.83rem;font-weight:700;color:#1e3a8a;white-space:nowrap;">Location</td>
-          <td style="padding:3px 0;font-size:.83rem;color:#1e3a8a;">IIC IT &amp; NOC Department</td>
+          <td style="padding:3px 14px 3px 0;font-size:.83rem;font-weight:700;
+                     color:#1e3a8a;white-space:nowrap;vertical-align:top;">
+            Location
+          </td>
+          <td style="padding:3px 0;font-size:.83rem;color:#1e3a8a;">
+            IIC IT &amp; NOC Department, Itahari International College
+          </td>
         </tr>
         <tr>
-          <td style="padding:3px 12px 3px 0;font-size:.83rem;font-weight:700;color:#1e3a8a;white-space:nowrap;">Hours</td>
-          <td style="padding:3px 0;font-size:.83rem;color:#1e3a8a;">Sunday &ndash; Friday, 10:00 AM &ndash; 4:00 PM</td>
+          <td style="padding:3px 14px 3px 0;font-size:.83rem;font-weight:700;
+                     color:#1e3a8a;white-space:nowrap;">
+            Hours
+          </td>
+          <td style="padding:3px 0;font-size:.83rem;color:#1e3a8a;">
+            Sunday &ndash; Friday &nbsp;&middot;&nbsp; 10:00 AM &ndash; 4:00 PM
+          </td>
         </tr>
         <tr>
-          <td style="padding:3px 12px 3px 0;font-size:.83rem;font-weight:700;color:#1e3a8a;white-space:nowrap;">Email</td>
+          <td style="padding:3px 14px 3px 0;font-size:.83rem;font-weight:700;
+                     color:#1e3a8a;white-space:nowrap;">
+            Email
+          </td>
           <td style="padding:3px 0;font-size:.83rem;">
-            <a href="mailto:{{ support_email }}"
-               style="color:#1e40af;text-decoration:none;">{{ support_email }}</a>
+            <a href="mailto:{{ support_email }}" style="color:#1e40af;text-decoration:none;">
+              {{ support_email }}
+            </a>
           </td>
         </tr>
       </table>
     </td></tr>
   </table>
 
-  <p style="margin:0 0 28px;color:#64748b;font-size:.85rem;line-height:1.65;">
-    Your ticket remains open. Once you visit us in person, our team will assist you promptly.
-    If you believe this decision is an error, please reply to this email or contact us directly.
+  <p style="margin:0 0 28px;color:#64748b;font-size:.84rem;line-height:1.7;">
+    Your ticket (<strong>{{ ticket_reference }}</strong>) is still open, so
+    there's nothing else you need to do right now. Once you visit us, our team
+    will take it from there. If you think there's been a mistake or have any
+    questions, feel free to reply to this email or contact us directly.
   </p>
 {% endblock %}
 
 {% block cta %}
   <p style="margin:0;text-align:center;">
     <a href="{{ helpdesk_url }}"
-       style="display:inline-block;background:#234395;color:#ffffff;font-weight:750;
-              padding:12px 28px;border-radius:10px;text-decoration:none;font-size:.95rem;">
-      View your ticket
+       style="display:inline-block;background:#234395;color:#ffffff;
+              font-size:.93rem;font-weight:700;padding:13px 30px;
+              border-radius:10px;text-decoration:none;">
+      View my ticket
     </a>
   </p>
 {% endblock %}

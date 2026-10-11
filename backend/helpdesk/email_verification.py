@@ -1,65 +1,39 @@
 """
 helpdesk.email_verification
 ═══════════════════════════
-Utilities for sending and managing email ownership verification.
+Email ownership verification — token generation and dispatch.
 
-Email transport is resolved via email_config_service.get_effective_mailer(),
-which applies the DB-override → .env fallback → default precedence chain.
+All email sending now routes through email_dispatch.resolve_and_send(),
+which respects the unified transport + template precedence chain:
+  1. DB EmailTemplate override (admin-editable in Admin → Notifications)
+  2. On-disk fallback (helpdesk/templates/email/email_verification.html)
+
+  Transport:
+  1. NotificationChannel with a rule for 'email_verification'
+  2. Active EmailConfiguration DB row
+  3. MAILER_* env vars
 
 Token security
 ──────────────
 - Raw token (32 random bytes, 64-char hex) is NEVER stored.
 - Only the SHA-256 digest is persisted.
-- The raw token is passed ONLY inside the email body — never logged or returned.
-
-Django 6.1 compatibility
-────────────────────────
-- Uses django.core.mail.send_mail() which routes through MAILERS["default"].
-- Never references legacy EMAIL_* settings.
-- email_config_service.apply_mailers_override() keeps MAILERS in sync with DB.
-
-Template
-────────
-HTML body is rendered from helpdesk/templates/email/verify_email.html.
-Edit that file to change the email layout without touching Python code.
+- The raw token lives only inside the email body — never logged or returned.
 """
 
 import logging
 
 from django.conf import settings
 
-from .email_utils import render_email, send_email_async
-
-def _get_support_email() -> str:
-    """Lazy wrapper — avoids circular import at module level."""
-    try:
-        from .signals import get_support_email
-        return get_support_email()
-    except Exception:
-        return 'support@iic.edu.np'
 
 logger = logging.getLogger(__name__)
 
-_SUBJECT = 'Verify your IIC IT Helpdesk account'
-
-
-# ── Configuration helpers (DB-override aware) ─────────────────────────────────
 
 def _verification_enabled() -> bool:
-    """Return True unless verification is explicitly disabled."""
     try:
         from .email_config_service import is_verification_enabled
         return is_verification_enabled()
     except Exception:
         return getattr(settings, 'EMAIL_VERIFICATION_ENABLED', True)
-
-
-def _from_email() -> str:
-    try:
-        from .email_config_service import get_effective_from_email
-        return get_effective_from_email()
-    except Exception:
-        return getattr(settings, 'VERIFICATION_FROM_EMAIL', 'noreply@iic.edu.np')
 
 
 def _expiry_hours() -> int:
@@ -74,27 +48,27 @@ def _helpdesk_url() -> str:
     return getattr(settings, 'HELPDESK_URL', 'http://localhost:3000').rstrip('/')
 
 
+def _support_email() -> str:
+    try:
+        from .signals import get_support_email
+        return get_support_email()
+    except Exception:
+        return 'support@iic.edu.np'
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def send_verification_email(user) -> None:
     """
     Generate a new EmailVerificationToken for *user* and dispatch the
-    verification email in a daemon thread so the caller is never blocked.
-
-    Uses django.core.mail.send_mail() routed through the effective
-    MAILERS["default"] (DB-override or .env fallback).
-
-    SECURITY:
-      - The raw token is captured only inside the send_email_async closure.
-      - It is NEVER logged, stored in any attribute, or returned.
-      - Credentials come from the DB/env via settings.MAILERS, not from
-        any argument to this function.
+    verification email through the unified email dispatcher.
     """
     if not _verification_enabled():
-        logger.debug('Email verification disabled. Skipping for user id=%s.', user.pk)
+        logger.debug('Email verification disabled — skipping for user id=%s.', user.pk)
         return
 
     from .models import EmailVerificationToken
+    from .email_dispatch import resolve_and_send
 
     expiry_hours = _expiry_hours()
     raw_token, _token_obj = EmailVerificationToken.create_for_user(user)
@@ -102,40 +76,26 @@ def send_verification_email(user) -> None:
     verify_url = f'{_helpdesk_url()}/verify-email?token={raw_token}'
     name       = user.get_full_name() or user.username
 
-    plain = (
-        f'Hi {name},\n\n'
-        f'Please verify your IIC IT Helpdesk account by visiting:\n\n'
-        f'{verify_url}\n\n'
-        f'This link expires in {expiry_hours} hour(s).\n\n'
-        f'If you did not register for this service, you can safely ignore this email.\n\n'
-        f'Do not share this link with anyone.\n\n'
-        f'— IIC IT & NOC Department'
-    )
-
-    html = render_email('email/verify_email.html', {
-        'name':          name,
-        'email':         user.email,
-        'verify_url':    verify_url,
-        'expires_hours': expiry_hours,
-        'support_email': _get_support_email(),
-    })
-
-    send_email_async(
-        subject    = _SUBJECT,
-        plain      = plain,
-        html       = html,
-        to         = user.email,
-        from_email = _from_email(),
+    resolve_and_send(
+        event_type = 'email_verification',
+        context    = {
+            'name':          name,
+            'email':         user.email,
+            'verify_url':    verify_url,
+            'expires_hours': expiry_hours,
+            'support_email': _support_email(),
+            'helpdesk_url':  _helpdesk_url(),
+        },
+        to_email   = user.email,
+        subject    = 'Verify your IIC IT Helpdesk account',
         log_tag    = f'verify_email user_id={user.pk}',
     )
 
 
 def verify_token_and_activate(raw_token: str) -> object:
     """
-    Validate *raw_token*, mark the token as used, and activate the user.
-
-    Returns the User instance on success.
-    Raises ValueError with a generic message on any failure.
+    Validate *raw_token*, mark it used, and activate the user.
+    Returns the User instance on success; raises ValueError on any failure.
     """
     from django.db import transaction
     from django.utils import timezone
