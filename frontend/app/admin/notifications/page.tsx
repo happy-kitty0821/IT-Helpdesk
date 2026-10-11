@@ -47,7 +47,8 @@ type EventType =
   | "waiting_requester"
   | "priority_changed"
   | "account_recovery"
-  | "recovery_unable_to_verify";
+  | "recovery_unable_to_verify"
+  | "ticket_stale";
 
 interface EmailTemplate {
   id: number;
@@ -228,6 +229,22 @@ const EVENT_META: Record<EventType, { label: string; variables: string[] }> = {
       "old_priority",
       "new_priority",
       "reason",
+      "helpdesk_url",
+    ],
+  },
+  ticket_stale: {
+    label: "Ticket Stale / SLA Breach Alert",
+    variables: [
+      "ticket_reference",
+      "ticket_subject",
+      "ticket_status",
+      "ticket_priority",
+      "category_name",
+      "requester_name",
+      "assignee_name",
+      "age_hours",
+      "threshold_hours",
+      "is_escalation",
       "helpdesk_url",
     ],
   },
