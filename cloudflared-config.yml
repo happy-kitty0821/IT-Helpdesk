@@ -18,8 +18,19 @@
 #   • Slow uploads — because Django only starts processing after the full
 #     chunk arrives at cloudflared's buffer
 #
-# Setting no-chunked-encoding: false tells cloudflared to stream the body
+# Setting noChunkedEncoding: false tells cloudflared to stream the body
 # directly to the origin as it arrives, eliminating both problems.
+#
+# SSE (Server-Sent Events)
+# ────────────────────────
+# SSE streams are long-lived HTTP/1.1 connections that stay open for minutes
+# or hours.  The keepAliveTimeout must be long enough to outlast any SSE
+# session.  90s was too short — connections were terminated at ~150s.
+#
+# DO NOT set http2Origin: true for local HTTP/1.1 origins (Next.js, Django).
+# HTTP/2 stream idle timeouts (~130s) apply per-stream and cannot be disabled,
+# causing SSE to drop every ~130s.  HTTP/1.1 with a high keepAliveTimeout is
+# the correct configuration.
 # ─────────────────────────────────────────────────────────────────────────────
 
 tunnel: <YOUR_TUNNEL_ID>
@@ -36,13 +47,21 @@ originRequest:
   connectTimeout: 30s
 
   # How long cloudflared keeps an idle origin connection alive.
-  keepAliveTimeout: 90s
+  # Set to 1 hour to accommodate long-lived SSE streams.
+  # Previously 90s which caused SSE connections to drop at ~150s.
+  keepAliveTimeout: 3600s
 
-  # Maximum time to wait for the origin to send the first response byte.
-  # File uploads (PUT /api/v1/upload/.../chunk/...) write to disk — give
-  # Django enough time to finish writing a 2 MB chunk even under I/O load.
-  # Gunicorn's --timeout should be set to a matching or slightly lower value.
+  # Number of idle origin connections to keep in the pool.
+  keepAliveConnections: 100
+
+  # TCP keepalive probe interval — keeps the underlying TCP connection alive
+  # through NAT and firewall state tables.
   tcpKeepAlive: 30s
+
+  # IMPORTANT: do NOT set http2Origin: true here or per-hostname.
+  # Next.js and Gunicorn both speak HTTP/1.1 on localhost.
+  # HTTP/2 forces stream-level idle timeouts (~130s) that cannot be
+  # disabled and break SSE streams.
 
 # ── Ingress rules ─────────────────────────────────────────────────────────────
 ingress:
@@ -50,6 +69,10 @@ ingress:
   # Next.js proxies /api/v1/* to Django (port 8000) via next.config.ts rewrites.
   - hostname: ithelpdesk-iic.cloud-dev.tech
     service: http://127.0.0.1:3000
+
+  # Direct backend access (for debugging / API testing without the frontend proxy)
+  - hostname: ithelpdesk-backend.cloud-dev.tech
+    service: http://127.0.0.1:8000
 
   # Catch-all (required by cloudflared — returns 404 for unmatched hosts)
   - service: http_status:404

@@ -547,6 +547,18 @@ class TicketDetail(generics.RetrieveUpdateAPIView):
             raise ValidationError('This ticket is closed and cannot be edited.')
         return super().partial_update(request, *args, **kwargs)
 
+    def perform_update(self, serializer):
+        # Use update_fields so we never overwrite is_overdue (managed by Celery)
+        # with a stale in-memory value from when the object was loaded.
+        editable = {
+            'subject', 'description', 'priority', 'status',
+            'team', 'assigned_to', 'current_stage',
+        }
+        changed = set(serializer.validated_data.keys()) & editable
+        # Always include updated_at (auto_now field needs explicit save trigger)
+        update_fields = list(changed) + ['updated_at']
+        serializer.save(update_fields=update_fields)
+
 
 class TicketStatusView(APIView):
     throttle_classes = (TicketStatusThrottle,)
@@ -749,7 +761,7 @@ class TicketAssignView(APIView):
             if ticket.status in STALE_STATUSES:
                 ticket.status = 'in_progress'
 
-        ticket.save()
+        ticket.save(update_fields=['assigned_to_id', 'team', 'status', 'updated_at'])
         return Response(TicketSerializer(ticket).data)
 
 
