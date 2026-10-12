@@ -3336,7 +3336,10 @@ class TicketStreamView(View):
                 time.sleep(1.5)
 
                 heartbeat_counter += 1
-                if heartbeat_counter % 10 == 0:
+                # Send a heartbeat comment every ~4.5 s (every 3rd iteration).
+                # This keeps the TCP connection alive through proxies and tunnels
+                # (e.g. cloudflared) that close "idle" connections after 90–100 s.
+                if heartbeat_counter % 3 == 0:
                     yield _sse_heartbeat()
 
                 try:
