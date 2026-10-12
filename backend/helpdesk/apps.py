@@ -7,11 +7,8 @@ class HelpdeskConfig(AppConfig):
 
     def ready(self):
         import helpdesk.signals  # noqa: F401 — registers signal receivers
-        # Apply any active DB EmailConfiguration override to settings.MAILERS
-        # so the correct transport is used immediately after every server restart,
-        # not only after an admin next saves the EmailConfiguration row.
-        try:
-            from helpdesk.email_config_service import apply_mailers_override
-            apply_mailers_override()
-        except Exception:
-            pass  # DB may not be ready yet (first migration run, etc.)
+        # Note: apply_mailers_override() is intentionally NOT called here.
+        # DB queries during ready() can corrupt forked worker connections in
+        # Gunicorn's prefork model. The DB EmailConfiguration override is
+        # applied lazily on first use inside email_config_service, and is
+        # also applied via the post_save signal on EmailConfiguration saves.

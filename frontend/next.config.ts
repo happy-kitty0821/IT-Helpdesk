@@ -46,6 +46,11 @@ const nextConfig: NextConfig = {
       { source: "/api/v1/services",              destination: `${d}/api/v1/services/` },
       { source: "/api/v1/services/:path*",       destination: `${d}/api/v1/services/:path*/` },
       { source: "/api/v1/tickets",               destination: `${d}/api/v1/tickets/` },
+      // Stream endpoint must be listed before the general tickets/:path* rewrite.
+      // Next.js's built-in proxy buffers responses, which breaks SSE — the stream
+      // path needs to bypass buffering. Listing it first with a more-specific
+      // pattern ensures it matches before the generic wildcard.
+      { source: "/api/v1/tickets/:id/stream",    destination: `${d}/api/v1/tickets/:id/stream/` },
       { source: "/api/v1/tickets/:path*",        destination: `${d}/api/v1/tickets/:path*/` },
       { source: "/api/v1/guides",                destination: `${d}/api/v1/guides/` },
       { source: "/api/v1/guides/:path*",         destination: `${d}/api/v1/guides/:path*/` },

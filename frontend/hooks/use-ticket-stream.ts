@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 
 // ── Event payload shapes ───────────────────────────────────────────────────
 
@@ -42,10 +42,14 @@ interface UseTicketStreamOptions {
 }
 
 /**
- * Opens a Server-Sent Events connection to /api/v1/tickets/{id}/stream/
- * and dispatches ticket_update and new_message events to the caller.
+ * Opens a Server-Sent Events connection directly to Django, bypassing the
+ * Next.js proxy which buffers responses and breaks SSE streams.
  *
- * Reconnects automatically with exponential back-off (1s → 2s → 4s … cap 30s).
+ * URL: {NEXT_PUBLIC_DJANGO_URL}/api/v1/tickets/{id}/stream/
+ * Falls back to a relative URL (/api/v1/...) when NEXT_PUBLIC_DJANGO_URL is
+ * not set (local dev without an explicit env var).
+ *
+ * Reconnects automatically with exponential back-off (1 s → 2 s → 4 s … 30 s).
  * Cleans up the EventSource when ticketId changes or the component unmounts.
  */
 export function useTicketStream({
@@ -70,27 +74,34 @@ export function useTicketStream({
   useEffect(() => {
     if (!ticketId || !enabled) return;
 
+    // Connect directly to Django to avoid Next.js proxy buffering.
+    // NEXT_PUBLIC_DJANGO_URL is the public-facing origin of Django
+    // (e.g. https://ithelpdesk-iic.cloud-dev.tech in production,
+    //  http://127.0.0.1:8000 in local dev).
+    // When both frontend and backend share the same domain, this is a
+    // same-origin request — no CORS headers needed.
+    const djangoOrigin =
+      (typeof process !== "undefined" && process.env.NEXT_PUBLIC_DJANGO_URL) ?? "";
+    const streamUrl = djangoOrigin
+      ? `${djangoOrigin}/api/v1/tickets/${ticketId}/stream/`
+      : `/api/v1/tickets/${ticketId}/stream/`;   // fallback: through proxy
+
     let es: EventSource | null = null;
-    let retryDelay = 1000;    // ms — doubles on each failure, capped at 30 s
+    let retryDelay = 1000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
 
     function connect() {
       if (unmounted) return;
 
-      es = new EventSource(`/api/v1/tickets/${ticketId}/stream/`, {
-        // EventSource uses the same-origin session cookie automatically
-        withCredentials: true,
-      });
+      es = new EventSource(streamUrl, { withCredentials: true });
 
       es.addEventListener("connected", (e: MessageEvent) => {
-        retryDelay = 1000; // reset back-off on successful connect
+        retryDelay = 1000;
         try {
           const payload = JSON.parse(e.data) as { ticket?: TicketSnapshot };
-          if (payload.ticket) {
-            onTicketUpdateRef.current(payload.ticket);
-          }
-        } catch { /* ignore parse errors */ }
+          if (payload.ticket) onTicketUpdateRef.current(payload.ticket);
+        } catch { /* ignore */ }
         onConnectedRef.current?.();
       });
 
@@ -114,8 +125,6 @@ export function useTicketStream({
       });
 
       es.onerror = () => {
-        // EventSource fires onerror both for transient network blips and
-        // permanent failures.  Close and reconnect with back-off.
         es?.close();
         if (!unmounted) {
           retryTimer = setTimeout(() => {

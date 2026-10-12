@@ -53,6 +53,9 @@ threads = 4
 # Worker timeout: kill and restart a worker if it doesn't respond within
 # this many seconds.  Must be > the longest expected request (large chunk
 # upload at slow connection speed).
+# SSE connections are handled on threads within gthread workers — the worker
+# process itself remains responsive, so the 120s timeout does NOT kill SSE.
+# The timeout only fires if the entire worker process stops responding.
 timeout = 120
 
 # On SIGTERM, wait this long for in-flight requests before force-killing.
