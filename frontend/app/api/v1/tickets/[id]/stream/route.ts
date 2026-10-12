@@ -73,9 +73,6 @@ export async function GET(
         method:  "GET",
         headers: fwd,
         signal:  abort.signal,
-        // Prevent Node.js from buffering — crucial for streaming.
-        // @ts-expect-error — Node.js fetch extension, not in DOM types
-        duplex: "half",
       },
     );
   } catch (err) {
@@ -103,15 +100,16 @@ export async function GET(
   // Return the upstream ReadableStream directly.
   // Each chunk Django yields is written to the socket immediately —
   // no intermediate buffering in Node.js or Next.js.
+  // Do NOT set transfer-encoding manually — Node.js sets it automatically
+  // and setting it explicitly can conflict with HTTP/2 framing.
   return new NextResponse(upstream.body, {
     status: 200,
     headers: {
       "content-type":      "text/event-stream; charset=utf-8",
       "cache-control":     "no-cache, no-transform",
       "x-accel-buffering": "no",
-      // Prevent Cloudflare and any CDN from caching or compressing the stream.
+      // Prevent gzip/br compression which would buffer chunks until flush.
       "content-encoding":  "identity",
-      "transfer-encoding": "chunked",
     },
   });
 }

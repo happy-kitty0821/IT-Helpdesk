@@ -36,8 +36,6 @@ export async function GET(request: NextRequest) {
         method:  "GET",
         headers: fwd,
         signal:  abort.signal,
-        // @ts-expect-error — Node.js fetch extension
-        duplex: "half",
       },
     );
   } catch (err) {
@@ -66,7 +64,6 @@ export async function GET(request: NextRequest) {
       "cache-control":     "no-cache, no-transform",
       "x-accel-buffering": "no",
       "content-encoding":  "identity",
-      "transfer-encoding": "chunked",
     },
   });
 }
