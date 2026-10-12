@@ -33,14 +33,6 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
         ],
       },
-      {
-        // SSE stream — disable proxy buffering (with and without trailing slash).
-        source: "/api/v1/tickets/:id/stream/",
-        headers: [
-          { key: "X-Accel-Buffering", value: "no" },
-          { key: "Cache-Control",     value: "no-cache" },
-        ],
-      },
     ];
   },
   async rewrites() {
@@ -55,11 +47,11 @@ const nextConfig: NextConfig = {
       { source: "/api/v1/services",              destination: `${d}/api/v1/services/` },
       { source: "/api/v1/services/:path*",       destination: `${d}/api/v1/services/:path*/` },
       { source: "/api/v1/tickets",               destination: `${d}/api/v1/tickets/` },
-      // Stream endpoint listed before the generic /:path* wildcard.
-      // The wildcard appends another "/" to paths that already have one,
-      // producing a double-slash that Django's URL router doesn't match.
-      // Using an explicit pattern with a literal "/stream/" avoids this.
-      { source: "/api/v1/tickets/:id/stream/",   destination: `${d}/api/v1/tickets/:id/stream/` },
+      // NOTE: /api/v1/tickets/[id]/stream/ is intentionally omitted from rewrites.
+      // A dedicated Route Handler at app/api/v1/tickets/[id]/stream/route.ts
+      // handles SSE for that path — it returns res.body as a ReadableStream,
+      // bypassing Next.js's buffering proxy.  A rewrite here would intercept
+      // the request before the Route Handler runs.
       { source: "/api/v1/tickets/:path*",        destination: `${d}/api/v1/tickets/:path*/` },
       { source: "/api/v1/guides",                destination: `${d}/api/v1/guides/` },
       { source: "/api/v1/guides/:path*",         destination: `${d}/api/v1/guides/:path*/` },
