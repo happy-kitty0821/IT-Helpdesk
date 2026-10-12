@@ -330,7 +330,14 @@ def ticket_notification_dispatch(sender, instance, created, **kwargs):
     try:
         if created:
             ctx = _ticket_context(instance)
-            send_event('ticket_submitted', ctx, ticket=instance)
+            # Do not send a generic "ticket received" email for account recovery
+            # tickets — those have a dedicated credentials email sent by staff
+            # via RecoveryActionView.  Sending the generic notification would
+            # confuse the student with an irrelevant "request received" message.
+            _RECOVERY_SLUGS = frozenset({'account-recovery', 'college-account-recovery'})
+            category_slug = getattr(instance.category, 'slug', '') if instance.category else ''
+            if category_slug not in _RECOVERY_SLUGS:
+                send_event('ticket_submitted', ctx, ticket=instance)
             return
 
         # ── Changed fields ────────────────────────────────────────────────
