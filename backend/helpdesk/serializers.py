@@ -1087,6 +1087,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     email            = serializers.CharField(read_only=True)
     email_verified   = serializers.SerializerMethodField()
     avatar_url       = serializers.SerializerMethodField()
+    programme_locked = serializers.SerializerMethodField()
     programme        = serializers.CharField(
         source='profile.programme', allow_blank=True, default='',
         max_length=200,
@@ -1101,10 +1102,10 @@ class ProfileSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'username', 'email',
             'first_name', 'last_name',
-            'programme', 'department',
+            'programme', 'programme_locked', 'department',
             'email_verified', 'avatar_url',
         )
-        read_only_fields = ('id', 'username', 'email', 'email_verified', 'avatar_url')
+        read_only_fields = ('id', 'username', 'email', 'email_verified', 'avatar_url', 'programme_locked')
 
     def get_email_verified(self, obj):
         try:
@@ -1117,6 +1118,10 @@ class ProfileSerializer(serializers.ModelSerializer):
             return obj.profile.avatar_url or ''
         except Exception:
             return ''
+
+    def get_programme_locked(self, obj) -> bool:
+        """True when the user's username maps to a fixed programme."""
+        return self._derive_programme(obj.username) is not None
 
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('profile', {})
@@ -1132,6 +1137,49 @@ class ProfileSerializer(serializers.ModelSerializer):
                 setattr(profile, attr, value)
             profile.save()
         return instance
+
+    # ── Programme validation ──────────────────────────────────────────────────
+    # Maps username prefix → locked programme name.
+    # Keys are lowercase; checked against instance.username.lower().
+    _PROGRAMME_MAP: dict[str, str] = {
+        'np0cp4a': 'BSc (Hons) Computing',
+        'np05ba':  'BA (Hons) Business Administration',
+    }
+
+    @classmethod
+    def _derive_programme(cls, username: str) -> str | None:
+        """Return the locked programme for username, or None if not mapped."""
+        lower = username.lower()
+        for prefix, programme in cls._PROGRAMME_MAP.items():
+            if lower.startswith(prefix):
+                return programme
+        return None
+
+    def validate_programme(self, value: str) -> str:
+        """
+        If the user's username matches a known prefix, the programme is
+        locked to the mapped value and cannot be changed to anything else.
+        If no prefix matches, any non-blank value is accepted.
+        """
+        instance = self.instance
+        if instance is None:
+            return value   # creation — no lock applies
+
+        locked = self._derive_programme(instance.username)
+        if locked is None:
+            # No prefix match — user may set any programme freely
+            return value
+
+        # Prefix matched — value must equal the locked programme.
+        # Also auto-correct an empty/None submission to the locked value
+        # so that the profile is always consistent after the first save.
+        if not value or value == locked:
+            return locked
+
+        raise serializers.ValidationError(
+            f'Your programme is locked to "{locked}" based on your username '
+            f'and cannot be changed.'
+        )
 
 
 # ---------------------------------------------------------------------------

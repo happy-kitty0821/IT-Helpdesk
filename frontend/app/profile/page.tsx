@@ -20,6 +20,7 @@ interface ProfileData {
   first_name: string;
   last_name: string;
   programme: string;
+  programme_locked: boolean;
   department: string;
   email_verified: boolean;
   avatar_url: string;
@@ -229,8 +230,13 @@ export default function ProfilePage() {
         method: "PATCH", credentials: "include",
         headers: { "Content-Type": "application/json", "X-CSRFToken": token },
         body: JSON.stringify({
-          first_name: form.get("first_name"), last_name: form.get("last_name"),
-          programme: form.get("programme"),   department: form.get("department"),
+          first_name:  form.get("first_name"),
+          last_name:   form.get("last_name"),
+          // Only send programme if the user can actually edit it.
+          // When locked the server enforces it anyway, but omitting it
+          // avoids a spurious validation round-trip.
+          ...(profile.programme_locked ? {} : { programme: form.get("programme") }),
+          department:  form.get("department"),
         }),
       });
       const data = await res.json().catch(() => ({})) as ProfileData & { detail?: string };
@@ -426,8 +432,35 @@ export default function ProfilePage() {
 
                     <div className="profile-form-row">
                       <div className="profile-form-field">
-                        <label htmlFor="pf-prog">Programme</label>
-                        <input id="pf-prog" name="programme" defaultValue={profile.programme} maxLength={200} placeholder="e.g. BCA, BIT, BBA" />
+                        <label htmlFor="pf-prog">
+                          Programme
+                          {profile.programme_locked && (
+                            <span className="profile-readonly-note"> (set by your username)</span>
+                          )}
+                        </label>
+                        {profile.programme_locked ? (
+                          <div className="profile-email-row">
+                            <input
+                              value={profile.programme}
+                              disabled
+                              readOnly
+                              style={{ flex: 1 }}
+                              aria-label="Programme (locked)"
+                            />
+                            <span className="profile-email-status profile-email-status--ok"
+                              title="Programme is determined by your username and cannot be changed">
+                              <CheckCircle2 size={13} /> Locked
+                            </span>
+                          </div>
+                        ) : (
+                          <input
+                            id="pf-prog"
+                            name="programme"
+                            defaultValue={profile.programme}
+                            maxLength={200}
+                            placeholder="e.g. BCA, BIT, BBA"
+                          />
+                        )}
                       </div>
                       <div className="profile-form-field">
                         <label htmlFor="pf-dept">Department</label>
