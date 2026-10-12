@@ -8,9 +8,11 @@ const nextConfig: NextConfig = {
 
   // ── Rewrite proxy timeout ──────────────────────────────────────────────────
   // Default is 10 s — insufficient for large file chunk uploads which write
-  // to disk on the Django side.  Set to 120 s to match Gunicorn's timeout.
+  // to disk on the Django side.  Set to 0 to disable the timeout entirely
+  // for the proxy — gunicorn handles worker-level timeouts instead.
+  // Previously 120_000ms but that kills SSE streams after 2 minutes.
   experimental: {
-    proxyTimeout: 120_000,
+    proxyTimeout: 0,
   },
 
   async headers() {
@@ -58,11 +60,6 @@ const nextConfig: NextConfig = {
       { source: "/api/v1/services",              destination: `${d}/api/v1/services/` },
       { source: "/api/v1/services/:path*",       destination: `${d}/api/v1/services/:path*/` },
       { source: "/api/v1/tickets",               destination: `${d}/api/v1/tickets/` },
-      // Stream endpoint must be listed before the general tickets/:path* rewrite.
-      // Next.js's built-in proxy buffers responses, which breaks SSE — the stream
-      // path needs to bypass buffering. Listing it first with a more-specific
-      // pattern ensures it matches before the generic wildcard.
-      { source: "/api/v1/tickets/:id/stream",    destination: `${d}/api/v1/tickets/:id/stream/` },
       { source: "/api/v1/tickets/:path*",        destination: `${d}/api/v1/tickets/:path*/` },
       { source: "/api/v1/guides",                destination: `${d}/api/v1/guides/` },
       { source: "/api/v1/guides/:path*",         destination: `${d}/api/v1/guides/:path*/` },
