@@ -74,17 +74,12 @@ export function useTicketStream({
   useEffect(() => {
     if (!ticketId || !enabled) return;
 
-    // Connect directly to Django to avoid Next.js proxy buffering.
-    // NEXT_PUBLIC_DJANGO_URL is the public-facing origin of Django
-    // (e.g. https://ithelpdesk-iic.cloud-dev.tech in production,
-    //  http://127.0.0.1:8000 in local dev).
-    // When both frontend and backend share the same domain, this is a
-    // same-origin request — no CORS headers needed.
-    const djangoOrigin =
-      (typeof process !== "undefined" && process.env.NEXT_PUBLIC_DJANGO_URL) ?? "";
-    const streamUrl = djangoOrigin
-      ? `${djangoOrigin}/api/v1/tickets/${ticketId}/stream/`
-      : `/api/v1/tickets/${ticketId}/stream/`;   // fallback: through proxy
+    // Use a relative URL so the stream goes through the Next.js local proxy,
+    // which is a plain HTTP/1.1 connection between Next.js and Django on
+    // localhost — completely bypassing Cloudflare's QUIC/HTTP3 layer.
+    // Direct-to-Django URLs go through Cloudflare which terminates SSE
+    // connections with ERR_QUIC_PROTOCOL_ERROR on HTTP/3.
+    const streamUrl = `/api/v1/tickets/${ticketId}/stream/`;
 
     let es: EventSource | null = null;
     let retryDelay = 1000;

@@ -24,12 +24,24 @@ const nextConfig: NextConfig = {
       },
       {
         // Media files proxied from Django: strip COOP so Chrome's PDF viewer
-        // can render PDFs inside an iframe. COOP is a document-isolation
-        // header that is irrelevant for static binary assets.
+        // can render PDFs inside an iframe.
         source: "/media/:path*",
         headers: [
           { key: "Cross-Origin-Opener-Policy", value: "unsafe-none" },
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      {
+        // SSE stream endpoints: disable proxy buffering so events flow
+        // through the Next.js local proxy to the browser in real time.
+        // X-Accel-Buffering: no  — tells Nginx (if in front) not to buffer.
+        // Cache-Control: no-cache — prevents any intermediate cache from
+        // holding the response.
+        source: "/api/v1/tickets/:id/stream",
+        headers: [
+          { key: "X-Accel-Buffering",  value: "no" },
+          { key: "Cache-Control",       value: "no-cache" },
+          { key: "Content-Type",        value: "text/event-stream" },
         ],
       },
     ];
