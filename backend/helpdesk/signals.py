@@ -546,9 +546,17 @@ def clear_overdue_on_activity(sender, instance, created, update_fields, **kwargs
 
     if instance.is_overdue:
         try:
-            # Use update() to avoid triggering this signal again
-            sender.objects.filter(pk=instance.pk).update(is_overdue=False)
-            instance.is_overdue = False   # keep in-memory object consistent
+            # Use update() to avoid triggering this signal again.
+            # Also clear last_stale_alert_at so the Celery task starts the
+            # SLA age clock fresh from the new updated_at — otherwise the task
+            # would use the old last_stale_alert_at as its age reference and
+            # immediately re-flag the ticket as stale even after staff acted on it.
+            sender.objects.filter(pk=instance.pk).update(
+                is_overdue=False,
+                last_stale_alert_at=None,
+            )
+            instance.is_overdue = False
+            instance.last_stale_alert_at = None
         except Exception as exc:
             logger.exception(
                 'clear_overdue_on_activity: failed to clear is_overdue for %s: %s',

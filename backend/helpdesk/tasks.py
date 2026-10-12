@@ -106,9 +106,29 @@ def check_stale_tickets(self):
         threshold_dt   = timedelta(hours=threshold_h)
         escalation_dt  = timedelta(hours=escalation_h)
 
-        age = now - ticket.updated_at   # time since last *any* change
+        # Measure age from the last REAL staff activity, not updated_at.
+        #
+        # Problem with updated_at: this task saves update_fields=['is_overdue',
+        # 'last_stale_alert_at', 'updated_at'] which resets updated_at to now.
+        # On the next run, age = now - updated_at ≈ 15 minutes < threshold,
+        # so the task clears is_overdue immediately — the flag oscillates.
+        #
+        # Solution: if the task has previously alerted this ticket
+        # (last_stale_alert_at is set), use that as the age baseline.
+        # That timestamp records when the ticket was FIRST flagged, not when
+        # the task last touched it.
+        # If never alerted before, fall back to updated_at (real last activity).
+        if ticket.last_stale_alert_at is not None:
+            # Ticket was already flagged at least once — measure from when the
+            # ALERT was first sent, not from the task's last save.
+            age_reference = ticket.last_stale_alert_at
+        else:
+            age_reference = ticket.updated_at
+
+        age = now - age_reference
+
         if age < threshold_dt:
-            # Not yet stale — clear flag if it was previously set
+            # Ticket is genuinely not yet stale — clear flag if previously set
             if ticket.is_overdue:
                 ticket.is_overdue = False
                 ticket.save(update_fields=['is_overdue', 'updated_at'])

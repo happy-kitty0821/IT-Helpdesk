@@ -9,28 +9,14 @@
 # Then reload the tunnel:
 #   sudo systemctl restart cloudflared
 #
-# WHAT THIS FIXES
-# ───────────────
-# By default cloudflared buffers entire request bodies before forwarding them
-# to the origin.  For large chunk uploads (even at 2 MB) this can cause:
-#   • 502 Bad Gateway — if the buffer flush takes longer than cloudflared's
-#     internal read timeout
-#   • Slow uploads — because Django only starts processing after the full
-#     chunk arrives at cloudflared's buffer
+# SSE NOTES
+# ─────────
+# keepAliveTimeout: 3600s  — keeps origin connections alive for 1 hour so
+#   SSE streams don't get cut at ~130s (the old 90s value caused this).
 #
-# Setting noChunkedEncoding: false tells cloudflared to stream the body
-# directly to the origin as it arrives, eliminating both problems.
-#
-# SSE (Server-Sent Events)
-# ────────────────────────
-# SSE streams are long-lived HTTP/1.1 connections that stay open for minutes
-# or hours.  The keepAliveTimeout must be long enough to outlast any SSE
-# session.  90s was too short — connections were terminated at ~150s.
-#
-# DO NOT set http2Origin: true for local HTTP/1.1 origins (Next.js, Django).
-# HTTP/2 stream idle timeouts (~130s) apply per-stream and cannot be disabled,
-# causing SSE to drop every ~130s.  HTTP/1.1 with a high keepAliveTimeout is
-# the correct configuration.
+# DO NOT set http2Origin: true — Next.js and Gunicorn both speak HTTP/1.1
+#   on localhost. Forcing HTTP/2 imposes a ~130s stream idle timeout that
+#   cannot be disabled and kills SSE connections silently.
 # ─────────────────────────────────────────────────────────────────────────────
 
 tunnel: <YOUR_TUNNEL_ID>
@@ -47,8 +33,8 @@ originRequest:
   connectTimeout: 30s
 
   # How long cloudflared keeps an idle origin connection alive.
-  # Set to 1 hour to accommodate long-lived SSE streams.
-  # Previously 90s which caused SSE connections to drop at ~150s.
+  # 3600s (1 hour) — required for long-lived SSE streams.
+  # The original 90s value was causing SSE to terminate at ~150s.
   keepAliveTimeout: 3600s
 
   # Number of idle origin connections to keep in the pool.
@@ -57,11 +43,6 @@ originRequest:
   # TCP keepalive probe interval — keeps the underlying TCP connection alive
   # through NAT and firewall state tables.
   tcpKeepAlive: 30s
-
-  # IMPORTANT: do NOT set http2Origin: true here or per-hostname.
-  # Next.js and Gunicorn both speak HTTP/1.1 on localhost.
-  # HTTP/2 forces stream-level idle timeouts (~130s) that cannot be
-  # disabled and break SSE streams.
 
 # ── Ingress rules ─────────────────────────────────────────────────────────────
 ingress:
