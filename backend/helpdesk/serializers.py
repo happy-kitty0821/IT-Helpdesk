@@ -758,7 +758,7 @@ class EmailTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmailTemplate
         fields = ('id', 'event_type', 'name', 'subject_template', 'body_html_template',
-                  'is_active', 'created_at', 'updated_at')
+                  'is_active', 'use_file_fallback', 'created_at', 'updated_at')
 
 
 class NotificationLogSerializer(serializers.ModelSerializer):
@@ -767,8 +767,11 @@ class NotificationLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationLog
         fields = ('id', 'channel', 'channel_name', 'event_type', 'ticket', 'status',
-                  'error_message', 'sent_at')
+                  'error_message', 'sent_at', 'created_at')
         read_only_fields = fields
+
+    # Expose sent_at as created_at so the frontend can use a single field name
+    created_at = serializers.DateTimeField(source='sent_at', read_only=True)
 
 
 class NotificationRuleSerializer(serializers.ModelSerializer):

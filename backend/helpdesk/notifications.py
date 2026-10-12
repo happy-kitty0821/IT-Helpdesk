@@ -189,6 +189,26 @@ def send_to_channel(channel, event_type: str, context: dict, ticket=None) -> tup
                     pass
                 return True, 'No active template — skipped.'
 
+            # Admin chose "use default file template" — not supported for channel sends
+            # (channels need a stored subject/body; file templates have no subject).
+            # Treat use_file_fallback as skipped with a clear log entry.
+            if template.use_file_fallback:
+                try:
+                    NotificationLog.objects.create(
+                        channel=channel,
+                        event_type=event_type,
+                        ticket=ticket,
+                        status='failed',
+                        error_message=(
+                            f'Template "{template.name}" has use_file_fallback=True. '
+                            'Channel emails require a DB template with subject and body. '
+                            'Disable "Use default file template" on the template to send.'
+                        ),
+                    )
+                except Exception:
+                    pass
+                return True, 'Template set to use file fallback — skipped for channel send.'
+
             to_email = context.get('to_email') or context.get('requester_email', '')
             if not to_email:
                 return True, 'No recipient email — skipped.'

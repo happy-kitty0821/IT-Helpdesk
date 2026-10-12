@@ -78,14 +78,21 @@ def _resolve_template(event_type: str, context: dict) -> tuple[str, str] | tuple
         ).first()
 
         if db_tmpl:
-            def _render(src: str) -> str:
-                try:
-                    return DjangoTemplate(src).render(Context(context, autoescape=False))
-                except Exception as exc:
-                    logger.warning('DB template render error for %s: %s', event_type, exc)
-                    return src
+            if db_tmpl.use_file_fallback:
+                # Admin explicitly chose "use default file template" — skip to file
+                logger.debug(
+                    '_resolve_template[%s]: DB template exists but use_file_fallback=True,'
+                    ' using on-disk file.', event_type
+                )
+            else:
+                def _render(src: str) -> str:
+                    try:
+                        return DjangoTemplate(src).render(Context(context, autoescape=False))
+                    except Exception as exc:
+                        logger.warning('DB template render error for %s: %s', event_type, exc)
+                        return src
 
-            return _render(db_tmpl.subject_template), _render(db_tmpl.body_html_template)
+                return _render(db_tmpl.subject_template), _render(db_tmpl.body_html_template)
     except Exception as exc:
         logger.debug('_resolve_template DB lookup failed (%s)', type(exc).__name__)
 

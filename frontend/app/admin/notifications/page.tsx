@@ -63,6 +63,7 @@ interface EmailTemplate {
   subject_template: string;
   body_html_template: string;
   is_active: boolean;
+  use_file_fallback: boolean;
   updated_at: string;
 }
 
@@ -381,7 +382,8 @@ export default function NotificationsPage() {
     subject_template: string;
     body_html_template: string;
     is_active: boolean;
-  }>({ name: "", event_type: "ticket_submitted", subject_template: "", body_html_template: "", is_active: true });
+    use_file_fallback: boolean;
+  }>({ name: "", event_type: "ticket_submitted", subject_template: "", body_html_template: "", is_active: true, use_file_fallback: false });
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState("");
   const [templateNotice, setTemplateNotice] = useState("");
@@ -627,6 +629,7 @@ export default function NotificationsPage() {
       subject_template: template.subject_template,
       body_html_template: template.body_html_template,
       is_active: template.is_active,
+      use_file_fallback: template.use_file_fallback,
     });
     setTemplateError("");
     setTemplateNotice("");
@@ -642,6 +645,7 @@ export default function NotificationsPage() {
       subject_template: "",
       body_html_template: "<p>Hi {{requester_name}},</p>\n<p></p>\n<p>— IIC IT &amp; NOC Department</p>",
       is_active: true,
+      use_file_fallback: false,
     });
     setTemplateError("");
     setTemplateNotice("");
@@ -1149,6 +1153,16 @@ export default function NotificationsPage() {
                         <span className={`status-chip ${template.is_active ? "active" : "archived"}`}>
                           {template.is_active ? "Active" : "Inactive"}
                         </span>
+                        {template.use_file_fallback && (
+                          <span style={{
+                            background: "#f0fdf4", color: "#166534",
+                            border: "1px solid #86efac", borderRadius: 999,
+                            padding: "2px 8px", fontSize: ".72rem", fontWeight: 700,
+                            whiteSpace: "nowrap",
+                          }}>
+                            Using file
+                          </span>
+                        )}
                         <button
                           style={{ width: 36, height: 36, border: "1px solid #dbe2ee", background: "#fff", color: "#234395", borderRadius: 9, display: "grid", placeItems: "center", cursor: "pointer" }}
                           onClick={() => openEditTemplate(template)}
@@ -1660,6 +1674,39 @@ export default function NotificationsPage() {
                 />
                 Active — use this template for outgoing emails
               </label>
+
+              {/* Template source toggle */}
+              <div style={{
+                background: templateForm.use_file_fallback ? "#f0fdf4" : "#eff6ff",
+                border: `1px solid ${templateForm.use_file_fallback ? "#86efac" : "#bfdbfe"}`,
+                borderRadius: 10,
+                padding: "12px 14px",
+              }}>
+                <label className="notif-checkbox-row" style={{ marginBottom: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={templateForm.use_file_fallback}
+                    onChange={(e) =>
+                      setTemplateForm((p) => ({ ...p, use_file_fallback: e.target.checked }))
+                    }
+                  />
+                  <span style={{ fontWeight: 700 }}>Use default file template</span>
+                </label>
+                <p style={{ margin: "6px 0 0 22px", fontSize: ".78rem", lineHeight: 1.55, color: "#475569" }}>
+                  {templateForm.use_file_fallback
+                    ? <>
+                        <strong style={{ color: "#166534" }}>On — default file template in use.</strong>
+                        {" "}The on-disk HTML file will be used instead of the subject and body above.
+                        Your custom copy is saved but ignored until you turn this off.
+                      </>
+                    : <>
+                        <strong style={{ color: "#1e40af" }}>Off — this DB template is active.</strong>
+                        {" "}The subject and body you've written here will be sent.
+                        Turn this on to revert to the built-in file template at any time.
+                      </>
+                  }
+                </p>
+              </div>
 
               {/* Preview */}
               {previewHtml !== null && (

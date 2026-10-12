@@ -379,6 +379,14 @@ class EmailTemplate(models.Model):
     subject_template = models.CharField(max_length=500)
     body_html_template = models.TextField()
     is_active = models.BooleanField(default=True)
+    use_file_fallback = models.BooleanField(
+        default=False,
+        help_text=(
+            'When enabled, the on-disk HTML template is used instead of this '
+            'DB record — even though the record is active. Useful for reverting '
+            'to the default layout without deleting custom copy.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
