@@ -34,16 +34,11 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // SSE stream endpoints: disable proxy buffering so events flow
-        // through the Next.js local proxy to the browser in real time.
-        // X-Accel-Buffering: no  — tells Nginx (if in front) not to buffer.
-        // Cache-Control: no-cache — prevents any intermediate cache from
-        // holding the response.
-        source: "/api/v1/tickets/:id/stream",
+        // SSE stream — disable proxy buffering (with and without trailing slash).
+        source: "/api/v1/tickets/:id/stream/",
         headers: [
-          { key: "X-Accel-Buffering",  value: "no" },
-          { key: "Cache-Control",       value: "no-cache" },
-          { key: "Content-Type",        value: "text/event-stream" },
+          { key: "X-Accel-Buffering", value: "no" },
+          { key: "Cache-Control",     value: "no-cache" },
         ],
       },
     ];
@@ -60,6 +55,11 @@ const nextConfig: NextConfig = {
       { source: "/api/v1/services",              destination: `${d}/api/v1/services/` },
       { source: "/api/v1/services/:path*",       destination: `${d}/api/v1/services/:path*/` },
       { source: "/api/v1/tickets",               destination: `${d}/api/v1/tickets/` },
+      // Stream endpoint listed before the generic /:path* wildcard.
+      // The wildcard appends another "/" to paths that already have one,
+      // producing a double-slash that Django's URL router doesn't match.
+      // Using an explicit pattern with a literal "/stream/" avoids this.
+      { source: "/api/v1/tickets/:id/stream/",   destination: `${d}/api/v1/tickets/:id/stream/` },
       { source: "/api/v1/tickets/:path*",        destination: `${d}/api/v1/tickets/:path*/` },
       { source: "/api/v1/guides",                destination: `${d}/api/v1/guides/` },
       { source: "/api/v1/guides/:path*",         destination: `${d}/api/v1/guides/:path*/` },

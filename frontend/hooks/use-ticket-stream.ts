@@ -85,6 +85,7 @@ export function useTicketStream({
     let retryDelay = 1000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
+    let terminalError = false;  // set when Django sends a named error event (do not reconnect)
 
     function connect() {
       if (unmounted) return;
@@ -92,7 +93,7 @@ export function useTicketStream({
       es = new EventSource(streamUrl, { withCredentials: true });
 
       es.addEventListener("connected", (e: MessageEvent) => {
-        retryDelay = 1000;
+        retryDelay = 1000;  // reset back-off on every successful connect
         try {
           const payload = JSON.parse(e.data) as { ticket?: TicketSnapshot };
           if (payload.ticket) onTicketUpdateRef.current(payload.ticket);
@@ -112,18 +113,27 @@ export function useTicketStream({
         } catch { /* ignore */ }
       });
 
+      // Named "error" events are application-level errors from Django
+      // (e.g. access denied, ticket not found). These are terminal —
+      // do NOT reconnect, just report the error.
       es.addEventListener("error", (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data) as { detail?: string };
           onErrorRef.current?.(payload.detail ?? "Stream error.");
+          es?.close();
+          terminalError = true;  // prevent onerror from triggering a reconnect
         } catch { /* ignore */ }
       });
 
+      // onerror fires on transport-level failures (connection dropped,
+      // proxy timeout, network blip). Always reconnect with back-off.
+      // Does not fire when a named "error" event is received because
+      // we set terminalError = true and close cleanly above.
       es.onerror = () => {
         es?.close();
-        if (!unmounted) {
+        if (!unmounted && !terminalError) {
           retryTimer = setTimeout(() => {
-            retryDelay = Math.min(retryDelay * 2, 30_000);
+            retryDelay = Math.min(retryDelay * 2, 5_000);  // cap at 5s — never stall UI for 30s
             connect();
           }, retryDelay);
         }
