@@ -1750,6 +1750,30 @@ class RecoveryActionView(APIView):
 
         from .signals import get_support_email as _get_support_email
         from .email_dispatch import resolve_and_send as _dispatch_unverified
+        from .models import TicketEvent
+
+        old_status = ticket.status
+
+        # 1 — Move ticket to waiting_requester so it's clear the ball is in
+        #     the student's court (they need to visit in person).
+        #     Only move if not already in a terminal or waiting state.
+        TERMINAL = {'resolved', 'closed', 'cancelled'}
+        if old_status not in TERMINAL and old_status != 'waiting_requester':
+            ticket.status = 'waiting_requester'
+            ticket.save(update_fields=['status', 'updated_at'])
+
+            # 2 — Record a TicketEvent so the history tab shows what happened.
+            TicketEvent.objects.create(
+                ticket    = ticket,
+                actor     = request.user,
+                action    = TicketEvent.Action.STATUS_CHANGED,
+                old_value = old_status,
+                new_value = 'waiting_requester',
+                note      = (
+                    'Identity could not be verified remotely. '
+                    'Student directed to visit the IT & NOC department in person.'
+                ),
+            )
 
         _dispatch_unverified(
             event_type = 'recovery_unable_to_verify',
