@@ -1716,6 +1716,7 @@ class RecoveryActionView(APIView):
                 )
 
         from .email_dispatch import resolve_and_send as _dispatch_recovery
+        from .models import TicketEvent
 
         _dispatch_recovery(
             event_type = 'account_recovery',
@@ -1732,6 +1733,55 @@ class RecoveryActionView(APIView):
             subject    = f'[IIC IT Helpdesk] Account recovery credentials \u2014 {ref}',
             log_tag    = f'recovery_credentials ticket={ref} dest={destination_label}',
         )
+
+        # ── Resolve the ticket and complete all stages ─────────────────────
+        # Sending credentials is the final action — the recovery is done.
+        # Only act if the ticket isn't already in a terminal state (guards
+        # against staff clicking "Send credentials" a second time).
+        TERMINAL = {'resolved', 'closed', 'cancelled'}
+        if ticket.status not in TERMINAL:
+            old_status   = ticket.status
+            old_stage    = ticket.current_stage
+
+            # Find the last stage key for this category (if stages are configured).
+            # Setting current_stage to the final key makes the stage bar show
+            # all steps as complete.
+            final_stage = old_stage
+            try:
+                stages = list(ticket.category.stages or [])
+                if stages:
+                    last = stages[-1]
+                    final_stage = last.get('key', old_stage) if isinstance(last, dict) else old_stage
+            except Exception:
+                pass
+
+            ticket.status        = 'resolved'
+            ticket.current_stage = final_stage
+            save_fields = ['status', 'updated_at']
+            if final_stage != old_stage:
+                save_fields.append('current_stage')
+            ticket.save(update_fields=save_fields)
+
+            # History entry 1 — status change
+            TicketEvent.objects.create(
+                ticket    = ticket,
+                actor     = request.user,
+                action    = TicketEvent.Action.STATUS_CHANGED,
+                old_value = old_status,
+                new_value = 'resolved',
+                note      = 'Credentials sent — account recovery complete.',
+            )
+
+            # History entry 2 — stage completion (only if stage actually changed)
+            if final_stage and final_stage != old_stage:
+                TicketEvent.objects.create(
+                    ticket    = ticket,
+                    actor     = request.user,
+                    action    = TicketEvent.Action.STAGE_CHANGED,
+                    old_value = old_stage or '',
+                    new_value = final_stage,
+                    note      = 'All recovery stages completed.',
+                )
 
         return Response({
             'action':        'send_credentials',
