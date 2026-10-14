@@ -970,7 +970,8 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .td-subject { font-size: clamp(1.6rem, 3.5vw, 2.4rem); letter-spacing: -.04em; margin: 0 0 12px; line-height: 1.15; }
 .td-byline { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: .84rem; }
 .td-byline span { display: flex; align-items: center; gap: 5px; }
-.td-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; }
+/* overflow:hidden contains the inner stepper scroll so it never bleeds outside the card */
+.td-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; overflow: hidden; }
 .td-card-title { font-size: .73rem; font-weight: 850; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 0 0 14px; }
 .td-extra-fields { display: grid; gap: 0; margin: 0; }
 .td-extra-row { display: grid; grid-template-columns: 170px 1fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: .9rem; }
@@ -980,9 +981,30 @@ footer .shell { min-height: 84px; display: flex; justify-content: space-between;
 .td-reason-card { border-color: color-mix(in srgb, var(--muted) 30%, var(--border)); background: var(--background); }
 .td-meta-heading { font-size: .73rem; font-weight: 850; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 0 0 16px; }
 .td-loading { min-height: 300px; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); }
+/* Ensure textareas inside ticket cards don't overflow their column on mobile */
+.td-card textarea { box-sizing: border-box; max-width: 100%; }
 @media (max-width: 900px) {
   .td-extra-row { grid-template-columns: 130px 1fr; }
   .ticket-detail-layout { gap: 24px; }
+  /* On mobile the sidebar renders after the main content in DOM order —
+     keep it below by keeping its natural order (no reorder needed since
+     the section comes first in JSX). The sidebar stacks below automatically
+     when the grid collapses to 1 column. */
+}
+@media (max-width: 640px) {
+  /* Stack label above value on very narrow phones */
+  .td-extra-row { grid-template-columns: 1fr; gap: 2px; }
+  .td-extra-row dt { font-size: .78rem; }
+  /* Tighten page padding on mobile */
+  .ticket-detail-page { padding-block: 16px 48px; }
+  .td-hero { padding: 16px 0 20px; }
+  .td-hero .td-subject { font-size: clamp(1.3rem, 5.5vw, 1.8rem); }
+  /* Tighter card padding on small screens to avoid cramped look */
+  .td-card { padding: 16px; }
+  .ticket-meta-card { padding: 16px; }
+  /* Full-width action buttons on mobile */
+  .ticket-actions .danger-button,
+  .ticket-actions .primary-button { width: 100%; justify-content: center; }
 }
 
 /* ── Admin Ticket Queue ──────────────────────────────────────────────────── */
@@ -1743,10 +1765,7 @@ a:hover > .dash-metric { box-shadow: 0 4px 18px rgba(15,23,42,.08); transform: t
 
 /* ── 11. Ticket detail — description and extra fields on mobile ─────────── */
 @media (max-width: 640px) {
-  .td-extra-row { grid-template-columns: 1fr; gap: 2px; }
-  .td-extra-row dt { font-size: .78rem; }
-  .ticket-detail-page { padding-block: 24px 60px; }
-  .td-hero { padding: 20px 0; }
+  /* Handled in the ticket-detail block above */
 }
 
 /* ── 12. Service card grid — single column on small phones ──────────────── */

@@ -285,7 +285,7 @@ function ProgressTracker({ stages, currentStage }: { stages: ServiceStage[]; cur
       <div
         role="list"
         aria-label="Progress stages"
-        style={{ display: "flex", alignItems: "flex-start", gap: 0, overflowX: "auto", paddingBottom: 4 }}
+        style={{ display: "flex", alignItems: "flex-start", gap: 0, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}
       >
         {stages.map((stage, i) => {
           const isDone = activeIdx >= 0 && i < activeIdx;
@@ -299,7 +299,7 @@ function ProgressTracker({ stages, currentStage }: { stages: ServiceStage[]; cur
               style={{ display: "flex", alignItems: "center", flexShrink: 0 }}
             >
               {/* Step node */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 88 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 72 }}>
                 {/* Circle */}
                 <motion.div
                   initial={false}
@@ -333,7 +333,7 @@ function ProgressTracker({ stages, currentStage }: { stages: ServiceStage[]; cur
                 <span style={{
                   fontSize: ".72rem", fontWeight: isActive ? 800 : 600,
                   color: isActive ? "#234395" : isDone ? "#166534" : "#94a3b8",
-                  textAlign: "center", lineHeight: 1.3, maxWidth: 80,
+                  textAlign: "center", lineHeight: 1.3, maxWidth: 68, minWidth: 0, wordBreak: "break-word",
                 }}>
                   {stage.label}
                 </span>
@@ -432,7 +432,8 @@ function MessageThread({
                   transition={{ duration: 0.2, ease: "easeOut" }}
                   style={{
                     alignSelf: isMe ? "flex-end" : "flex-start",
-                    maxWidth: "85%",
+                    maxWidth: "min(85%, calc(100% - 16px))",
+                    minWidth: 0,
                   }}
                 >
                   {/* Sender label */}
