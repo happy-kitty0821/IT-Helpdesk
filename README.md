@@ -1,582 +1,861 @@
 # IIC IT & NOC Helpdesk
 
-A full-featured IT support ticket system for Itahari International College,
-built with **Django 6.1** (backend) and **Next.js 16** (frontend). Students
-and staff submit support requests through a public portal; IT agents and
-service leads manage them through a real-time admin queue with live updates
-via Server-Sent Events.
+> A production-grade IT support ticket system for **Itahari International College** —
+> built with Django 6.1 and Next.js 16, deployed via Cloudflare Tunnel with
+> real-time SSE updates, Celery-powered SLA alerting, and a four-sheet
+> audit-grade Excel export.
 
 ---
 
 ## Table of contents
 
-1. [Architecture](#architecture)
-2. [Feature overview](#feature-overview)
-3. [Tech stack](#tech-stack)
-4. [Project structure](#project-structure)
-5. [Local development](#local-development)
-6. [Environment variables](#environment-variables)
-7. [Database migrations](#database-migrations)
-8. [Running the application](#running-the-application)
-9. [Authentication](#authentication)
-10. [Role system](#role-system)
-11. [Ticket state machine](#ticket-state-machine)
-12. [SLA alerting (Celery)](#sla-alerting-celery)
-13. [Email system](#email-system)
-14. [SSE real-time updates](#sse-real-time-updates)
-15. [File uploads](#file-uploads)
-16. [Excel report export](#excel-report-export)
-17. [Deployment](#deployment)
-18. [CI/CD — Jenkins](#cicd--jenkins)
-19. [Performance tests (k6)](#performance-tests-k6)
-20. [API documentation](#api-documentation)
+1. [System architecture](#1-system-architecture)
+2. [Feature overview](#2-feature-overview)
+3. [Tech stack](#3-tech-stack)
+4. [Project structure](#4-project-structure)
+5. [Local development](#5-local-development)
+6. [Environment variables](#6-environment-variables)
+7. [Management commands](#7-management-commands)
+8. [Database migrations](#8-database-migrations)
+9. [Authentication](#9-authentication)
+10. [Role system](#10-role-system)
+11. [Ticket state machine](#11-ticket-state-machine)
+12. [SLA alerting — Celery](#12-sla-alerting--celery)
+13. [Email system](#13-email-system)
+14. [SSE real-time updates](#14-sse-real-time-updates)
+15. [File uploads](#15-file-uploads)
+16. [Excel report export](#16-excel-report-export)
+17. [Deployment](#17-deployment)
+18. [CI/CD — Jenkins](#18-cicd--jenkins)
+19. [Performance tests — k6](#19-performance-tests--k6)
+20. [API documentation](#20-api-documentation)
+21. [Development notes](#21-development-notes)
 
 ---
 
-## Architecture
+## 1. System architecture
 
 ```
-Browser
-  └─► Cloudflare Tunnel  (ithelpdesk-iic.cloud-dev.tech)
-        └─► Next.js 16   (port 3000, pnpm / Node.js)
-              ├─► Static & server-rendered pages
-              ├─► /api/v1/*  →  proxy rewrites → Django
-              ├─► /api/v1/tickets/[id]/stream/  →  SSE Route Handler
-              └─► /api/v1/admin/summary/stream/ →  SSE Route Handler
-                    └─► Django 6.1 / Gunicorn gthread  (port 8000)
-                          ├─► SQLite (dev) / PostgreSQL (production)
-                          ├─► Redis  (Celery broker + result backend)
-                          ├─► Celery worker  (background tasks)
-                          └─► Celery beat    (periodic SLA checks)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              PUBLIC INTERNET                                │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │  HTTPS
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         CLOUDFLARE EDGE                                     │
+│   DNS · TLS termination · DDoS protection · HTTP/2                          │
+│   Domain: ithelpdesk-iic.cloud-dev.tech                                     │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │  Cloudflare Tunnel (encrypted)
+                                   │  keepAliveTimeout: 3600 s
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         LXC CONTAINER  (Linux)                              │
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  cloudflared  (tunnel daemon)                                        │  │
+│  │  Forwards traffic to Next.js :3000                                   │  │
+│  └───────────────────────────┬──────────────────────────────────────────┘  │
+│                               │  HTTP/1.1  (localhost)                      │
+│                               ▼                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  Next.js 16  (Node.js · pnpm · port 3000)                           │  │
+│  │                                                                      │  │
+│  │  ┌─────────────────────┐  ┌──────────────────────────────────────┐  │  │
+│  │  │  Static pages        │  │  API proxy  (next.config.ts rewrites) │  │  │
+│  │  │  /  /tickets  /help  │  │  /api/v1/* → afterFiles → Django     │  │  │
+│  │  │  /services  /status  │  │                                      │  │  │
+│  │  └─────────────────────┘  └──────────────────────┬───────────────┘  │  │
+│  │                                                   │                  │  │
+│  │  ┌────────────────────────────────────────────────┴───────────────┐  │  │
+│  │  │  SSE Route Handlers  (fallback rewrites — bypass proxy buffer)  │  │  │
+│  │  │  /api/v1/tickets/[id]/stream/         → ReadableStream          │  │  │
+│  │  │  /api/v1/admin/summary/stream/        → ReadableStream          │  │  │
+│  │  └────────────────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────┬─────────────────┘  │
+│                                                        │  HTTP/1.1           │
+│                                                        ▼                    │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  Django 6.1  +  Gunicorn gthread  (port 8000)                       │  │
+│  │                                                                      │  │
+│  │  workers = cpu_count   threads = 4   timeout = 120 s                │  │
+│  │                                                                      │  │
+│  │  DRF REST API  ·  SSE StreamingHttpResponse  ·  Session auth        │  │
+│  │  Ticket state machine  ·  Role system  ·  SLA engine                │  │
+│  └───────┬──────────────────────────────────────┬────────────────────-─┘  │
+│           │  Django ORM                           │  redis-py               │
+│           ▼                                       ▼                        │
+│  ┌──────────────────┐              ┌──────────────────────────────────┐    │
+│  │  SQLite (dev)    │              │  Redis  :6379                    │    │
+│  │  PostgreSQL (prod│              │                                  │    │
+│  └──────────────────┘              │  Celery broker + result backend  │    │
+│                                    └──────────┬───────────────────────┘    │
+│                                               │                            │
+│                              ┌────────────────┴──────────────────────┐    │
+│                              │  Celery workers                        │    │
+│                              │  · check_stale_tickets  (beat / 15 m)  │    │
+│                              │  · fire ticket_stale notification       │    │
+│                              │  · set ticket.is_overdue = True         │    │
+│                              └───────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**SSE streams bypass the Next.js rewrite proxy** (which buffers responses)
-via dedicated App Router Route Handlers that forward `upstream.body`
-(a `ReadableStream`) directly to the browser. This means SSE events arrive
-in real time through Cloudflare without buffering.
+### Request routing detail
+
+```
+Browser request  →  /api/v1/tickets/{id}/stream/
+                                   │
+         Next.js routing engine checks phases in order:
+                                   │
+          1. beforeFiles rewrites  ─── (none match)
+          2. Filesystem pages      ─── (none match)
+          3. afterFiles rewrites   ─── tickets/:path* NOT here → skip  ◄── key fix
+          4. App Router handler    ─── app/api/v1/tickets/[id]/stream/route.ts ✓
+          5. fallback rewrites     ─── tickets/:path* here (catches other API calls)
+```
 
 ---
 
-## Feature overview
+## 2. Feature overview
 
 ### Student / public portal
 
-- Submit support tickets with custom form fields per service category
-- Real-time ticket status updates via SSE (no page refresh)
-- Message thread with IT staff
-- Cancel or close own tickets
-- Priority escalation requests
-- Post-resolution satisfaction feedback (1–5 stars)
-- Email verification on registration
-- Password reset by email
-- Google Workspace SSO
-- Self-service guides (PDF viewer) and software catalogue
+| Feature | Detail |
+|---------|--------|
+| Ticket submission | Custom form fields per service category |
+| Real-time updates | SSE — status, assignee, stage update without page refresh |
+| Overdue badge | Red ⚠ chip when ticket breaches SLA |
+| Message thread | Two-way conversation with IT staff |
+| Ticket actions | Cancel, close, priority escalation request |
+| Satisfaction feedback | 1–5 star rating + comment after resolution |
+| Account recovery | Dedicated workflow with credentials email |
+| Authentication | Email/password, Google Workspace SSO |
+| Self-service | PDF guides viewer, software catalogue, service status board |
 
 ### Staff admin panel (`/admin`)
 
-- **Ticket queue** — filterable, searchable, paginated; live update badge
-- **Overdue badge** — tickets that breach SLA thresholds show a red ⚠ Overdue chip
-- **Assign to self / others** — IT NOC interns can self-assign within their category scope
-- **Status transitions** — enforced state machine (no illegal backwards jumps)
-- **Take ownership** — interns self-assign; status auto-advances to In Progress
-- **Account recovery workflow** — send backup code + temp password; status auto-resolves
-- **Stage progress bar** — per-category workflow stages with visual tracker
-- **Excel export** — 4-sheet audit workbook with charts (Ticket Register, Analytics, Audit Trail, Role Audit Events)
-- **Real-time admin dashboard** — KPI cards via SSE stream
-- **Notifications** — configurable channels (Discord, Teams, Slack, email SMTP/Mailgun), routing rules, DB-editable templates, activity logs
-- **User management** — grant/revoke roles, suspend/unsuspend, set superuser
-- **Rate limiting** — configurable rules with violation tracking
-- **Service status board** — per-category operational status
-- **Content management** — guides (PDF) and software catalogue
-- **Announcements** — time-scheduled banners on the public home page
-- **Site settings** — office hours, support email, recovery credential destination
+| Feature | Detail |
+|---------|--------|
+| Live ticket queue | Filterable, searchable, paginated with SSE overdue badge |
+| Status transitions | Enforced state machine — illegal moves rejected with clear error |
+| Intern self-assign | IT NOC interns take ownership within category scope |
+| Account recovery | Send backup code + temp password; auto-resolves ticket + completes stages |
+| Unable to verify | Auto-sets `waiting_requester`; creates history event |
+| Stage tracker | Per-category workflow stages with animated progress bar |
+| Excel export | 4-sheet audit workbook with 8 charts (see §16) |
+| Real-time dashboard | KPI cards updated via SSE stream |
+| Notification system | Channels (Discord/Teams/Slack/email), routing rules, DB-editable templates |
+| User management | Grant/revoke roles, suspend/unsuspend, set superuser |
+| Rate limiting | Configurable rules with per-scope violation tracking |
+| Service status board | Per-category operational status |
+| Content management | Guides (PDF upload) and software catalogue |
+| Announcements | Time-scheduled banners on the public home page |
+| Site settings | Office hours, support email, credential destination |
 
 ---
 
-## Tech stack
+## 3. Tech stack
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
 | Backend framework | Django | 6.1.1 |
 | REST API | Django REST Framework | 3.18.1 |
-| ASGI/WSGI server | Gunicorn (gthread workers) | — |
-| Task queue | Celery + Redis | 5.5.3 / 5.2.1 |
+| WSGI server | Gunicorn (gthread workers) | — |
+| Task queue / broker | Celery + Redis | 5.5.3 / 5.2.1 |
 | Frontend framework | Next.js (App Router) | 16.1.6 |
 | Frontend language | TypeScript + React | 19.2.3 |
-| Styling | Plain CSS (globals.css) | — |
-| Animation | Motion (formerly Framer Motion) | — |
+| Styling | Plain CSS (`globals.css`) + CSS variables | — |
+| Animation | Motion (Framer Motion v11) | — |
 | Icons | Lucide React | — |
 | Excel export | openpyxl | 3.1.5 |
 | API schema | drf-spectacular | 0.30.0 |
-| Package manager (frontend) | pnpm | — |
+| Package manager (FE) | pnpm | — |
 | Database (dev) | SQLite | — |
-| Database (production) | PostgreSQL (recommended) | — |
+| Database (prod) | PostgreSQL (recommended) | — |
 | Tunnel | Cloudflare Tunnel (cloudflared) | — |
 | CI/CD | Jenkins | — |
-| Load / perf tests | k6 | 0.54+ |
+| Performance tests | k6 | 0.54+ |
 
 ---
 
-## Project structure
+## 4. Project structure
 
 ```
 IIC-IT Helpdesk/
+│
 ├── backend/
-│   ├── helpdesk/              # Django app — all models, views, serializers
-│   │   ├── migrations/        # 39+ migrations
-│   │   ├── templates/email/   # HTML email templates (base + per-event)
-│   │   ├── models.py          # Ticket, User, RoleGrant, EmailTemplate, …
-│   │   ├── views.py           # All API views + SSE stream views
-│   │   ├── serializers.py     # DRF serializers
-│   │   ├── signals.py         # Post-save signals (notifications, overdue clear)
-│   │   ├── tasks.py           # Celery tasks (check_stale_tickets)
-│   │   ├── notifications.py   # Channel dispatch, webhook text builder
-│   │   ├── email_dispatch.py  # Unified email sender (DB template + transport)
-│   │   ├── permissions.py     # Custom DRF permissions + role helpers
-│   │   └── urls.py            # All URL patterns
+│   ├── helpdesk/                     ← Django app (all business logic)
+│   │   ├── management/
+│   │   │   └── commands/
+│   │   │       ├── bootstrap_admin.py  ← Create / update initial superuser
+│   │   │       └── seed_rate_limits.py ← Seed default rate-limit rules
+│   │   ├── migrations/               ← 41 migrations
+│   │   ├── templates/
+│   │   │   └── email/                ← HTML email templates
+│   │   │       ├── base.html           (IIC logo + brand header)
+│   │   │       ├── email_verification.html
+│   │   │       ├── password_reset.html
+│   │   │       ├── recovery_credentials.html
+│   │   │       └── recovery_unable_to_verify.html
+│   │   ├── models.py                 ← All data models
+│   │   ├── views.py                  ← All API + SSE views
+│   │   ├── serializers.py            ← DRF serializers (incl. state machine)
+│   │   ├── signals.py                ← Post-save triggers (notifications, overdue)
+│   │   ├── tasks.py                  ← Celery tasks (check_stale_tickets)
+│   │   ├── notifications.py          ← Channel dispatch + webhook text
+│   │   ├── email_dispatch.py         ← Unified email sender
+│   │   ├── email_config_service.py   ← Transport resolution (DB → env fallback)
+│   │   ├── email_verification.py     ← Verification token send/verify
+│   │   ├── permissions.py            ← Custom DRF permissions + role helpers
+│   │   ├── throttling.py             ← DB-driven rate limiting engine
+│   │   └── urls.py                   ← All URL patterns
 │   ├── Project/
-│   │   ├── settings.py        # Django settings (reads .env)
-│   │   ├── celery.py          # Celery app instance
+│   │   ├── celery.py                 ← Celery app instance + beat schedule
+│   │   ├── settings.py               ← Django settings
 │   │   └── urls.py
-│   ├── gunicorn.conf.py       # Gunicorn config (gthread, timeout, workers)
+│   ├── iic-logo.png                  ← College logo (embedded in email headers)
+│   ├── gunicorn.conf.py              ← Gunicorn config
 │   ├── requirements.txt
 │   └── .env.example
+│
 ├── frontend/
 │   ├── app/
-│   │   ├── admin/             # Staff management pages
-│   │   │   ├── tickets/       # Live ticket queue
-│   │   │   ├── notifications/ # Dashboard + channels + templates + routing
-│   │   │   ├── users/         # User management
+│   │   ├── admin/                    ← Staff management pages
+│   │   │   ├── tickets/page.tsx        (live queue with SSE)
+│   │   │   ├── notifications/page.tsx  (Dashboard + channels + templates)
+│   │   │   ├── users/page.tsx
 │   │   │   └── …
-│   │   ├── tickets/           # Student ticket pages
-│   │   ├── api/v1/
-│   │   │   ├── tickets/[id]/stream/route.ts   # SSE Route Handler
-│   │   │   ├── admin/summary/stream/route.ts  # Admin SSE Route Handler
-│   │   │   └── upload/        # Chunked upload Route Handlers
+│   │   ├── tickets/
+│   │   │   ├── page.tsx              ← Student ticket list
+│   │   │   └── [id]/page.tsx         ← Ticket detail + SSE + messages
+│   │   ├── api/v1/                   ← Next.js Route Handlers
+│   │   │   ├── tickets/[id]/stream/route.ts   ← SSE ticket stream
+│   │   │   ├── admin/summary/stream/route.ts  ← SSE admin dashboard
+│   │   │   └── upload/               ← Chunked file upload handlers
 │   │   └── …
 │   ├── hooks/
-│   │   └── use-ticket-stream.ts   # EventSource hook
-│   ├── lib/                   # Auth helpers, API client, animations
-│   ├── components/            # SiteHeader, AdminShell, …
-│   ├── next.config.ts         # Rewrites, proxyTimeout, SSE headers
+│   │   └── use-ticket-stream.ts      ← EventSource hook (auto-reconnect)
+│   ├── components/
+│   │   ├── site-header.tsx
+│   │   └── admin-shell.tsx
+│   ├── lib/
+│   │   ├── auth.ts                   ← AuthUser type + role helpers
+│   │   └── …
+│   ├── next.config.ts                ← Rewrites, proxyTimeout, SSE headers
 │   └── .env.example
-├── k6/                        # Performance + functional tests
-│   ├── helpers.js
-│   ├── 01_health_public.js … 13_breakpoint_endtoend.js
+│
+├── k6/                               ← Performance + functional tests
+│   ├── helpers.js                    ← Shared auth + request utilities
+│   ├── 01_health_public.js           ← Public endpoints
+│   ├── 02_auth.js … 10_load_tickets.js
+│   ├── 11_breakpoint_backend.js      ← Django capacity test
+│   ├── 12_breakpoint_frontend.js     ← Next.js capacity test
+│   ├── 13_breakpoint_endtoend.js     ← Full-stack capacity test
 │   └── README.md
+│
 ├── deploy/
-│   └── README.md              # Server config instructions
-├── cloudflared-config.yml     # Cloudflare Tunnel config
-├── Jenkinsfile                # CI/CD pipeline
-└── README.md                  # This file
+│   └── README.md                     ← Server config (Nginx, Gunicorn, cloudflared)
+│
+├── cloudflared-config.yml            ← Tunnel config (keepAliveTimeout: 3600s)
+├── Jenkinsfile                       ← CI/CD pipeline
+└── README.md                         ← This file
 ```
 
 ---
 
-## Local development
+## 5. Local development
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js 20+ and pnpm (`npm install -g pnpm`)
-- Redis (for Celery — optional for basic dev without SLA alerting)
+- Redis (optional — only needed for Celery/SLA alerting)
 
-### 1. Clone and set up backend
+### Step-by-step
 
 ```bash
-cd backend
+# ── 1. Backend setup ──────────────────────────────────────────────────────────
 
-# Create and activate virtual environment
+cd backend
 python -m venv venv
-source venv/bin/activate          # Linux/macOS
+source venv/bin/activate          # Linux / macOS
 # venv\Scripts\activate           # Windows
 
-# Install dependencies
 pip install -r requirements.txt
+cp .env.example .env              # then edit .env with your values
 
-# Copy env file and fill in values
-cp .env.example .env
-```
-
-### 2. Run migrations and bootstrap admin
-
-```bash
-cd backend
 python manage.py migrate
 python manage.py bootstrap_admin --password "YourSecurePassword123!"
-```
+python manage.py seed_rate_limits  # optional but recommended
 
-### 3. Set up frontend
+# ── 2. Frontend setup ─────────────────────────────────────────────────────────
 
-```bash
-cd frontend
-cp .env.example .env.local
+cd ../frontend
+cp .env.example .env.local        # then edit .env.local
 pnpm install
-```
 
-### 4. Start the application
+# ── 3. Start everything ───────────────────────────────────────────────────────
 
-```bash
-# Terminal 1 — Django
-cd backend
-python manage.py runserver 127.0.0.1:8000
+# Terminal 1 — Django dev server
+cd backend && python manage.py runserver 127.0.0.1:8000
 
-# Terminal 2 — Next.js
-cd frontend
-pnpm dev
+# Terminal 2 — Next.js dev server
+cd frontend && pnpm dev
 
-# Terminal 3 — Celery worker + beat (optional, needed for SLA alerts)
-cd backend
-celery -A Project worker --beat --loglevel=info
+# Terminal 3 — Celery (optional, for SLA overdue badge)
+cd backend && celery -A Project worker --beat --loglevel=info
 ```
 
 Open `http://localhost:3000`.
 
 ---
 
-## Environment variables
+## 6. Environment variables
 
 ### Backend (`backend/.env`)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DJANGO_SECRET_KEY` | Django secret key | insecure dev key |
+| `DJANGO_SECRET_KEY` | Django secret key — must be long and random in production | insecure dev key |
 | `DJANGO_DEBUG` | Enable debug mode | `true` |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost,127.0.0.1` |
-| `ALLOWED_REGISTRATION_DOMAINS` | Email domains allowed to register | `iic.edu.np` |
-| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth Web client ID | — |
-| `CSRF_TRUSTED_ORIGINS` | Comma-separated trusted origins | `http://localhost:3000` |
-| `HELPDESK_URL` | Public frontend URL (used in emails) | `http://localhost:3000` |
-| `REDIS_URL` | Redis connection URL | `redis://127.0.0.1:6379/0` |
+| `ALLOWED_REGISTRATION_DOMAINS` | Email domains permitted to self-register | `iic.edu.np` |
+| `CSRF_TRUSTED_ORIGINS` | Comma-separated origins that may send CSRF-protected requests | `http://localhost:3000` |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth 2.0 Web client ID | — |
+| `HELPDESK_URL` | Public frontend URL — used in outgoing emails | `http://localhost:3000` |
+| `DJANGO_INTERNAL_URL` | Internal Django URL used by Next.js server-side fetches | `http://127.0.0.1:8000` |
+| `REDIS_URL` | Redis connection URL for Celery broker + result backend | `redis://127.0.0.1:6379/0` |
 | `MAILER_BACKEND` | Django mail backend class | console backend |
-| `MAILER_HOST` | SMTP host | `localhost` |
+| `MAILER_HOST` | SMTP hostname | `localhost` |
 | `MAILER_PORT` | SMTP port | `587` |
-| `MAILER_USERNAME` | SMTP username | — |
-| `MAILER_PASSWORD` | SMTP password | — |
+| `MAILER_USE_TLS` | Enable STARTTLS | `true` |
+| `MAILER_USERNAME` | SMTP login username | — |
+| `MAILER_PASSWORD` | SMTP app password | — |
 | `VERIFICATION_FROM_EMAIL` | From address for system emails | `noreply@iic.edu.np` |
-| `EMAIL_VERIFICATION_ENABLED` | Require email verification | `true` |
-| `SLA_SUBMITTED_HOURS` | Hours before submitted ticket is overdue | `2` |
-| `SLA_TRIAGED_HOURS` | Hours before triaged ticket is overdue | `4` |
-| `SLA_IN_PROGRESS_HOURS` | Hours before in-progress ticket is overdue | `24` |
-| `SLA_WAITING_REQUESTER_HOURS` | Hours before waiting ticket is overdue | `48` |
-| `SLA_ESCALATION_MULTIPLIER` | Multiplier for escalation threshold | `2.0` |
-| `SLA_ALERT_COOLDOWN_HOURS` | Min hours between repeat alerts | `4` |
-| `DJANGO_INTERNAL_URL` | Internal Django URL used by Next.js | `http://127.0.0.1:8000` |
-| `MEDIA_ACCEL_REDIRECT` | Use Nginx X-Accel-Redirect for media | `false` |
+| `EMAIL_VERIFICATION_ENABLED` | Require email verification on registration | `true` |
+| `PASSWORD_RESET_TOKEN_EXPIRY_HOURS` | Password reset link validity | `24` |
+| `SLA_SUBMITTED_HOURS` | Hours until a submitted ticket is flagged overdue | `2` |
+| `SLA_TRIAGED_HOURS` | Hours until a triaged ticket is flagged overdue | `4` |
+| `SLA_IN_PROGRESS_HOURS` | Hours until an in-progress ticket is flagged overdue | `24` |
+| `SLA_WAITING_REQUESTER_HOURS` | Hours until a waiting ticket is flagged overdue | `48` |
+| `SLA_ESCALATION_MULTIPLIER` | Multiplier for escalation threshold (default: 2× first) | `2.0` |
+| `SLA_ALERT_COOLDOWN_HOURS` | Minimum hours between repeated alerts for the same ticket | `4` |
+| `MEDIA_ACCEL_REDIRECT` | Use Nginx `X-Accel-Redirect` for protected media (prod) | `false` |
 
 ### Frontend (`frontend/.env.local`)
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Web client ID |
-| `NEXT_PUBLIC_DJANGO_URL` | Public Django URL (for SSE direct connect fallback) |
-| `NEXT_PUBLIC_SITE_URL` | Public site URL (used in structured data) |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Web client ID (same as backend) |
+| `NEXT_PUBLIC_DJANGO_URL` | Public Django URL — shown in browser; used for SSE fallback |
+| `NEXT_PUBLIC_SITE_URL` | Canonical public URL — used in structured data / sitemaps |
 | `DJANGO_INTERNAL_URL` | Internal Django URL for server-side fetches and SSE Route Handlers |
 
 ---
 
-## Database migrations
+## 7. Management commands
+
+All commands are run from the `backend/` directory with the virtual environment activated.
 
 ```bash
 cd backend
+source venv/bin/activate   # or venv\Scripts\activate on Windows
+```
 
-# Apply all migrations
+---
+
+### `bootstrap_admin`
+
+Creates or updates the initial administrator account. Safe to run multiple
+times — it updates the existing account rather than creating a duplicate.
+
+```bash
+python manage.py bootstrap_admin \
+  --username aayush.limbu \
+  --email    aayush.limbu@iic.edu.np \
+  --first-name Aayush \
+  --last-name  "Wanem Limbu" \
+  --password "YourSecurePassword123!"
+```
+
+Password can also be supplied via the `INITIAL_ADMIN_PASSWORD` environment
+variable instead of the `--password` flag (recommended for CI):
+
+```bash
+INITIAL_ADMIN_PASSWORD="YourSecurePassword123!" \
+  python manage.py bootstrap_admin
+```
+
+**Arguments:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--username` | `aayush.limbu` | Django username |
+| `--email` | `aayush.limbu@iic.edu.np` | Login email |
+| `--first-name` | `Aayush` | Display first name |
+| `--last-name` | `Wanem Limbu` | Display last name |
+| `--password` | — | Password (required if env var not set) |
+
+**When to use:**
+- First server setup after a fresh database
+- After a `manage.py flush` or database reset
+- To rotate the admin password without accessing the database directly
+
+---
+
+### `seed_rate_limits`
+
+Idempotently creates the default `RateLimitRule` rows. Safe to run multiple
+times — it uses `get_or_create` so existing custom rules are never overwritten.
+
+```bash
+python manage.py seed_rate_limits
+```
+
+**Default rules created:**
+
+| Scope | Label | Limit | Window | Action |
+|-------|-------|-------|--------|--------|
+| `auth_login` | Login attempts | 10 | minute | block (429) |
+| `auth_register` | Registration attempts | 5 | hour | block |
+| `auth_google` | Google SSO attempts | 10 | minute | block |
+| `ticket_create` | Ticket submissions per user | 20 | hour | block |
+| `ticket_message` | Ticket replies per user | 60 | hour | warn + log |
+| `ticket_status` | Status transitions | 30 | hour | block |
+| `public_api` | Public API reads per IP | 120 | minute | block |
+| `admin_user_write` | Admin user management writes | 60 | hour | block |
+| `admin_bulk` | Admin bulk/write operations | 120 | hour | warn + log |
+| `export` | Excel export downloads | 5 | hour | block |
+| `change_password` | Password change attempts | 5 | hour | block |
+
+Rules can be further customised at runtime in **Admin → Rate Limits**.
+
+**When to use:**
+- First server setup
+- After a database reset
+- When adding a new deployment to a fresh database (Jenkins runs this automatically if added to the pipeline)
+
+---
+
+### Standard Django commands
+
+These are Django built-ins used regularly in this project:
+
+```bash
+# Apply all pending migrations
 python manage.py migrate
 
 # Create a new migration after model changes
 python manage.py makemigrations helpdesk --name "describe_your_change"
 
-# Check for pending migrations
+# List migration status
+python manage.py showmigrations helpdesk
+
+# Run all tests
+python manage.py test helpdesk
+
+# Run tests verbosely
+python manage.py test helpdesk --verbosity=2
+
+# Check for configuration errors
+python manage.py check
+
+# Collect static files for production
+python manage.py collectstatic --noinput
+
+# Start development server
+python manage.py runserver 127.0.0.1:8000
+
+# Open a Django shell
+python manage.py shell
+
+# Flush all data (DESTRUCTIVE — dev only)
+python manage.py flush
+```
+
+---
+
+## 8. Database migrations
+
+```bash
+# Apply all migrations
+python manage.py migrate
+
+# Create new migration after model change
+python manage.py makemigrations helpdesk --name "describe_change"
+
+# Check pending migrations
 python manage.py showmigrations helpdesk
 ```
 
-Notable migrations:
-- `0001` — initial schema (User, Ticket, ServiceCategory, …)
-- `0005` — role system (RoleGrant, RoleAuditEvent)
-- `0037` — SLA overdue fields (`is_overdue`, `last_stale_alert_at`)
-- `0038` — email verification + password reset event types
-- `0039` — `use_file_fallback` on EmailTemplate
-- `0040` — seed default email templates
-- `0041` — fix account recovery template state
+**Notable migrations:**
+
+| Migration | What it adds |
+|-----------|-------------|
+| `0001_initial` | Base schema: User, Ticket, ServiceCategory |
+| `0005_role_system` | RoleGrant, RoleAuditEvent |
+| `0037_add_overdue_fields` | `is_overdue`, `last_stale_alert_at` on Ticket |
+| `0038_add_email_event_types` | `email_verification`, `password_reset` event types |
+| `0039_add_use_file_fallback` | `use_file_fallback` on EmailTemplate |
+| `0040_seed_email_templates` | Default email templates for all event types |
+| `0041_fix_account_recovery_templates` | Correct account_recovery template state |
 
 ---
 
-## Running the application
+## 9. Authentication
 
-### Development
+| Method | Endpoint | Notes |
+|--------|----------|-------|
+| Email / username + password | `POST /api/v1/auth/login/` | Both identifiers accepted |
+| Google Workspace SSO | `POST /api/v1/auth/google/` | Verifies token, domain, audience |
+| Logout | `POST /api/v1/auth/logout/` | Clears session |
+| Current user | `GET /api/v1/auth/me/` | Returns roles, profile, `is_overdue` etc. |
+| Email verification | `POST /api/v1/auth/verify-email/` | Required after password registration |
+| Resend verification | `POST /api/v1/auth/resend-verification/` | — |
+| Forgot password | `POST /api/v1/auth/forgot-password/` | Always returns 200 (no enumeration) |
+| Reset password | `POST /api/v1/auth/reset-password/` | Consumes single-use token |
+| Change password | `POST /api/v1/auth/change-password/` | Requires current password |
+| Profile | `GET / PATCH /api/v1/auth/profile/` | Name, programme (locked for known prefixes), department |
 
-```bash
-# Backend (auto-reload)
-cd backend && python manage.py runserver 127.0.0.1:8000
+Sessions use `SameSite=Lax` cookies. CSRF tokens are required on all
+write operations — `GET /api/v1/auth/csrf/` returns the token.
 
-# Frontend (hot reload)
-cd frontend && pnpm dev
-
-# Celery (SLA alerts, required for overdue badge to work)
-cd backend && celery -A Project worker --beat --loglevel=info
-```
-
-### Production (on the server)
-
-```bash
-# Backend — managed by systemd
-sudo systemctl start iic-helpdesk-backend.service
-
-# Frontend — managed by systemd
-sudo systemctl start iic-helpdesk-frontend.service
-
-# Celery worker — managed by systemd
-sudo systemctl start iic-helpdesk-celery-worker.service
-
-# Celery beat — managed by systemd
-sudo systemctl start iic-helpdesk-celery-beat.service
-
-# Cloudflare Tunnel
-sudo systemctl start cloudflared
-```
+**Username-based programme lock:** usernames starting with `np0cp4a` are
+locked to _BSc (Hons) Computing_; `np05ba` to _BA (Hons) Business
+Administration_. The serializer enforces this server-side — attempting to
+change a locked programme returns HTTP 400 with a clear error message.
 
 ---
 
-## Authentication
+## 10. Role system
 
-- **Email/username + password** — `POST /api/v1/auth/login/`
-- **Google Workspace SSO** — `POST /api/v1/auth/google/` (verifies token, domain, audience)
-- **Session-based** — Django sessions with `SameSite=Lax` cookies
-- **CSRF** — required on all writes; `GET /api/v1/auth/csrf/` returns the token
-- **Email verification** — new password-registered accounts must verify before accessing the portal
-- **Registration domain restriction** — configurable via `ALLOWED_REGISTRATION_DOMAINS`
+Roles are stored in `RoleGrant` rows (not Django groups). Each grant can
+have an optional expiry date. All role changes are immutably logged in
+`RoleAuditEvent`.
 
----
-
-## Role system
-
-Roles are stored in `RoleGrant` rows (not Django groups). Each grant can have an optional expiry date. All role changes are immutably logged in `RoleAuditEvent`.
-
-| Role | Access level |
-|------|-------------|
-| `administrator` | Full access + user management |
-| `service_lead` | All tickets + assign + configure services |
-| `it_agent` | All tickets + assign |
+| Role | Access |
+|------|--------|
+| `administrator` | Full access + user management + superuser actions |
+| `service_lead` | All tickets + assign + configure services + notifications |
+| `it_agent` | All tickets + assign + admin queue |
 | `it_noc_intern` | Self-assign within scoped categories only |
-| `designated_approver` | Approve waiting_approval tickets |
-| `content_editor` | Manage guides and software |
-| `faculty_staff` | Submit tickets (staff category access) |
-| `student` | Submit tickets (student category access) |
-| `visitor` | Submit tickets (public category access) |
+| `designated_approver` | Approve `waiting_approval` tickets |
+| `content_editor` | Manage guides and software catalogue |
+| `faculty_staff` | Submit tickets (staff-visible categories) |
+| `student` | Submit tickets (student-visible categories) |
+| `visitor` | Submit tickets (public categories) |
 
-**Username-based programme lock**: usernames starting with `np0cp4a` are locked to _BSc (Hons) Computing_; `np05ba` to _BA (Hons) Business Administration_. The serializer enforces this server-side.
-
----
-
-## Ticket state machine
-
-Status transitions are enforced both in `TicketUpdateSerializer.validate_status` (PATCH endpoint) and `TicketStatusView` (POST /status/). Invalid transitions return HTTP 400.
-
-```
-submitted  ──► triaged ──► in_progress ──► waiting_requester ──► resolved ──► closed
-     │              │           │                  │                  │
-     └── cancelled  └── cancelled └── cancelled    └── cancelled      └── in_progress (re-open)
-```
-
-**Intern transitions** are a narrower subset — interns cannot cancel tickets or close them directly.
-
-The frontend status dropdown only shows valid next states based on the current status and the user's role — illegal options are never rendered.
+Intern category scope is configurable in **Admin → Settings → Intern Scope**.
 
 ---
 
-## SLA alerting (Celery)
+## 11. Ticket state machine
 
-The `check_stale_tickets` Celery beat task runs every 15 minutes. It:
+Status transitions are enforced in both `TicketUpdateSerializer.validate_status`
+(PATCH) and `TicketStatusView` (POST `/status/`). Invalid transitions return
+HTTP 400 with a descriptive message.
 
-1. Scans tickets in `submitted`, `triaged`, `in_progress`, `waiting_requester` states
-2. Compares age against the SLA threshold for each status (configurable via env vars)
-3. Sets `ticket.is_overdue = True` and sends a `ticket_stale` notification
-4. Escalates (cc's service leads) when the escalation threshold (2× first threshold) is breached
-5. Clears `is_overdue` and `last_stale_alert_at` when a staff member takes action
+```
+                  ┌─────────────────────────────────────┐
+                  │                                     │
+   submitted ──►  triaged ──► in_progress ──► waiting_requester
+       │             │             │                │
+       │             │             │                │
+       ▼             ▼             ▼                ▼
+   cancelled     cancelled   waiting_approval    resolved ──► closed
+                                  │                │
+                                  │                └──► in_progress (re-open)
+                                  ▼
+                               resolved
+```
 
-The overdue badge (⚠ Overdue in red) appears in both the admin ticket table and the slide-in panel, updated in real time via SSE.
+**Intern transitions** are a narrower subset — interns may not cancel
+tickets or close them directly.
 
-**Run Celery in development:**
+The frontend status dropdown renders only valid next states based on the
+current status and the caller's role — illegal options are never shown.
+
+---
+
+## 12. SLA alerting — Celery
+
+The `check_stale_tickets` beat task runs every 15 minutes:
+
+1. Scans tickets in `submitted`, `triaged`, `in_progress`, `waiting_requester`
+2. Compares age against the SLA threshold for each status
+3. Sets `ticket.is_overdue = True` → sends `ticket_stale` notification
+4. Escalates (cc's service leads) at 2× the first threshold
+5. Clears `is_overdue` and `last_stale_alert_at` when staff takes action
+
+The **⚠ Overdue** badge appears in the admin ticket table and slide-in
+panel, updated in real time via SSE.
 
 ```bash
-cd backend
+# Development — single process (worker + scheduler)
 celery -A Project worker --beat --loglevel=info
-```
 
-**Production — two separate systemd services:**
-
-```bash
-# Worker
-celery -A Project worker --loglevel=info
-
-# Beat scheduler
-celery -A Project beat --loglevel=info
+# Production — separate systemd services
+celery -A Project worker --loglevel=info          # iic-helpdesk-celery-worker
+celery -A Project beat   --loglevel=info          # iic-helpdesk-celery-beat
 ```
 
 ---
 
-## Email system
+## 13. Email system
 
-All outgoing emails go through a single `resolve_and_send()` function in
-`helpdesk/email_dispatch.py`. It resolves transport and template in priority order:
+All outgoing emails route through `helpdesk/email_dispatch.py`:
+`resolve_and_send(event_type, context, to_email)`.
 
-**Transport precedence:**
-1. `NotificationChannel` (email_smtp / email_mailgun) with a rule for the event type
-2. Active `EmailConfiguration` DB row (admin-configurable SMTP override)
-3. `.env` `MAILER_*` vars (always-available fallback)
+**Transport precedence (highest → lowest):**
+
+```
+1. NotificationChannel (email_smtp / email_mailgun) with a rule for event_type
+         ↓ (if none)
+2. Active EmailConfiguration DB row   (Admin → Settings → Email Config)
+         ↓ (if none)
+3. .env MAILER_* variables            (always-available fallback)
+```
 
 **Template precedence:**
-1. Active `EmailTemplate` DB row for the event type — admin-editable at runtime in Admin → Notifications → Templates
-2. On-disk HTML file at `helpdesk/templates/email/{event_type}.html` — the safe fallback, never deleted
 
-Each DB template has a **"Use default file template"** toggle. When on, the DB record is saved but the on-disk file is used — useful for reverting to the built-in layout without losing custom copy.
+```
+1. Active EmailTemplate DB row   (Admin → Notifications → Templates)
+         ↓ (if none, or use_file_fallback = True)
+2. On-disk HTML file             (helpdesk/templates/email/{event_type}.html)
+```
 
-**Supported event types:** `ticket_submitted`, `ticket_resolved`, `ticket_assigned`, `ticket_reply`, `status_changed`, `waiting_requester`, `priority_changed`, `account_recovery`, `recovery_unable_to_verify`, `ticket_stale`, `email_verification`, `password_reset`.
+Each DB template has a **"Use default file template"** toggle. When on, the
+DB record is saved for future editing but the on-disk file is used — useful
+for reverting without losing custom copy.
 
----
+**Supported event types:**
 
-## SSE real-time updates
-
-Two SSE endpoints:
-
-| Endpoint | Handler | Used by |
-|----------|---------|---------|
-| `/api/v1/tickets/{id}/stream/` | `TicketStreamView` (Django) + Next.js Route Handler | Student ticket page + admin panel |
-| `/api/v1/admin/summary/stream/` | `AdminDashboardStreamView` (Django) + Next.js Route Handler | Admin dashboard |
-
-**Why Route Handlers?** Next.js rewrite proxy buffers response bodies — for infinite SSE streams this means zero bytes reach the browser. Route Handlers at `app/api/v1/tickets/[id]/stream/route.ts` and `app/api/v1/admin/summary/stream/route.ts` return `upstream.body` (a `ReadableStream`) directly, bypassing the buffer.
-
-**Why `fallback` rewrites?** The `afterFiles` phase in Next.js 16 runs before App Router Route Handlers. Moving `/api/v1/tickets/:path*` and `/api/v1/admin/:path*` to the `fallback` phase ensures Route Handlers execute first for stream paths while all other ticket/admin API calls still proxy to Django.
-
----
-
-## File uploads
-
-Large file uploads (software installers, guide PDFs) use a **chunked upload** system to bypass Cloudflare's 100 MB body limit:
-
-1. `POST /api/v1/upload/init/` — create a `ChunkedUpload` session
-2. `PUT /api/v1/upload/{id}/chunk/{index}/` — upload each 2 MB chunk
-3. `POST /api/v1/upload/{id}/finalize/` — reassemble and attach to the target model
-
-The chunk endpoints are handled by **Next.js Route Handlers** (not rewrites) because Next.js's rewrite proxy also drops multipart/form-data bodies on PUT requests. The Route Handlers read the raw request body and forward it to Django.
+| Event | When sent |
+|-------|-----------|
+| `ticket_submitted` | New ticket created (non-recovery categories) |
+| `ticket_resolved` | Ticket moved to resolved |
+| `ticket_assigned` | Ticket assigned or reassigned |
+| `ticket_reply` | Staff reply sent |
+| `status_changed` | Any status transition |
+| `waiting_requester` | Ticket moved to waiting_requester |
+| `priority_changed` | Priority escalated by requester |
+| `account_recovery` | Credentials email sent to student |
+| `recovery_unable_to_verify` | Identity could not be verified remotely |
+| `ticket_stale` | SLA threshold breached — alert to assignee/leads |
+| `email_verification` | Account registration verification link |
+| `password_reset` | Password reset link |
 
 ---
 
-## Excel report export
+## 14. SSE real-time updates
 
-`GET /api/v1/tickets/export/` returns a multi-sheet `.xlsx` workbook:
+Two streaming endpoints, both served by **Next.js Route Handlers** (not
+the rewrite proxy) to avoid response-body buffering:
+
+| Endpoint | Django view | Next.js handler | Used by |
+|----------|-------------|-----------------|---------|
+| `/api/v1/tickets/{id}/stream/` | `TicketStreamView` | `app/api/v1/tickets/[id]/stream/route.ts` | Student ticket page + admin panel |
+| `/api/v1/admin/summary/stream/` | `AdminDashboardStreamView` | `app/api/v1/admin/summary/stream/route.ts` | Admin dashboard KPIs |
+
+**Why Route Handlers?** Next.js's `afterFiles` rewrite proxy buffers response
+bodies — for infinite SSE streams the browser receives headers but zero
+bytes. Route Handlers return `upstream.body` (a `ReadableStream`) directly,
+bypassing the buffer entirely.
+
+**Why `fallback` phase?** In Next.js 16, `afterFiles` rewrites run before App
+Router Route Handlers. Moving `tickets/:path*` and `admin/:path*` to the
+`fallback` phase ensures Route Handlers execute first for stream paths while
+all other API calls still proxy to Django.
+
+---
+
+## 15. File uploads
+
+Large files use a **three-step chunked upload** to bypass Cloudflare's
+100 MB per-request body limit:
+
+```
+POST   /api/v1/upload/init/                     Create upload session
+PUT    /api/v1/upload/{id}/chunk/{index}/        Upload each 2 MB chunk
+POST   /api/v1/upload/{id}/finalize/             Reassemble + attach
+```
+
+Each step is a **Next.js Route Handler** (not a rewrite) because the Next.js
+proxy drops multipart/form-data bodies on PUT requests.
+
+---
+
+## 16. Excel report export
+
+`GET /api/v1/tickets/export/` returns a four-sheet `.xlsx` workbook:
 
 | Sheet | Contents |
 |-------|----------|
-| **Ticket Register** | One row per ticket — all fields, first-response time, reopen count, SLA bucket, satisfaction feedback |
-| **Analytics Summary** | KPI cards, 8 charts (status pie, priority pie, category bar, SLA bar, assignee workload, satisfaction, day-of-week, monthly trend) |
-| **Ticket Audit Trail** | Every `TicketEvent` across exported tickets — who changed what and when |
-| **Role Audit Events** | Complete `RoleAuditEvent` log — all role grants and revocations |
+| **Ticket Register** | One row per ticket — all fields, SLA bucket, first-response time, reopen count, satisfaction feedback, custom extra fields |
+| **Analytics Summary** | KPI cards + 8 embedded charts: status pie, priority pie, category bar, SLA distribution, assignee workload (total vs open), satisfaction distribution, day-of-week column, monthly volume trend |
+| **Ticket Audit Trail** | Every `TicketEvent` across exported tickets — actor, action, from/to values, note, timestamp |
+| **Role Audit Events** | Complete `RoleAuditEvent` log — all role grants and revocations, actor, target, department |
 
-Charts reference live cell data — changing the filter regenerates them automatically in Excel.
-
----
-
-## Deployment
-
-See `deploy/README.md` for detailed server configuration including:
-- Cloudflare dashboard settings
-- `cloudflared` config (`keepAliveTimeout: 3600s` — required for SSE)
-- Gunicorn systemd service (`gthread` workers)
-- Next.js production build and service
-
-### Quick deployment via Jenkins
-
-Push to the configured branch and the Jenkins pipeline handles:
-
-1. Redis check (fails build if Redis is not installed)
-2. Backend dependency install
-3. Django system check + tests
-4. Frontend dependency install + build
-5. `rsync` deploy (excludes `.env`, `venv`, `db.sqlite3`, `media`)
-6. Database migrations
-7. `collectstatic`
-8. Restart backend, Celery worker, Celery beat, frontend services
-9. Health check (`/api/v1/health/` + `redis-cli ping`)
+Charts reference live cell data and carry the IIC logo in each sheet header.
 
 ---
 
-## CI/CD — Jenkins
+## 17. Deployment
 
-`Jenkinsfile` at the repo root defines the pipeline. Key stages:
+See `deploy/README.md` for detailed server instructions. Summary:
 
-| Stage | What it does |
+```bash
+# 1. Cloudflare Tunnel config
+sudo cp cloudflared-config.yml /etc/cloudflared/config.yml
+sudo nano /etc/cloudflared/config.yml   # fill in tunnel ID + credentials path
+sudo systemctl restart cloudflared
+
+# 2. Backend
+cd /var/www/iic-app/backend
+cp .env.example .env && nano .env
+source venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py collectstatic --noinput
+python manage.py bootstrap_admin --password "..."
+python manage.py seed_rate_limits
+sudo systemctl restart iic-helpdesk-backend
+
+# 3. Celery
+sudo systemctl restart iic-helpdesk-celery-worker
+sudo systemctl restart iic-helpdesk-celery-beat
+
+# 4. Frontend
+cd /var/www/iic-app/frontend
+pnpm install --frozen-lockfile
+pnpm build
+sudo systemctl restart iic-helpdesk-frontend
+```
+
+---
+
+## 18. CI/CD — Jenkins
+
+The `Jenkinsfile` at the repo root defines the full deployment pipeline.
+
+| Stage | What happens |
 |-------|-------------|
-| Infrastructure - Redis | Checks Redis is installed and running; fails build if not |
-| Backend - Install | `pip install -r requirements.txt` |
-| Backend - Validate | `python manage.py check` |
-| Backend - Tests | `python manage.py test` |
-| Frontend - Install | `pnpm install --frozen-lockfile` |
-| Frontend - Build | `pnpm build` (injects `NEXT_PUBLIC_GOOGLE_CLIENT_ID` from credentials store) |
-| Deploy Backend | `rsync` to `/var/www/iic-app/backend/` |
-| Database Migration | `manage.py migrate --noinput` |
-| Collect Static | `manage.py collectstatic --noinput` |
-| Deploy Frontend | Runs `iic-helpdesk-deploy-frontend` helper script |
-| Restart Backend | `systemctl restart iic-helpdesk-backend.service` |
-| Restart Celery | Restarts worker + beat services |
-| Restart Frontend | `systemctl restart iic-helpdesk-frontend.service` |
-| Health Check | Pings backend API, Redis, and frontend — retries 10× |
+| **Infrastructure - Redis** | `redis-cli ping` — fails build if Redis is missing or stopped |
+| **Backend - Install** | `pip install -r requirements.txt` in the venv |
+| **Backend - Validate** | `manage.py check` — zero issues required |
+| **Backend - Tests** | `manage.py test` — all 74+ tests must pass |
+| **Frontend - Install** | `pnpm install --frozen-lockfile` |
+| **Frontend - Build** | `pnpm build` — injects `NEXT_PUBLIC_GOOGLE_CLIENT_ID` from Jenkins credentials store |
+| **Deploy Backend** | `rsync` to `/var/www/iic-app/backend/` — excludes `.env`, `venv`, `db.sqlite3`, `media` |
+| **Database Migration** | `manage.py migrate --noinput` run as `iicapp` user |
+| **Collect Static** | `manage.py collectstatic --noinput` |
+| **Deploy Frontend** | Runs `iic-helpdesk-deploy-frontend` helper script |
+| **Restart Backend** | `systemctl restart iic-helpdesk-backend.service` |
+| **Restart Celery** | Restarts `iic-helpdesk-celery-worker` and `iic-helpdesk-celery-beat` |
+| **Restart Frontend** | `systemctl restart iic-helpdesk-frontend.service` |
+| **Health Check** | Pings `/api/v1/health/`, `redis-cli ping`, and frontend — retries 10× with 2 s delay |
 
 ---
 
-## Performance tests (k6)
+## 19. Performance tests — k6
 
-The `k6/` folder contains 13 test files:
+The `k6/` folder contains 13 test files. See `k6/README.md` for full
+documentation, CSV export instructions, and a Python plotting script.
 
-### Functional tests (`01` – `10`)
-
-Verify correctness at low concurrency — all checks must pass.
-
-```bash
-k6 run -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... k6/02_auth.js
-k6 run -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... k6/03_tickets_requester.js
-# … see k6/README.md for full commands
-```
-
-### Breakpoint tests (`11` – `13`)
-
-Ramp VUs from 1 → 300, finding the exact point where p99 exceeds 1 second.
-`abortOnFail: false` means the full degradation curve is captured.
-
-| Test | Target | p99 SLO |
-|------|--------|---------|
-| `11_breakpoint_backend.js` | Django :8000 | 1 000 ms |
-| `12_breakpoint_frontend.js` | Next.js :3000 | 1 200 ms |
-| `13_breakpoint_endtoend.js` | Public domain | 2 000 ms |
+### Functional tests (run first to verify correctness)
 
 ```bash
-# Backend breakpoint
-k6 run -e BACKEND_URL=http://127.0.0.1:8000 k6/11_breakpoint_backend.js
+cd k6
 
-# End-to-end (start conservatively)
-k6 run -e E2E_MAX_VUS=50 k6/13_breakpoint_endtoend.js
+k6 run 01_health_public.js                                   # no auth
+k6 run -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... 02_auth.js
+k6 run -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... 03_tickets_requester.js
+k6 run -e STAFF_EMAIL=... -e STAFF_PASSWORD=... \
+       -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... 04_tickets_admin.js
+k6 run -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... 05_sse_stream.js
+k6 run -e ADMIN_EMAIL=... -e ADMIN_PASSWORD=... 06_notifications.js
+k6 run -e ADMIN_EMAIL=... -e ADMIN_PASSWORD=... 07_admin_users.js
+k6 run -e ADMIN_EMAIL=... -e ADMIN_PASSWORD=... 08_content.js
+k6 run -e ADMIN_EMAIL=... -e ADMIN_PASSWORD=... 09_rate_limits.js
+k6 run -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... 10_load_tickets.js
 ```
 
-See `k6/README.md` for full documentation, SLO thresholds, CSV export,
-and a Python script to plot p95/p99 vs VU count.
+### Breakpoint tests (find the capacity limit)
+
+Ramp VUs from 1 → 300 over ~10 minutes. `abortOnFail: false` means the
+test runs to completion so you see the full degradation curve.
+
+```bash
+# Backend (Django/Gunicorn direct — bypass Next.js)
+k6 run -e BACKEND_URL=http://127.0.0.1:8000 \
+       -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... \
+       11_breakpoint_backend.js
+
+# Frontend (Next.js — tests proxy + SSE Route Handler)
+k6 run -e FRONTEND_URL=http://127.0.0.1:3000 \
+       -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... \
+       12_breakpoint_frontend.js
+
+# End-to-end (Cloudflare → Next.js → Django — real user path)
+# Start conservatively, then increase
+k6 run -e E2E_MAX_VUS=50  -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... 13_breakpoint_endtoend.js
+k6 run -e E2E_MAX_VUS=300 -e STUDENT_EMAIL=... -e STUDENT_PASSWORD=... 13_breakpoint_endtoend.js
+```
+
+**SLO targets:**
+
+| Test | p95 SLO | p99 SLO |
+|------|---------|---------|
+| Backend (Django) | < 500 ms | < **1 000 ms** |
+| Frontend (Next.js) | < 700 ms | < **1 200 ms** |
+| End-to-end | < 1 000 ms | < **2 000 ms** |
+
+Export to CSV for plotting:
+
+```bash
+k6 run --out csv=results.csv 11_breakpoint_backend.js
+```
 
 ---
 
-## API documentation
+## 20. API documentation
 
-Interactive API documentation is available at:
+Interactive documentation available at runtime:
 
 | URL | Tool |
 |-----|------|
 | `/api/v1/api/docs/` | Swagger UI (drf-spectacular) |
 | `/api/v1/api/redoc/` | Redoc |
-| `/api/v1/api/schema/` | Raw OpenAPI 3 schema (YAML/JSON) |
+| `/api/v1/api/schema/` | Raw OpenAPI 3 schema (YAML/JSON download) |
 
 ---
 
-## Development notes
+## 21. Development notes
 
-- **SQLite in production** — supported but not recommended for more than ~20 concurrent users due to write-lock contention. Migrate to PostgreSQL before going to production with real users. The Django ORM makes this a settings change only — no code changes needed.
-- **Celery + Redis** — required for the overdue badge to work. Without them, `is_overdue` is never set and the badge never appears.
-- **`proxyTimeout: 0`** in `next.config.ts` — disables the Next.js proxy timeout entirely. Gunicorn's `timeout = 120` governs the upstream side instead.
-- **`abortOnFail: false`** in breakpoint tests — intentional. Tests run to completion so you see the full degradation curve, not just where it first failed.
+**SQLite in production** — functional but not recommended beyond ~20 concurrent
+users due to write-lock contention. Migrate to PostgreSQL when going live.
+The Django ORM makes this a settings-only change — no code changes required.
+
+**Celery is required for the overdue badge** — without a running worker and
+beat scheduler, `is_overdue` is never set and the badge never appears.
+Start with `celery -A Project worker --beat --loglevel=info` during development.
+
+**`proxyTimeout: 0`** in `next.config.ts` — disables the Next.js proxy
+timeout entirely. Gunicorn's `timeout = 120` governs the upstream side.
+This is safe with `gthread` workers because individual threads hold SSE
+connections without blocking the worker process.
+
+**`abortOnFail: false` in breakpoint tests** — intentional. The full
+degradation curve is more informative than stopping at the first failure.
+Plot p99 vs time from the CSV output to find the exact VU count where
+performance degraded.
+
+**Email transport** — in development the default `MAILER_BACKEND` is the
+console backend which prints emails to stdout. Switch to SMTP for end-to-end
+email testing. The `EmailConfiguration` DB row (configurable in Admin →
+Settings) overrides `.env` without needing a server restart.
+
+**Google OAuth** — requires the same client ID in both `GOOGLE_OAUTH_CLIENT_ID`
+(backend `.env`) and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend `.env.local`).
+Add `http://localhost:3000` as an authorised JavaScript origin in the Google
+Cloud Console for local development.
