@@ -1,0 +1,67 @@
+{% extends "email/base.html" %}
+
+{% block title %}Priority updated on ticket {{ ticket_reference }}{% endblock %}
+
+{% block heading %}Your priority request was noted{% endblock %}
+
+{% block header_meta %}
+  <p style="margin:10px 0 0;color:#bfdbfe;font-size:.86rem;line-height:1.5;">
+    Reference: <strong>{{ ticket_reference }}</strong>
+  </p>
+{% endblock %}
+
+{% block body %}
+  <p style="margin:0 0 18px;color:#1e293b;font-size:.97rem;font-weight:600;">
+    Hi {{ requester_name }},
+  </p>
+  <p style="margin:0 0 16px;color:#475569;line-height:1.7;font-size:.93rem;">
+    The priority on your ticket <strong>{{ ticket_reference }}</strong>
+    (<em>{{ ticket_subject }}</em>) has been updated.
+  </p>
+
+  {# Priority change card #}
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:28px;">
+    <tr>
+      <td style="padding:16px 20px;">
+        <table cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding:6px 0;font-size:.8rem;font-weight:700;color:#64748b;width:90px;white-space:nowrap;">Was</td>
+            <td style="padding:6px 0;font-size:.9rem;color:#64748b;text-decoration:line-through;opacity:.7;">{{ old_priority }}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 0;font-size:.8rem;font-weight:700;color:#64748b;white-space:nowrap;">Now</td>
+            <td style="padding:6px 0;">
+              <span style="background:#fef3c7;color:#92400e;border-radius:999px;
+                           padding:3px 12px;font-size:.82rem;font-weight:800;">
+                {{ new_priority }}
+              </span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  {% if reason %}
+  <p style="margin:0 0 16px;color:#475569;line-height:1.7;font-size:.93rem;">
+    <strong>Reason given:</strong> {{ reason }}
+  </p>
+  {% endif %}
+
+  <p style="margin:0 0 24px;color:#475569;line-height:1.7;font-size:.93rem;">
+    The team reviews all priority requests and will adjust the response
+    timeline accordingly. You'll hear from us as soon as we have an update.
+  </p>
+{% endblock %}
+
+{% block cta %}
+  <p style="margin:0;text-align:center;">
+    <a href="{{ helpdesk_url }}/tickets"
+       style="display:inline-block;background:#234395;color:#ffffff;
+              font-size:.93rem;font-weight:700;padding:13px 30px;
+              border-radius:10px;text-decoration:none;">
+      View my ticket
+    </a>
+  </p>
+{% endblock %}

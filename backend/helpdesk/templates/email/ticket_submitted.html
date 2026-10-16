@@ -1,0 +1,56 @@
+{% extends "email/base.html" %}
+
+{% block title %}Your support request has been received — {{ ticket_reference }}{% endblock %}
+
+{% block heading %}We've got your request{% endblock %}
+
+{% block header_meta %}
+  <p style="margin:10px 0 0;color:#bfdbfe;font-size:.86rem;line-height:1.5;">
+    Reference: <strong>{{ ticket_reference }}</strong>
+  </p>
+{% endblock %}
+
+{% block body %}
+  <p style="margin:0 0 18px;color:#1e293b;font-size:.97rem;font-weight:600;">
+    Hi {{ requester_name }},
+  </p>
+  <p style="margin:0 0 16px;color:#475569;line-height:1.7;font-size:.93rem;">
+    Your support request has been received and is now in the queue. The team
+    will pick it up shortly and you'll hear back once it's been reviewed.
+  </p>
+
+  {# Ticket summary card #}
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:28px;">
+    <tr>
+      <td style="padding:16px 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding:5px 0;font-size:.8rem;font-weight:700;color:#64748b;width:120px;vertical-align:top;">Reference</td>
+            <td style="padding:5px 0;font-size:.88rem;color:#0f172a;font-weight:700;">{{ ticket_reference }}</td>
+          </tr>
+          <tr>
+            <td style="padding:5px 0;font-size:.8rem;font-weight:700;color:#64748b;vertical-align:top;">Category</td>
+            <td style="padding:5px 0;font-size:.88rem;color:#0f172a;">{{ category_name }}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <p style="margin:0 0 28px;color:#475569;line-height:1.7;font-size:.93rem;">
+    You can check the status of your request, add more detail, or reply to
+    the team at any time by visiting the helpdesk.
+  </p>
+{% endblock %}
+
+{% block cta %}
+  <p style="margin:0;text-align:center;">
+    <a href="{{ helpdesk_url }}/tickets"
+       style="display:inline-block;background:#234395;color:#ffffff;
+              font-size:.93rem;font-weight:700;padding:13px 30px;
+              border-radius:10px;text-decoration:none;">
+      View my ticket
+    </a>
+  </p>
+{% endblock %}

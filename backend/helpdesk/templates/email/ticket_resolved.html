@@ -1,0 +1,55 @@
+{% extends "email/base.html" %}
+
+{% block title %}Your ticket has been resolved — {{ ticket_reference }}{% endblock %}
+
+{% block header_style %}background:linear-gradient(135deg,#14532d 0%,#166534 100%);{% endblock %}
+{% block header_eyebrow_color %}#86efac{% endblock %}
+
+{% block heading %}All sorted ✓{% endblock %}
+
+{% block header_meta %}
+  <p style="margin:10px 0 0;color:#bbf7d0;font-size:.86rem;line-height:1.5;">
+    Reference: <strong>{{ ticket_reference }}</strong>
+  </p>
+{% endblock %}
+
+{% block body %}
+  <p style="margin:0 0 18px;color:#1e293b;font-size:.97rem;font-weight:600;">
+    Hi {{ requester_name }},
+  </p>
+  <p style="margin:0 0 16px;color:#475569;line-height:1.7;font-size:.93rem;">
+    Your support request <strong>{{ ticket_reference }}</strong>
+    (<em>{{ ticket_subject }}</em>) has been resolved by the IIC IT team.
+  </p>
+
+  {% if resolution_note %}
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;margin-bottom:24px;">
+    <tr><td style="padding:14px 18px;">
+      <p style="margin:0 0 4px;font-size:.78rem;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.08em;">
+        Resolution note
+      </p>
+      <p style="margin:0;font-size:.9rem;color:#14532d;line-height:1.65;">
+        {{ resolution_note }}
+      </p>
+    </td></tr>
+  </table>
+  {% endif %}
+
+  <p style="margin:0 0 24px;color:#475569;line-height:1.7;font-size:.93rem;">
+    If everything is working as expected, you can close the ticket yourself.
+    If the problem comes back or something isn't quite right, you can reopen it
+    within 7 days — after that, just submit a new request.
+  </p>
+{% endblock %}
+
+{% block cta %}
+  <p style="margin:0;text-align:center;">
+    <a href="{{ helpdesk_url }}/tickets"
+       style="display:inline-block;background:#166534;color:#ffffff;
+              font-size:.93rem;font-weight:700;padding:13px 30px;
+              border-radius:10px;text-decoration:none;">
+      View my ticket
+    </a>
+  </p>
+{% endblock %}

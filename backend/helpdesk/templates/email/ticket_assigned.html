@@ -1,0 +1,60 @@
+{% extends "email/base.html" %}
+
+{% block title %}Ticket {{ ticket_reference }} has been assigned to you{% endblock %}
+
+{% block heading %}You've been assigned a ticket{% endblock %}
+
+{% block header_meta %}
+  <p style="margin:10px 0 0;color:#bfdbfe;font-size:.86rem;line-height:1.5;">
+    Reference: <strong>{{ ticket_reference }}</strong>
+  </p>
+{% endblock %}
+
+{% block body %}
+  <p style="margin:0 0 18px;color:#1e293b;font-size:.97rem;font-weight:600;">
+    Hi {{ assignee_name }},
+  </p>
+  <p style="margin:0 0 16px;color:#475569;line-height:1.7;font-size:.93rem;">
+    Ticket <strong>{{ ticket_reference }}</strong> has been assigned to you.
+    Here's a quick summary before you dive in.
+  </p>
+
+  {# Ticket detail card #}
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:28px;">
+    <tr>
+      <td style="padding:16px 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding:5px 0;font-size:.8rem;font-weight:700;color:#64748b;width:110px;vertical-align:top;">Subject</td>
+            <td style="padding:5px 0;font-size:.88rem;color:#0f172a;font-weight:600;">{{ ticket_subject }}</td>
+          </tr>
+          <tr>
+            <td style="padding:5px 0;font-size:.8rem;font-weight:700;color:#64748b;vertical-align:top;">Requester</td>
+            <td style="padding:5px 0;font-size:.88rem;color:#0f172a;">{{ requester_name }}</td>
+          </tr>
+          <tr>
+            <td style="padding:5px 0;font-size:.8rem;font-weight:700;color:#64748b;vertical-align:top;">Reference</td>
+            <td style="padding:5px 0;font-size:.88rem;color:#0f172a;">{{ ticket_reference }}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <p style="margin:0 0 24px;color:#475569;line-height:1.7;font-size:.93rem;">
+    Open the ticket in the helpdesk to view the full details, respond to the
+    requester, and update the status as you work through it.
+  </p>
+{% endblock %}
+
+{% block cta %}
+  <p style="margin:0;text-align:center;">
+    <a href="{{ helpdesk_url }}/admin/tickets"
+       style="display:inline-block;background:#234395;color:#ffffff;
+              font-size:.93rem;font-weight:700;padding:13px 30px;
+              border-radius:10px;text-decoration:none;">
+      Open ticket queue
+    </a>
+  </p>
+{% endblock %}

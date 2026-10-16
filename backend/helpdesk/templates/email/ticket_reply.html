@@ -1,0 +1,53 @@
+{% extends "email/base.html" %}
+
+{% block title %}New reply on your ticket {{ ticket_reference }}{% endblock %}
+
+{% block heading %}New reply from IT Support{% endblock %}
+
+{% block header_meta %}
+  <p style="margin:10px 0 0;color:#bfdbfe;font-size:.86rem;line-height:1.5;">
+    Reference: <strong>{{ ticket_reference }}</strong>
+  </p>
+{% endblock %}
+
+{% block body %}
+  <p style="margin:0 0 18px;color:#1e293b;font-size:.97rem;font-weight:600;">
+    Hi {{ requester_name }},
+  </p>
+  <p style="margin:0 0 16px;color:#475569;line-height:1.7;font-size:.93rem;">
+    <strong>{{ staff_name }}</strong> from the IIC IT team has replied to your
+    ticket <strong>{{ ticket_reference }}</strong>
+    (<em>{{ ticket_subject }}</em>).
+  </p>
+
+  {# Reply preview card #}
+  {% if reply_body %}
+  <table width="100%" cellpadding="0" cellspacing="0"
+         style="background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #234395;
+                border-radius:0 10px 10px 0;margin-bottom:28px;">
+    <tr><td style="padding:16px 20px;">
+      <p style="margin:0 0 6px;font-size:.76rem;font-weight:800;color:#1e40af;
+                text-transform:uppercase;letter-spacing:.08em;">
+        {{ staff_name }} wrote
+      </p>
+      <p style="margin:0;font-size:.9rem;color:#1e293b;line-height:1.7;white-space:pre-wrap;">{{ reply_body }}</p>
+    </td></tr>
+  </table>
+  {% endif %}
+
+  <p style="margin:0 0 24px;color:#475569;line-height:1.7;font-size:.93rem;">
+    If you have more information to share or a follow-up question, you can
+    reply directly through the helpdesk portal.
+  </p>
+{% endblock %}
+
+{% block cta %}
+  <p style="margin:0;text-align:center;">
+    <a href="{{ helpdesk_url }}/tickets"
+       style="display:inline-block;background:#234395;color:#ffffff;
+              font-size:.93rem;font-weight:700;padding:13px 30px;
+              border-radius:10px;text-decoration:none;">
+      Reply on the helpdesk
+    </a>
+  </p>
+{% endblock %}
