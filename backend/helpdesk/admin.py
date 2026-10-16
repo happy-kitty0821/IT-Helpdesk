@@ -12,6 +12,7 @@ from .models import (
     ServiceCategory,
     SoftwareResource,
     Ticket,
+    TicketAttachment,
     UserProfile,
 )
 
@@ -50,6 +51,22 @@ class TicketAdmin(admin.ModelAdmin):
     list_filter = ('status', 'priority', 'category', 'assigned_to')
     search_fields = ('reference', 'subject', 'requester__email', 'team')
     readonly_fields = ('reference', 'created_at', 'updated_at')
+
+
+@admin.register(TicketAttachment)
+class TicketAttachmentAdmin(admin.ModelAdmin):
+    list_display  = ('original_name', 'ticket', 'content_type', 'file_size', 'scan_state', 'created_at')
+    list_filter   = ('scan_state', 'content_type')
+    search_fields = ('original_name', 'ticket__reference')
+    readonly_fields = ('ticket', 'field_key', 'file', 'original_name', 'content_type',
+                       'file_size', 'scan_state', 'uploaded_by', 'created_at')
+
+    def has_add_permission(self, request):
+        return False   # attachments are created only via ticket submission
+
+    def has_change_permission(self, request, obj=None):
+        # Allow changing scan_state only (for manual override by superuser)
+        return request.user.is_superuser
 
 
 @admin.register(GuideArticle)

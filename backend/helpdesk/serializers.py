@@ -834,7 +834,7 @@ class TicketAttachmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = TicketAttachment
         fields = ('id', 'ticket', 'field_key', 'original_name', 'content_type',
-                  'file_size', 'file_url', 'created_at')
+                  'file_size', 'scan_state', 'file_url', 'created_at')
         read_only_fields = fields
 
     def get_file_url(self, obj):

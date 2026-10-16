@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   Calendar, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock,
   Download, FileSpreadsheet, History, Inbox, KeyRound, Loader2, MessageSquare,
-  Search, TicketCheck, User, Wifi, WifiOff, X,
+  Paperclip, Search, TicketCheck, User, Wifi, WifiOff, X,
 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { csrfToken } from "@/lib/auth";
@@ -284,7 +284,7 @@ export default function AdminTicketsPage() {
   const [saving, setSaving] = useState(false);
   const [panelError, setPanelError] = useState("");
   const [panelNotice, setPanelNotice] = useState("");
-  const [activeTab, setActiveTab] = useState<"details" | "messages" | "history">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "messages" | "history" | "attachments">("details");
 
   // Ticket edit drafts
   const [draftStatus, setDraftStatus] = useState("");
@@ -307,6 +307,20 @@ export default function AdminTicketsPage() {
   // Event history
   const [events, setEvents] = useState<TicketEventItem[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+
+  // Attachments
+  interface TicketAttachmentItem {
+    id: number;
+    field_key: string;
+    original_name: string;
+    content_type: string;
+    file_size: number;
+    scan_state: "pending" | "clean" | "infected";
+    file_url: string | null;
+    created_at: string;
+  }
+  const [attachments, setAttachments] = useState<TicketAttachmentItem[]>([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
 
   // Category stages (fetched per category on panel open)
   const [categoryStages, setCategoryStages] = useState<ServiceStage[]>([]);
@@ -502,6 +516,7 @@ export default function AdminTicketsPage() {
     setActiveTab("details");
     setMessages([]);
     setEvents([]);
+    setAttachments([]);
     setReplyBody("");
     setIsInternal(false);
     setReplyError("");
@@ -549,6 +564,18 @@ export default function AdminTicketsPage() {
       .then(setEvents)
       .catch(() => setEvents([]))
       .finally(() => setEventsLoading(false));
+  }, [activeTab, selected]);
+
+  // ── Load attachments when tab switches ────────────────────────────────────
+
+  useEffect(() => {
+    if (activeTab !== "attachments" || !selected) return;
+    setAttachmentsLoading(true);
+    fetch(`/api/v1/tickets/${selected.id}/attachments/`, { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setAttachments(Array.isArray(data) ? data : []))
+      .catch(() => setAttachments([]))
+      .finally(() => setAttachmentsLoading(false));
   }, [activeTab, selected]);
 
   // ── Save ticket ──────────────────────────────────────────────────────────
@@ -1071,7 +1098,7 @@ export default function AdminTicketsPage() {
 
             {/* Tab bar */}
             <div style={{ display: "flex", borderBottom: "1px solid var(--border)", padding: "0 20px" }} role="tablist">
-              {(["details", "messages", "history"] as const).map((tab) => (
+              {(["details", "messages", "history", "attachments"] as const).map((tab) => (
                 <button
                   key={tab}
                   role="tab"
@@ -1085,8 +1112,18 @@ export default function AdminTicketsPage() {
                     display: "flex", alignItems: "center", gap: 6,
                   }}
                 >
-                  {tab === "details" ? <CircleDot size={14} aria-hidden="true" /> : tab === "messages" ? <MessageSquare size={14} aria-hidden="true" /> : <History size={14} aria-hidden="true" />}
-                  {tab === "details" ? "Details" : tab === "messages" ? "Messages" : "History"}
+                  {tab === "details"     ? <CircleDot    size={14} aria-hidden="true" /> :
+                   tab === "messages"    ? <MessageSquare size={14} aria-hidden="true" /> :
+                   tab === "history"     ? <History       size={14} aria-hidden="true" /> :
+                                          <Paperclip      size={14} aria-hidden="true" />}
+                  {tab === "details"     ? "Details" :
+                   tab === "messages"    ? "Messages" :
+                   tab === "history"     ? "History" : "Files"}
+                  {tab === "attachments" && attachments.length > 0 && (
+                    <span style={{ background: "#234395", color: "#fff", borderRadius: 999, fontSize: ".68rem", fontWeight: 800, padding: "0 5px", lineHeight: "16px" }}>
+                      {attachments.length}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1584,6 +1621,73 @@ export default function AdminTicketsPage() {
                       );
                     })}
                   </ol>
+                )}
+              </div>
+            )}
+
+            {/* ── Attachments tab ── */}
+            {activeTab === "attachments" && (
+              <div className="atq-panel-body" style={{ overflowY: "auto", maxHeight: "calc(100vh - 120px)" }}>
+                {attachmentsLoading ? (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", color: "#64748b", padding: 20 }}>
+                    <Loader2 size={18} className="spin" aria-hidden="true" /> Loading attachments…
+                  </div>
+                ) : attachments.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#64748b", padding: 32 }}>
+                    <Paperclip size={24} style={{ opacity: 0.4, marginBottom: 8 }} aria-hidden="true" />
+                    <p style={{ margin: 0, fontSize: ".9rem" }}>No attachments on this ticket.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "16px 20px" }}>
+                    {attachments.map((att) => {
+                      const scanColor = att.scan_state === "clean"
+                        ? { bg: "#dcfce7", text: "#166534", label: "Clean" }
+                        : att.scan_state === "infected"
+                        ? { bg: "#fee2e2", text: "#991b1b", label: "Infected — blocked" }
+                        : { bg: "#fef3c7", text: "#92400e", label: "Pending scan" };
+
+                      const canDownload = att.scan_state === "clean" && att.file_url;
+                      const fileSizeKb = (att.file_size / 1024).toFixed(0);
+
+                      return (
+                        <div key={att.id} style={{
+                          background: "#f8fafc", border: "1px solid #e2e8f0",
+                          borderRadius: 10, padding: "12px 14px",
+                          display: "flex", alignItems: "center", gap: 12,
+                        }}>
+                          <Paperclip size={16} style={{ color: "#94a3b8", flexShrink: 0 }} aria-hidden="true" />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: "0 0 2px", fontWeight: 700, fontSize: ".85rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {att.original_name}
+                            </p>
+                            <p style={{ margin: 0, fontSize: ".75rem", color: "#64748b" }}>
+                              {att.content_type} · {fileSizeKb} KB
+                              {att.field_key && <> · field: <code style={{ fontSize: ".72rem" }}>{att.field_key}</code></>}
+                            </p>
+                          </div>
+                          <span style={{ background: scanColor.bg, color: scanColor.text, borderRadius: 999, padding: "2px 8px", fontSize: ".72rem", fontWeight: 800, flexShrink: 0, whiteSpace: "nowrap" }}>
+                            {scanColor.label}
+                          </span>
+                          {canDownload ? (
+                            <a
+                              href={att.file_url!}
+                              download={att.original_name}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ flexShrink: 0, color: "#234395", display: "flex", alignItems: "center", gap: 4, fontSize: ".8rem", fontWeight: 700, textDecoration: "none" }}
+                              aria-label={`Download ${att.original_name}`}
+                            >
+                              <Download size={14} aria-hidden="true" /> Download
+                            </a>
+                          ) : (
+                            <span style={{ flexShrink: 0, color: "#94a3b8", fontSize: ".8rem" }}>
+                              {att.scan_state === "infected" ? "Blocked" : "Unavailable"}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             )}
