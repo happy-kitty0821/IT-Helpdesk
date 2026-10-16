@@ -49,6 +49,7 @@ from .views import (
     RoleConfigListView,
     ServiceCategoryList,
     TicketAssignView,
+    TicketApprovalView,
     TicketDetail,
     TicketFormSettingsView,
     TicketListCreate,
@@ -115,6 +116,7 @@ urlpatterns = [
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/recovery-action/?$',        RecoveryActionView.as_view(),      name='ticket-recovery-action'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/?$',                        TicketDetail.as_view(),            name='ticket-detail'),
     re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/assign/?$',                 TicketAssignView.as_view(),        name='ticket-assign'),
+    re_path(r'^tickets/(?P<pk>[0-9a-f-]+)/approval/?$',               TicketApprovalView.as_view(),      name='ticket-approval'),
 
     re_path(r'^guides/?$',   PublicGuideList.as_view(),   name='public-guide-list'),
     re_path(r'^software/?$', PublicSoftwareList.as_view(), name='public-software-list'),

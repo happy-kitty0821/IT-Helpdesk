@@ -155,7 +155,7 @@ class TicketSerializer(serializers.ModelSerializer):
             'status', 'status_reason', 'priority',
             'assigned_to', 'team', 'assignee_name',
             'extra_fields', 'elapsed', 'created_at', 'updated_at',
-            'current_stage', 'is_overdue',
+            'current_stage', 'is_overdue', 'version', 'due_date',
         )
 
     def get_requester_name(self, obj):
@@ -262,7 +262,7 @@ class TicketUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Ticket
-        fields = ('subject', 'description', 'priority', 'status', 'team', 'assigned_to', 'current_stage')
+        fields = ('subject', 'description', 'priority', 'status', 'team', 'assigned_to', 'current_stage', 'due_date')
 
     def validate_subject(self, value):
         value = value.strip()

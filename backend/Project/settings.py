@@ -249,6 +249,14 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'helpdesk.tasks.check_stale_tickets',
         'schedule': 60 * 15,   # every 15 minutes (seconds)
     },
+    'auto-close-resolved-tickets': {
+        'task':     'helpdesk.tasks.auto_close_resolved_tickets',
+        'schedule': 60 * 60,   # every hour — close tickets resolved 7+ days ago
+    },
+    'deliver-notification-outbox': {
+        'task':     'helpdesk.tasks.deliver_notification_outbox',
+        'schedule': 60 * 2,    # every 2 minutes — deliver pending outbox items
+    },
 }
 
 # ── SLA thresholds (hours before a ticket is considered overdue) ───────────────

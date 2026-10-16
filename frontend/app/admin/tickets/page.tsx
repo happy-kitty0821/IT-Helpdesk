@@ -37,6 +37,8 @@ interface AdminTicket {
   updated_at: string;
   current_stage: string;
   is_overdue: boolean;
+  version: number;
+  due_date: string | null;
 }
 
 interface StaffUser {
@@ -78,7 +80,8 @@ interface TicketEventItem {
 const STATUS_LABELS: Record<string, string> = {
   submitted: "Submitted", triaged: "Triaged", in_progress: "In Progress",
   waiting_requester: "Waiting", waiting_approval: "Awaiting Approval",
-  resolved: "Resolved", closed: "Closed", cancelled: "Cancelled",
+  waiting_external: "Waiting — External", resolved: "Resolved",
+  closed: "Closed", cancelled: "Cancelled",
 };
 
 const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
@@ -87,6 +90,7 @@ const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
   in_progress:       { text: "#92400e", bg: "#fef3c7" },
   waiting_requester: { text: "#9a3412", bg: "#ffedd5" },
   waiting_approval:  { text: "#6b21a8", bg: "#f3e8ff" },
+  waiting_external:  { text: "#065f46", bg: "#d1fae5" },
   resolved:          { text: "#166534", bg: "#dcfce7" },
   closed:            { text: "#475569", bg: "#e2e8f0" },
   cancelled:         { text: "#991b1b", bg: "#fee2e2" },
@@ -112,20 +116,22 @@ const ACCOUNT_RECOVERY_SLUGS = new Set(["account-recovery", "college-account-rec
 const STAFF_TRANSITIONS: Record<string, string[]> = {
   submitted:         ["triaged", "in_progress", "cancelled"],
   triaged:           ["in_progress", "cancelled"],
-  in_progress:       ["waiting_requester", "waiting_approval", "resolved"],
+  in_progress:       ["waiting_requester", "waiting_approval", "waiting_external", "resolved"],
   waiting_requester: ["in_progress", "resolved", "cancelled"],
   waiting_approval:  ["in_progress", "resolved", "cancelled"],
+  waiting_external:  ["in_progress", "resolved", "cancelled"],
   resolved:          ["closed", "in_progress"],
-  closed:            [],   // terminal
-  cancelled:         [],   // terminal
+  closed:            [],
+  cancelled:         [],
 };
 
 const INTERN_TRANSITIONS: Record<string, string[]> = {
   submitted:         ["in_progress"],
   triaged:           ["in_progress"],
-  in_progress:       ["waiting_requester", "resolved"],
+  in_progress:       ["waiting_requester", "waiting_external", "resolved"],
   waiting_requester: ["in_progress", "resolved"],
   waiting_approval:  ["in_progress", "resolved"],
+  waiting_external:  ["in_progress", "resolved"],
   resolved:          ["in_progress"],
   closed:            [],
   cancelled:         [],

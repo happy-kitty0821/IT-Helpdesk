@@ -40,6 +40,14 @@ class ServiceCategory(models.Model):
         blank=True,
         help_text='List of stage dicts: [{key, label, description?, icon?}]',
     )
+    is_restricted = models.BooleanField(
+        default=False,
+        help_text=(
+            'When True, tickets in this category are only visible to staff '
+            'with the service_lead or administrator role, plus the assigned agent. '
+            'Use for CCTV review and other sensitive request types.'
+        ),
+    )
 
     class Meta:
         ordering = ('sort_order', 'name')
@@ -55,6 +63,7 @@ class Ticket(models.Model):
         IN_PROGRESS = 'in_progress', 'In progress'
         WAITING_REQUESTER = 'waiting_requester', 'Waiting for requester'
         WAITING_APPROVAL = 'waiting_approval', 'Waiting for approval'
+        WAITING_EXTERNAL = 'waiting_external', 'Waiting for external party'
         RESOLVED = 'resolved', 'Resolved'
         CLOSED = 'closed', 'Closed'
         CANCELLED = 'cancelled', 'Cancelled'
@@ -98,6 +107,34 @@ class Ticket(models.Model):
         blank=True,
         help_text='Timestamp of the last stale-ticket alert sent for this ticket. '
                   'Used to enforce the alert cooldown period.',
+    )
+
+    # ── Concurrency + scheduling ───────────────────────────────────────────
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text=(
+            'Monotonically incremented on every save. '
+            'Clients must echo the current version in PATCH/transition requests '
+            'so stale overwrites are rejected with HTTP 409.'
+        ),
+    )
+    due_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='Staff-assigned deadline for this ticket (UTC). '
+                  'Used for queue filtering and SLA reporting.',
+    )
+    idempotency_key = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text=(
+            'Optional client-supplied key (UUID or hash). '
+            'A second submission with the same key + requester returns the '
+            'existing ticket instead of creating a duplicate.'
+        ),
     )
 
     class Meta:
@@ -493,8 +530,15 @@ class TicketMessage(models.Model):
 class TicketAttachment(models.Model):
     """
     A file (PDF or image) attached by the requester when submitting a ticket.
-    Stored at tickets/<ticket_id>/<filename>.
+    Files enter quarantine (scan_state=pending) and are not downloadable until
+    a scan passes (scan_state=clean). Infected files are rejected.
     """
+
+    class ScanState(models.TextChoices):
+        PENDING = 'pending', 'Pending scan'
+        CLEAN   = 'clean',   'Clean'
+        INFECTED = 'infected', 'Infected — blocked'
+
     ALLOWED_CONTENT_TYPES = {
         'application/pdf',
         'image/jpeg',
@@ -513,6 +557,13 @@ class TicketAttachment(models.Model):
     original_name = models.CharField(max_length=255)
     content_type = models.CharField(max_length=100)
     file_size = models.PositiveIntegerField()
+    scan_state = models.CharField(
+        max_length=10,
+        choices=ScanState.choices,
+        default=ScanState.PENDING,
+        db_index=True,
+        help_text='Quarantine state. Files are only downloadable when scan_state=clean.',
+    )
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, related_name='ticket_attachments'
@@ -524,6 +575,142 @@ class TicketAttachment(models.Model):
 
     def __str__(self):
         return f'{self.original_name} → {self.ticket.reference}'
+
+
+# ---------------------------------------------------------------------------
+# Approval
+# ---------------------------------------------------------------------------
+
+class Approval(models.Model):
+    """
+    A formal approval decision on a ticket that requires it (e.g. CCTV review,
+    ID replacement). Only the designated_approver role may decide; self-approval
+    is blocked at the view layer.
+
+    Decision states:
+        pending   — awaiting review
+        approved  — approver authorised the action
+        rejected  — approver declined; reason is mandatory
+    """
+
+    class Decision(models.TextChoices):
+        PENDING  = 'pending',  'Pending'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+
+    ticket = models.ForeignKey(
+        'Ticket',
+        on_delete=models.CASCADE,
+        related_name='approvals',
+        help_text='Ticket requiring approval.',
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='approvals_requested',
+        help_text='Staff member who triggered the approval request.',
+    )
+    approver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approvals_to_decide',
+        help_text='Designated approver assigned to this decision.',
+    )
+    decision = models.CharField(
+        max_length=10,
+        choices=Decision.choices,
+        default=Decision.PENDING,
+        db_index=True,
+    )
+    reason = models.TextField(
+        max_length=2000,
+        blank=True,
+        default='',
+        help_text='Mandatory when decision=rejected; optional when approved.',
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-created_at',)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            # Immutable once decided — prevent re-decision
+            old = Approval.objects.filter(pk=self.pk).values('decision').first()
+            if old and old['decision'] != self.Decision.PENDING and \
+               self.decision != old['decision']:
+                raise ValueError('Approval decisions are immutable once made.')
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'Approval[{self.decision}] on {self.ticket.reference}'
+
+
+# ---------------------------------------------------------------------------
+# NotificationOutbox
+# ---------------------------------------------------------------------------
+
+class NotificationOutbox(models.Model):
+    """
+    Transactional outbox for outgoing notifications.
+
+    Every notification is first written here in the same DB transaction
+    as the ticket save. A Celery task then picks up pending rows and
+    delivers them, retrying with exponential back-off on failure.
+
+    This ensures notifications are never lost when the email provider is
+    temporarily unavailable — the ticket is still saved and the outbox
+    row is retried until it succeeds or hits max_attempts.
+    """
+
+    class DeliveryState(models.TextChoices):
+        PENDING   = 'pending',   'Pending delivery'
+        DELIVERED = 'delivered', 'Delivered'
+        FAILED    = 'failed',    'Failed — max retries exceeded'
+
+    event_type = models.CharField(max_length=40)
+    recipient_email = models.EmailField()
+    subject = models.CharField(max_length=500, blank=True, default='')
+    context_json = models.JSONField(
+        default=dict,
+        help_text='Serialized template context. No secrets or passwords.',
+    )
+    ticket = models.ForeignKey(
+        'Ticket',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='outbox_items',
+    )
+    state = models.CharField(
+        max_length=12,
+        choices=DeliveryState.choices,
+        default=DeliveryState.PENDING,
+        db_index=True,
+    )
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=5)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='Earliest time the delivery worker should retry.',
+    )
+    error_message = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ('next_attempt_at', 'created_at')
+
+    def __str__(self):
+        return f'Outbox[{self.state}] {self.event_type} → {self.recipient_email}'
 
 
 class AccountRecoveryToken(models.Model):

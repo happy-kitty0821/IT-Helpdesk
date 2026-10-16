@@ -1,7 +1,7 @@
 ﻿from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, F, Q
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
@@ -406,6 +406,44 @@ class TicketListCreate(generics.ListCreateAPIView):
             if cat_list:
                 qs = qs.filter(category__slug__in=cat_list)
 
+        # ── Due date filter (?due_before=ISO, ?due_after=ISO) ──
+        due_before = self.request.query_params.get('due_before', '').strip()
+        due_after  = self.request.query_params.get('due_after', '').strip()
+        if due_before:
+            try:
+                from django.utils.dateparse import parse_datetime
+                dt = parse_datetime(due_before)
+                if dt:
+                    qs = qs.filter(due_date__lte=dt)
+            except Exception:
+                pass
+        if due_after:
+            try:
+                from django.utils.dateparse import parse_datetime
+                dt = parse_datetime(due_after)
+                if dt:
+                    qs = qs.filter(due_date__gte=dt)
+            except Exception:
+                pass
+
+        # ── Overdue filter (?overdue=true) ──
+        if self.request.query_params.get('overdue', '').lower() == 'true':
+            qs = qs.filter(is_overdue=True)
+
+        # ── Restricted category access control ────────────────────────────
+        # Non-admin, non-service-lead staff only see restricted-category tickets
+        # that are assigned to them.  Admins and service leads see all.
+        from .permissions import get_user_roles as _get_roles
+        _roles = _get_roles(self.request.user)
+        _privileged = {'administrator', 'service_lead'}
+        if is_staff and not self.request.user.is_superuser and not _roles.intersection(_privileged):
+            # Filter out restricted tickets not assigned to this user
+            from django.db.models import Q as _Q
+            qs = qs.filter(
+                _Q(category__is_restricted=False) |
+                _Q(assigned_to=self.request.user)
+            )
+
         return qs
 
     def get_serializer_context(self):
@@ -414,7 +452,43 @@ class TicketListCreate(generics.ListCreateAPIView):
         ctx['file_keys'] = set(self.request.FILES.keys())
         return ctx
 
+    def create(self, request, *args, **kwargs):
+        """Override to handle idempotent duplicates — return existing ticket as 200."""
+        from rest_framework import status as drf_status
+        from rest_framework.exceptions import ValidationError
+        try:
+            return super().create(request, *args, **kwargs)
+        except ValidationError as exc:
+            if exc.detail and isinstance(exc.detail, dict) and 'idempotency' in exc.detail:
+                existing_pk = exc.detail['idempotency']
+                ticket = Ticket.objects.get(pk=existing_pk)
+                serializer = self.get_serializer(ticket)
+                return Response(serializer.data, status=drf_status.HTTP_200_OK)
+            raise
+
     def perform_create(self, serializer):
+        # ── Idempotency key ────────────────────────────────────────────────
+        # If the client supplies X-Idempotency-Key, return the existing ticket
+        # instead of creating a duplicate.  Key is scoped to (requester, key).
+        idem_key = (
+            self.request.data.get('idempotency_key', '').strip() or
+            self.request.META.get('HTTP_X_IDEMPOTENCY_KEY', '').strip()
+        )
+        if idem_key:
+            existing = Ticket.objects.filter(
+                requester=self.request.user,
+                idempotency_key=idem_key,
+            ).first()
+            if existing:
+                # Re-raise as a 200 by attaching the existing ticket to the
+                # serializer so the view returns it.  We signal this with a
+                # custom exception the view catches.
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError(
+                    {'idempotency': existing.pk},
+                    code='idempotent_duplicate',
+                )
+
         category = serializer.validated_data.get('category')
         if category:
             permitted = get_permitted_audiences(self.request)
@@ -444,7 +518,11 @@ class TicketListCreate(generics.ListCreateAPIView):
         first_stage = ''
         if category and isinstance(category.stages, list) and category.stages:
             first_stage = category.stages[0].get('key', '')
-        ticket = serializer.save(requester=self.request.user, current_stage=first_stage)
+        ticket = serializer.save(
+            requester=self.request.user,
+            current_stage=first_stage,
+            idempotency_key=idem_key,
+        )
 
         # Save any uploaded file attachments (file-type schema fields)
         from .models import TicketAttachment
@@ -479,18 +557,20 @@ class TicketListCreate(generics.ListCreateAPIView):
 STAFF_TRANSITIONS: dict[str, tuple[str, ...]] = {
     'submitted':         ('triaged', 'in_progress', 'cancelled'),
     'triaged':           ('in_progress', 'cancelled'),
-    'in_progress':       ('waiting_requester', 'waiting_approval', 'resolved'),
+    'in_progress':       ('waiting_requester', 'waiting_approval', 'waiting_external', 'resolved'),
     'waiting_requester': ('in_progress', 'resolved', 'cancelled'),
     'waiting_approval':  ('in_progress', 'resolved', 'cancelled'),
+    'waiting_external':  ('in_progress', 'resolved', 'cancelled'),
     'resolved':          ('closed', 'in_progress'),   # re-open path
 }
 
 INTERN_TRANSITIONS: dict[str, tuple[str, ...]] = {
     'submitted':         ('in_progress',),
     'triaged':           ('in_progress',),
-    'in_progress':       ('waiting_requester', 'resolved'),
+    'in_progress':       ('waiting_requester', 'waiting_external', 'resolved'),
     'waiting_requester': ('in_progress', 'resolved'),
     'waiting_approval':  ('in_progress', 'resolved'),
+    'waiting_external':  ('in_progress', 'resolved'),
     'resolved':          ('in_progress',),
 }
 
@@ -548,15 +628,38 @@ class TicketDetail(generics.RetrieveUpdateAPIView):
         return super().partial_update(request, *args, **kwargs)
 
     def perform_update(self, serializer):
+        # ── Optimistic concurrency check ──────────────────────────────────
+        # If the client sent a version, reject if it doesn't match current.
+        client_version = self.request.data.get('version')
+        if client_version is not None:
+            current = serializer.instance.version
+            try:
+                if int(client_version) != current:
+                    from rest_framework.exceptions import ValidationError
+                    raise ValidationError(
+                        {
+                            'version': (
+                                f'Stale update — your version is {client_version} '
+                                f'but the current version is {current}. '
+                                'Reload the ticket and retry.'
+                            )
+                        },
+                        code='version_conflict',
+                    )
+            except (TypeError, ValueError):
+                pass
+
         # Use update_fields so we never overwrite is_overdue (managed by Celery)
         # with a stale in-memory value from when the object was loaded.
         editable = {
             'subject', 'description', 'priority', 'status',
-            'team', 'assigned_to', 'current_stage',
+            'team', 'assigned_to', 'current_stage', 'due_date',
         }
         changed = set(serializer.validated_data.keys()) & editable
-        # Always include updated_at (auto_now field needs explicit save trigger)
-        update_fields = list(changed) + ['updated_at']
+        # Bump version on every staff edit + always include updated_at
+        update_fields = list(changed) + ['version', 'updated_at']
+        # Increment version via F() to avoid race between read and write
+        serializer.instance.version = F('version') + 1
         serializer.save(update_fields=update_fields)
 
 
@@ -4484,6 +4587,211 @@ class AdminServiceStatusDetailView(APIView):
 # ---------------------------------------------------------------------------
 # Ticket feedback — requester submits after resolution
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Approval workflow
+# ---------------------------------------------------------------------------
+
+class TicketApprovalView(APIView):
+    """
+    GET  /api/v1/tickets/{pk}/approval/
+         Returns the latest pending approval for this ticket (staff only).
+
+    POST /api/v1/tickets/{pk}/approval/
+         Creates a new approval request, setting ticket status to
+         waiting_approval.  Requires is_service_lead or administrator.
+
+    PATCH /api/v1/tickets/{pk}/approval/
+         Records a decision (approved or rejected).  Only the assigned
+         approver may decide.  Self-approval is blocked.
+         Requires designated_approver, service_lead, or administrator.
+    """
+    permission_classes = (IsITAgent,)
+
+    def _get_ticket(self, pk):
+        try:
+            return Ticket.objects.select_related('category', 'requester', 'assigned_to').get(pk=pk)
+        except Ticket.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        from .models import Approval
+        ticket = self._get_ticket(pk)
+        if ticket is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        approval = Approval.objects.filter(ticket=ticket).order_by('-created_at').first()
+        if approval is None:
+            return Response({'detail': 'No approval record for this ticket.'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            'id':           approval.pk,
+            'ticket':       str(ticket.pk),
+            'decision':     approval.decision,
+            'reason':       approval.reason,
+            'requested_by': approval.requested_by.get_full_name() if approval.requested_by else None,
+            'approver':     approval.approver.get_full_name() if approval.approver else None,
+            'decided_at':   approval.decided_at.isoformat() if approval.decided_at else None,
+            'created_at':   approval.created_at.isoformat(),
+        })
+
+    def post(self, request, pk):
+        """Create an approval request and move ticket to waiting_approval."""
+        from .models import Approval
+        from .permissions import get_user_roles
+        from django.utils import timezone as tz
+
+        ticket = self._get_ticket(pk)
+        if ticket is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Only service leads and admins may raise an approval request
+        roles = get_user_roles(request.user)
+        if not roles.intersection({'service_lead', 'administrator'}) and not request.user.is_superuser:
+            return Response(
+                {'detail': 'Only service leads and administrators may request approval.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Must not already have a pending approval
+        existing = Approval.objects.filter(
+            ticket=ticket, decision=Approval.Decision.PENDING
+        ).first()
+        if existing:
+            return Response(
+                {'detail': 'A pending approval already exists for this ticket.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        approver_id = request.data.get('approver')
+        approver = None
+        if approver_id:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            try:
+                approver = User.objects.get(pk=approver_id)
+                # Ensure the approver has the designated_approver role
+                approver_roles = get_user_roles(approver)
+                if not approver_roles.intersection({'designated_approver', 'service_lead', 'administrator'}):
+                    return Response(
+                        {'detail': 'Designated approver must hold the designated_approver role.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except User.DoesNotExist:
+                return Response({'detail': 'Approver not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            approval = Approval.objects.create(
+                ticket=ticket,
+                requested_by=request.user,
+                approver=approver,
+                decision=Approval.Decision.PENDING,
+            )
+            old_status = ticket.status
+            ticket.status = Ticket.Status.WAITING_APPROVAL
+            ticket.version = F('version') + 1
+            ticket.save(update_fields=['status', 'version', 'updated_at'])
+
+            from .models import TicketEvent
+            TicketEvent.objects.create(
+                ticket=ticket,
+                actor=request.user,
+                action=TicketEvent.Action.STATUS_CHANGED,
+                old_value=old_status,
+                new_value=Ticket.Status.WAITING_APPROVAL,
+                note=f'Approval requested. Approver: {approver.get_full_name() if approver else "unassigned"}.',
+            )
+
+        return Response({
+            'id':       approval.pk,
+            'decision': approval.decision,
+            'message':  'Approval request created. Ticket moved to waiting_approval.',
+        }, status=status.HTTP_201_CREATED)
+
+    def patch(self, request, pk):
+        """Record an approval decision."""
+        from .models import Approval
+        from .permissions import get_user_roles
+        from django.utils import timezone as tz
+
+        ticket = self._get_ticket(pk)
+        if ticket is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        approval = Approval.objects.filter(
+            ticket=ticket, decision=Approval.Decision.PENDING
+        ).order_by('-created_at').first()
+        if approval is None:
+            return Response(
+                {'detail': 'No pending approval found for this ticket.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Only the assigned approver (or any service_lead/admin if unassigned) may decide
+        roles = get_user_roles(request.user)
+        can_decide = (
+            request.user.is_superuser or
+            roles.intersection({'service_lead', 'administrator'}) or
+            (approval.approver_id and approval.approver_id == request.user.pk and
+             roles.intersection({'designated_approver'}))
+        )
+        if not can_decide:
+            return Response(
+                {'detail': 'You are not authorised to decide on this approval.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Self-approval guard
+        if approval.requested_by_id == request.user.pk:
+            return Response(
+                {'detail': 'You cannot approve a request you raised yourself.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        decision = request.data.get('decision', '').strip().lower()
+        reason   = request.data.get('reason', '').strip()
+
+        if decision not in (Approval.Decision.APPROVED, Approval.Decision.REJECTED):
+            return Response(
+                {'detail': 'decision must be "approved" or "rejected".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if decision == Approval.Decision.REJECTED and not reason:
+            return Response(
+                {'detail': 'A reason is required when rejecting an approval.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            approval.decision   = decision
+            approval.reason     = reason
+            approval.decided_at = tz.now()
+            approval.approver   = request.user
+            approval.save(update_fields=['decision', 'reason', 'decided_at', 'approver', 'updated_at'])
+
+            old_status = ticket.status
+            new_status = Ticket.Status.IN_PROGRESS if decision == Approval.Decision.APPROVED \
+                         else Ticket.Status.CANCELLED
+            ticket.status  = new_status
+            ticket.version = F('version') + 1
+            ticket.save(update_fields=['status', 'version', 'updated_at'])
+
+            from .models import TicketEvent
+            TicketEvent.objects.create(
+                ticket=ticket,
+                actor=request.user,
+                action=TicketEvent.Action.STATUS_CHANGED,
+                old_value=old_status,
+                new_value=new_status,
+                note=f'Approval {decision}. {reason}' if reason else f'Approval {decision}.',
+            )
+
+        return Response({
+            'decision': approval.decision,
+            'ticket_status': new_status,
+            'message': f'Approval {decision}. Ticket moved to {new_status}.',
+        })
 
 
 class TicketFeedbackView(APIView):

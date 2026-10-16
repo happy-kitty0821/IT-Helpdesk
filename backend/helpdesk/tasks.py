@@ -217,3 +217,135 @@ def check_stale_tickets(self):
         'check_stale_tickets: %d alerted, %d escalated (run at %s)',
         alerted, escalated, now.isoformat(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-close resolved tickets after 7 days
+# ---------------------------------------------------------------------------
+
+@shared_task(bind=True, name='helpdesk.tasks.auto_close_resolved_tickets',
+             ignore_result=True, max_retries=3, default_retry_delay=60)
+def auto_close_resolved_tickets(self):
+    """
+    Close tickets that have been in 'resolved' status for 7+ calendar days
+    without the requester explicitly closing them.
+
+    Spec §4.2: "Default proposal: auto-close seven calendar days after
+    resolution; allow reopening during that interval."
+    """
+    from django.db.models import F as _F
+    from .models import Ticket, TicketEvent
+
+    cutoff = timezone.now() - timedelta(days=7)
+
+    candidates = Ticket.objects.filter(
+        status='resolved',
+        updated_at__lte=cutoff,
+    ).select_related('requester')
+
+    closed = 0
+    for ticket in candidates:
+        try:
+            old_status = ticket.status
+            ticket.status = 'closed'
+            ticket.version = _F('version') + 1
+            ticket.save(update_fields=['status', 'version', 'updated_at'])
+
+            TicketEvent.objects.create(
+                ticket=ticket,
+                actor=None,   # system action
+                action=TicketEvent.Action.STATUS_CHANGED,
+                old_value=old_status,
+                new_value='closed',
+                note='Auto-closed after 7 days in resolved state.',
+            )
+            closed += 1
+        except Exception as exc:
+            logger.exception(
+                'auto_close_resolved_tickets: failed to close %s: %s',
+                ticket.reference, exc,
+            )
+
+    logger.info('auto_close_resolved_tickets: closed %d tickets (run at %s)',
+                closed, timezone.now().isoformat())
+
+
+# ---------------------------------------------------------------------------
+# NotificationOutbox delivery worker
+# ---------------------------------------------------------------------------
+
+@shared_task(bind=True, name='helpdesk.tasks.deliver_notification_outbox',
+             ignore_result=True, max_retries=3, default_retry_delay=30)
+def deliver_notification_outbox(self):
+    """
+    Deliver pending NotificationOutbox rows.
+
+    Picks up rows where:
+      - state = pending
+      - next_attempt_at is null or <= now
+      - attempt_count < max_attempts
+
+    On success: marks delivered.
+    On failure: increments attempt_count, sets next_attempt_at with
+                exponential back-off (1 min, 2 min, 4 min, 8 min, 16 min).
+    After max_attempts: marks failed.
+    """
+    from django.utils import timezone as tz
+    from .models import NotificationOutbox
+    from .email_dispatch import resolve_and_send
+
+    now = tz.now()
+    batch = NotificationOutbox.objects.filter(
+        state=NotificationOutbox.DeliveryState.PENDING,
+    ).filter(
+        Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now)
+    ).exclude(
+        attempt_count__gte=F('max_attempts')
+    ).select_related('ticket')[:50]   # process up to 50 per run
+
+    delivered = 0
+    failed    = 0
+
+    for item in batch:
+        try:
+            resolve_and_send(
+                event_type=item.event_type,
+                context=item.context_json,
+                to_email=item.recipient_email,
+                subject=item.subject,
+                log_tag=f'outbox item_id={item.pk}',
+            )
+            item.state        = NotificationOutbox.DeliveryState.DELIVERED
+            item.delivered_at = now
+            item.save(update_fields=['state', 'delivered_at'])
+            delivered += 1
+        except Exception as exc:
+            item.attempt_count  += 1
+            item.last_attempt_at = now
+            item.error_message   = str(exc)[:500]
+
+            if item.attempt_count >= item.max_attempts:
+                item.state = NotificationOutbox.DeliveryState.FAILED
+                logger.error(
+                    'deliver_notification_outbox: item %d permanently failed after %d attempts: %s',
+                    item.pk, item.attempt_count, exc,
+                )
+                failed += 1
+            else:
+                # Exponential back-off: 1, 2, 4, 8, 16 minutes
+                delay_minutes = 2 ** (item.attempt_count - 1)
+                item.next_attempt_at = now + timedelta(minutes=delay_minutes)
+                logger.warning(
+                    'deliver_notification_outbox: item %d attempt %d failed, retry in %dm: %s',
+                    item.pk, item.attempt_count, delay_minutes, exc,
+                )
+
+            item.save(update_fields=[
+                'state', 'attempt_count', 'last_attempt_at',
+                'next_attempt_at', 'error_message',
+            ])
+
+    logger.info(
+        'deliver_notification_outbox: delivered=%d failed=%d (run at %s)',
+        delivered, failed, now.isoformat(),
+    )
