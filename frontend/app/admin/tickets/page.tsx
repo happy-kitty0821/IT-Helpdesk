@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import {
   Calendar, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock,
-  Download, FileSpreadsheet, History, Inbox, KeyRound, Loader2, MessageSquare,
+  Download, Eye, FileSpreadsheet, History, Inbox, KeyRound, Loader2, MessageSquare,
   Paperclip, Search, TicketCheck, User, Wifi, WifiOff, X,
 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -1669,16 +1669,27 @@ export default function AdminTicketsPage() {
                             {scanColor.label}
                           </span>
                           {canDownload ? (
-                            <a
-                              href={att.file_url!}
-                              download={att.original_name}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ flexShrink: 0, color: "#234395", display: "flex", alignItems: "center", gap: 4, fontSize: ".8rem", fontWeight: 700, textDecoration: "none" }}
-                              aria-label={`Download ${att.original_name}`}
-                            >
-                              <Download size={14} aria-hidden="true" /> Download
-                            </a>
+                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                              {/* View — opens in browser (PDF renders inline, images display) */}
+                              <a
+                                href={att.file_url!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: "#234395", display: "flex", alignItems: "center", gap: 3, fontSize: ".78rem", fontWeight: 700, textDecoration: "none", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "4px 9px" }}
+                                aria-label={`View ${att.original_name} in browser`}
+                              >
+                                <Eye size={13} aria-hidden="true" /> View
+                              </a>
+                              {/* Download — forces file save */}
+                              <a
+                                href={att.file_url!}
+                                download={att.original_name}
+                                style={{ color: "#166534", display: "flex", alignItems: "center", gap: 3, fontSize: ".78rem", fontWeight: 700, textDecoration: "none", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 6, padding: "4px 9px" }}
+                                aria-label={`Download ${att.original_name}`}
+                              >
+                                <Download size={13} aria-hidden="true" /> Download
+                              </a>
+                            </div>
                           ) : (
                             <span style={{ flexShrink: 0, color: "#94a3b8", fontSize: ".8rem" }}>
                               {att.scan_state === "infected" ? "Blocked" : "Unavailable"}
