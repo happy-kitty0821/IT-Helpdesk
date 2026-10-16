@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Eye, EyeOff, Globe, HardDrive, MapPin, Phone, Plus, Save, Settings, Trash2,
+  Eye, EyeOff, Globe, HardDrive, MapPin, Phone, Plus, Save, Settings, Shield, Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { csrfToken } from "@/lib/auth";
@@ -42,6 +42,16 @@ interface SiteSettings {
   upload_chunk_retries: number;
   max_upload_size_gb:  number;
   updated_at:          string;
+}
+
+interface FileScanSettings {
+  magic_bytes_enabled:        boolean;
+  virustotal_enabled:         boolean;
+  auto_block_infected:        boolean;
+  virustotal_api_key:         string;   // always masked (••••••••) in responses
+  virustotal_api_key_display: string;
+  alert_email:                string;
+  updated_at:                 string;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -148,7 +158,7 @@ function FieldRow({
 export default function SettingsPage() {
 
   // ── Active tab ────────────────────────────────────────────────────────────
-  const [tab, setTab] = useState<"form" | "contact" | "upload">("form");
+  const [tab, setTab] = useState<"form" | "contact" | "upload" | "scan">("form");
 
   // ── Ticket form state ─────────────────────────────────────────────────────
   const [formSettings,  setFormSettings]  = useState<TicketFormSettings>(FORM_DEFAULTS);
@@ -163,6 +173,18 @@ export default function SettingsPage() {
   // ── Shared feedback ───────────────────────────────────────────────────────
   const [error,  setError]  = useState("");
   const [notice, setNotice] = useState("");
+
+  // ── File scan state ───────────────────────────────────────────────────────
+  const SCAN_DEFAULTS: FileScanSettings = {
+    magic_bytes_enabled: true, virustotal_enabled: false,
+    auto_block_infected: true, virustotal_api_key: "",
+    virustotal_api_key_display: "", alert_email: "", updated_at: "",
+  };
+  const [scanSettings, setScanSettings] = useState<FileScanSettings>(SCAN_DEFAULTS);
+  const [scanLoading,  setScanLoading]  = useState(false);
+  const [scanSaving,   setScanSaving]   = useState(false);
+  const [showVtKey,    setShowVtKey]    = useState(false);
+  const [newVtKey,     setNewVtKey]     = useState(""); // holds typed new key before save
 
   // ── Load both on mount ────────────────────────────────────────────────────
   useEffect(() => {
@@ -235,6 +257,45 @@ export default function SettingsPage() {
     finally { setSiteSaving(false); }
   }
 
+  // ── Load scan settings (lazy — only when tab opened) ─────────────────────
+  useEffect(() => {
+    if (tab !== "scan" || scanSettings.updated_at) return;
+    setScanLoading(true);
+    fetch("/api/v1/admin/settings/file-scan/", { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? r.json() : SCAN_DEFAULTS)
+      .then((d) => setScanSettings({ ...SCAN_DEFAULTS, ...(d as Partial<FileScanSettings>) }))
+      .catch(() => {})
+      .finally(() => setScanLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  async function saveScan() {
+    setScanSaving(true); setError(""); setNotice("");
+    try {
+      const token = await csrfToken();
+      const body: Partial<FileScanSettings> & { virustotal_api_key?: string } = {
+        magic_bytes_enabled: scanSettings.magic_bytes_enabled,
+        virustotal_enabled:  scanSettings.virustotal_enabled,
+        auto_block_infected: scanSettings.auto_block_infected,
+        alert_email:         scanSettings.alert_email,
+      };
+      // Only send the key field if the admin typed a new one
+      if (newVtKey.trim()) body.virustotal_api_key = newVtKey.trim();
+      const res = await fetch("/api/v1/admin/settings/file-scan/", {
+        method: "PATCH", credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setScanSettings({ ...SCAN_DEFAULTS, ...(data as Partial<FileScanSettings>) });
+        setNewVtKey("");
+        setNotice("File scanning settings saved.");
+      } else { setError(messageFrom(data)); }
+    } catch { setError("Network error."); }
+    finally { setScanSaving(false); }
+  }
+
   // ── Office hours helpers ──────────────────────────────────────────────────
   function updateHourRow(i: number, key: "day" | "hours", value: string) {
     setSiteSettings((prev) => {
@@ -296,6 +357,9 @@ export default function SettingsPage() {
         </button>
         <button className={`svc-tab${tab === "upload"  ? " active" : ""}`} onClick={() => { setTab("upload");  setError(""); setNotice(""); }}>
           <HardDrive size={14} aria-hidden="true" /> File uploads
+        </button>
+        <button className={`svc-tab${tab === "scan" ? " active" : ""}`} onClick={() => { setTab("scan"); setError(""); setNotice(""); }}>
+          <Shield size={14} aria-hidden="true" /> File scanning
         </button>
       </div>
 
@@ -692,6 +756,129 @@ export default function SettingsPage() {
                   {siteSaving ? "Saving…" : <><Save size={16} aria-hidden="true" /> Save upload settings</>}
                 </button>
               </div>
+            </section>
+          )}
+
+          {/* ── File scanning tab ── */}
+          {tab === "scan" && (
+            <section>
+              <h2 style={{ margin: "0 0 6px", fontSize: "1rem", fontWeight: 800 }}>File attachment scanning</h2>
+              <p style={{ margin: "0 0 24px", color: "var(--muted)", fontSize: ".88rem", lineHeight: 1.6 }}>
+                Files uploaded with tickets are scanned before staff can download them.
+                Magic-bytes checks run locally; VirusTotal uses an external API.
+              </p>
+
+              {scanLoading ? (
+                <div className="admin-loading">Loading scan settings…</div>
+              ) : (
+                <div style={{ display: "grid", gap: 20 }}>
+
+                  {/* Magic-bytes toggle */}
+                  <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px" }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                      <input type="checkbox" checked={scanSettings.magic_bytes_enabled}
+                        onChange={(e) => setScanSettings((p) => ({ ...p, magic_bytes_enabled: e.target.checked }))}
+                        style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0 }} />
+                      <div>
+                        <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: ".92rem" }}>
+                          Enable magic-bytes check
+                        </p>
+                        <p style={{ margin: 0, color: "var(--muted)", fontSize: ".83rem", lineHeight: 1.55 }}>
+                          Reads the first bytes of each uploaded file and verifies the signature matches
+                          the claimed type. Catches files disguised as PDFs or images (e.g. renamed PHP scripts).
+                          Runs locally — no external service needed. Recommended to keep on.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* VirusTotal toggle + key */}
+                  <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", display: "grid", gap: 14 }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                      <input type="checkbox" checked={scanSettings.virustotal_enabled}
+                        onChange={(e) => setScanSettings((p) => ({ ...p, virustotal_enabled: e.target.checked }))}
+                        style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0 }} />
+                      <div>
+                        <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: ".92rem" }}>
+                          Enable VirusTotal scanning
+                        </p>
+                        <p style={{ margin: 0, color: "var(--muted)", fontSize: ".83rem", lineHeight: 1.55 }}>
+                          Uploads each file to VirusTotal for scanning by 70+ antivirus engines.
+                          Requires an API key (free tier: 500 requests/day). Files are shared with VirusTotal's
+                          database — do not enable for sensitive uploads such as ID documents.
+                          Scanning runs in the background; students are not delayed.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* API key field */}
+                    <div style={{ paddingLeft: 28 }}>
+                      <label style={{ display: "grid", gap: 6, fontSize: ".82rem", fontWeight: 700, color: "#374151" }}>
+                        VirusTotal API key
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <input
+                            type={showVtKey ? "text" : "password"}
+                            value={newVtKey || (scanSettings.virustotal_api_key_display ? "••••••••" : "")}
+                            onChange={(e) => setNewVtKey(e.target.value)}
+                            onFocus={() => { if (!newVtKey) setNewVtKey(""); }}
+                            placeholder="Paste new API key to update"
+                            style={{ flex: 1, border: "1px solid #d1d5db", borderRadius: 7, padding: "8px 10px", fontSize: ".88rem", fontFamily: newVtKey ? "ui-monospace,monospace" : "inherit" }}
+                          />
+                          <button type="button" onClick={() => setShowVtKey((v) => !v)}
+                            style={{ border: "1px solid #d1d5db", borderRadius: 7, padding: "0 12px", background: "#f8fafc", cursor: "pointer" }}
+                            aria-label={showVtKey ? "Hide key" : "Show key"}>
+                            {showVtKey ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+                          </button>
+                        </div>
+                        <small style={{ color: "#94a3b8", fontWeight: 400 }}>
+                          {scanSettings.virustotal_api_key_display
+                            ? "Key is set — paste a new value to rotate it."
+                            : "No key set — falls back to VIRUSTOTAL_API_KEY env var if present."}
+                        </small>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Auto-block + alert email */}
+                  <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", display: "grid", gap: 14 }}>
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer" }}>
+                      <input type="checkbox" checked={scanSettings.auto_block_infected}
+                        onChange={(e) => setScanSettings((p) => ({ ...p, auto_block_infected: e.target.checked }))}
+                        style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0 }} />
+                      <div>
+                        <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: ".92rem" }}>
+                          Auto-block infected files
+                        </p>
+                        <p style={{ margin: 0, color: "var(--muted)", fontSize: ".83rem", lineHeight: 1.55 }}>
+                          When on, files flagged as infected are blocked from download.
+                          When off, staff are alerted but the file stays accessible — useful for investigating false positives.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label style={{ display: "grid", gap: 6, fontSize: ".82rem", fontWeight: 700, color: "#374151" }}>
+                      Scan alert email
+                      <input
+                        type="email"
+                        value={scanSettings.alert_email}
+                        onChange={(e) => setScanSettings((p) => ({ ...p, alert_email: e.target.value }))}
+                        placeholder="Leave blank to use support email from Site settings"
+                        style={{ border: "1px solid #d1d5db", borderRadius: 7, padding: "8px 10px", fontSize: ".88rem" }}
+                      />
+                      <small style={{ color: "#94a3b8", fontWeight: 400 }}>
+                        Email address to notify when an infected file is detected.
+                      </small>
+                    </label>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button className="primary-button" onClick={saveScan} disabled={scanSaving}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 22px" }}>
+                      {scanSaving ? "Saving…" : <><Save size={16} aria-hidden="true" /> Save scan settings</>}
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           )}
         </>

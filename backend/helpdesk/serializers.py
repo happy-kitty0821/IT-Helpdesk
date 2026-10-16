@@ -1304,3 +1304,53 @@ class TicketFeedbackSerializer(serializers.ModelSerializer):
         if obj.submitted_by:
             return obj.submitted_by.get_full_name() or obj.submitted_by.username
         return ''
+
+
+# ---------------------------------------------------------------------------
+# FileScanSettings serializer
+# ---------------------------------------------------------------------------
+
+class FileScanSettingsSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the FileScanSettings singleton.
+    The virustotal_api_key is write-only — it is masked in read responses.
+    """
+    virustotal_api_key_display = serializers.SerializerMethodField(
+        help_text='Masked key for display — never returns the real value.',
+    )
+
+    class Meta:
+        from .models import FileScanSettings
+        model = FileScanSettings
+        fields = (
+            'magic_bytes_enabled',
+            'virustotal_enabled',
+            'auto_block_infected',
+            'virustotal_api_key',        # write-only in practice (masked on read)
+            'virustotal_api_key_display',
+            'alert_email',
+            'updated_at',
+        )
+        read_only_fields = ('updated_at', 'virustotal_api_key_display')
+        extra_kwargs = {
+            'virustotal_api_key': {'write_only': False},  # included but masked
+        }
+
+    def get_virustotal_api_key_display(self, obj) -> str:
+        if obj.virustotal_api_key:
+            return '••••••••'
+        return ''
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Replace the raw key with the masked version in all read responses
+        data['virustotal_api_key'] = self.get_virustotal_api_key_display(instance)
+        return data
+
+    def update(self, instance, validated_data):
+        from .models import FileScanSettings as FSS
+        # If the client submitted the placeholder, keep the existing key
+        submitted_key = validated_data.get('virustotal_api_key', None)
+        if submitted_key == FSS._VT_KEY_PLACEHOLDER:
+            validated_data.pop('virustotal_api_key', None)
+        return super().update(instance, validated_data)

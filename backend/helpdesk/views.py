@@ -526,6 +526,7 @@ class TicketListCreate(generics.ListCreateAPIView):
 
         # Save any uploaded file attachments (file-type schema fields)
         from .models import TicketAttachment
+        from .tasks import scan_attachment
         for field_key, uploaded_file in self.request.FILES.items():
             # Validate content type
             allowed = TicketAttachment.ALLOWED_CONTENT_TYPES
@@ -533,7 +534,7 @@ class TicketListCreate(generics.ListCreateAPIView):
                 continue  # silently skip disallowed types (front-end should prevent this)
             if uploaded_file.size > TicketAttachment.MAX_UPLOAD_BYTES:
                 continue  # silently skip oversized files
-            TicketAttachment.objects.create(
+            att = TicketAttachment.objects.create(
                 ticket=ticket,
                 field_key=field_key,
                 file=uploaded_file,
@@ -541,7 +542,10 @@ class TicketListCreate(generics.ListCreateAPIView):
                 content_type=uploaded_file.content_type,
                 file_size=uploaded_file.size,
                 uploaded_by=self.request.user,
+                # scan_state defaults to 'pending' — Celery task below marks it clean/infected
             )
+            # Fire background scan — never blocks the HTTP response
+            scan_attachment.delay(att.pk)
 
 
 # ── Ticket status state machine ───────────────────────────────────────────────
@@ -1998,10 +2002,14 @@ class TicketAttachmentListView(APIView):
         return ticket, is_staff
 
     def get(self, request, pk):
-        ticket, _ = self._get_ticket_and_check_access(request, pk)
+        ticket, is_staff = self._get_ticket_and_check_access(request, pk)
         if ticket is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         attachments = TicketAttachment.objects.filter(ticket=ticket)
+        # Requesters only see clean files — staff see all states (pending/clean/infected)
+        # so they can investigate flagged uploads.
+        if not is_staff:
+            attachments = attachments.filter(scan_state=TicketAttachment.ScanState.CLEAN)
         serializer = TicketAttachmentSerializer(
             attachments, many=True, context={'request': request}
         )
@@ -2187,6 +2195,36 @@ class SiteSettingsView(APIView):
     def patch(self, request):
         obj = SiteSettings.get()
         serializer = SiteSettingsSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Admin settings — File scanning
+# ---------------------------------------------------------------------------
+
+class FileScanSettingsView(APIView):
+    """
+    GET   /api/v1/admin/settings/file-scan/  — read current settings
+    PATCH /api/v1/admin/settings/file-scan/  — update settings
+
+    Administrator only.  The VirusTotal API key is masked in all GET
+    responses — submit a new value to update it.
+    """
+    permission_classes = (IsAdministrator,)
+
+    def get(self, request):
+        from .models import FileScanSettings
+        from .serializers import FileScanSettingsSerializer
+        obj = FileScanSettings.get()
+        return Response(FileScanSettingsSerializer(obj).data)
+
+    def patch(self, request):
+        from .models import FileScanSettings
+        from .serializers import FileScanSettingsSerializer
+        obj = FileScanSettings.get()
+        serializer = FileScanSettingsSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)

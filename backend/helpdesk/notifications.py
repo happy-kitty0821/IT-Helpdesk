@@ -403,6 +403,16 @@ def build_webhook_text(event_type: str, context: dict) -> str:
             f'By: {requester}\n'
             f'{url}'
         )
+    elif event_type == 'attachment_scan_failed':
+        file_name   = context.get('file_name', '—')
+        scan_reason = context.get('scan_reason', '—')
+        ticket_ref  = context.get('ticket_reference', '—')
+        return (
+            f'🚨 Infected file blocked — {file_name}\n'
+            f'Ticket: {ticket_ref}\n'
+            f'Reason: {scan_reason}\n'
+            f'{url}'
+        )
     elif event_type == 'ticket_stale':
         age_h      = context.get('age_hours', '?')
         threshold  = context.get('threshold_hours', '?')

@@ -54,7 +54,8 @@ type EventType =
   | "recovery_unable_to_verify"
   | "ticket_stale"
   | "email_verification"
-  | "password_reset";
+  | "password_reset"
+  | "attachment_scan_failed";
 
 interface EmailTemplate {
   id: number;
@@ -287,6 +288,13 @@ const EVENT_META: Record<EventType, { label: string; variables: string[] }> = {
       "expiry_hours",
       "support_email",
       "helpdesk_url",
+    ],
+  },
+  attachment_scan_failed: {
+    label: "Attachment Scan — Infected File Alert",
+    variables: [
+      "ticket_reference", "ticket_subject", "file_name",
+      "file_size", "content_type", "scan_reason", "helpdesk_url",
     ],
   },
 };

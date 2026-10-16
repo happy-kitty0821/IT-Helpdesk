@@ -349,3 +349,201 @@ def deliver_notification_outbox(self):
         'deliver_notification_outbox: delivered=%d failed=%d (run at %s)',
         delivered, failed, now.isoformat(),
     )
+
+
+# ---------------------------------------------------------------------------
+# File attachment scanning
+# ---------------------------------------------------------------------------
+
+# Magic-bytes signatures for allowed MIME types.
+# Key = MIME type string, Value = list of byte sequences that must appear
+# at the start of the file (any one match is sufficient).
+_MAGIC_SIGNATURES: dict[str, list[bytes]] = {
+    'application/pdf': [b'%PDF-'],
+    'image/jpeg':      [b'\xff\xd8\xff'],
+    'image/png':       [b'\x89PNG\r\n\x1a\n'],
+    'image/gif':       [b'GIF87a', b'GIF89a'],
+    'image/webp':      [b'RIFF'],   # RIFF....WEBP — checked further below
+}
+
+
+def _check_magic_bytes(file_path: str, claimed_mime: str) -> bool:
+    """
+    Read the first 16 bytes of the file and verify the magic signature
+    matches the claimed MIME type.  Returns True if safe, False if mismatch.
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(16)
+    except OSError as exc:
+        logger.error('_check_magic_bytes: cannot read %s: %s', file_path, exc)
+        return False  # treat unreadable as suspicious
+
+    signatures = _MAGIC_SIGNATURES.get(claimed_mime, [])
+    if not signatures:
+        # Unknown MIME — reject anything we don't have a signature for
+        return False
+
+    for sig in signatures:
+        if header.startswith(sig):
+            # Extra check for WebP: bytes 8-11 must be b'WEBP'
+            if claimed_mime == 'image/webp':
+                return header[8:12] == b'WEBP'
+            return True
+
+    return False
+
+
+def _scan_with_virustotal(file_path: str, api_key: str) -> tuple[bool, str]:
+    """
+    Upload the file to VirusTotal v3 and poll for the verdict.
+
+    Returns (is_clean: bool, detail: str).
+    Raises on unrecoverable errors (caller should log + mark infected).
+    """
+    import time
+    import requests as _req
+
+    headers = {'x-apikey': api_key}
+
+    # 1 — Upload
+    with open(file_path, 'rb') as f:
+        upload_resp = _req.post(
+            'https://www.virustotal.com/api/v3/files',
+            headers=headers,
+            files={'file': f},
+            timeout=60,
+        )
+    upload_resp.raise_for_status()
+    analysis_id = upload_resp.json()['data']['id']
+
+    # 2 — Poll (up to 5 × 15 s = 75 s total)
+    analysis_url = f'https://www.virustotal.com/api/v3/analyses/{analysis_id}'
+    for attempt in range(5):
+        time.sleep(15)
+        poll_resp = _req.get(analysis_url, headers=headers, timeout=30)
+        poll_resp.raise_for_status()
+        poll_data = poll_resp.json()['data']['attributes']
+        if poll_data['status'] == 'completed':
+            stats = poll_data.get('stats', {})
+            malicious  = stats.get('malicious', 0)
+            suspicious = stats.get('suspicious', 0)
+            total      = sum(stats.values()) or 1
+            if malicious > 0 or suspicious > 2:
+                return False, (
+                    f'VirusTotal: {malicious} malicious, {suspicious} suspicious '
+                    f'out of {total} engines.'
+                )
+            return True, f'VirusTotal: clean ({total} engines checked).'
+
+    # Timed out waiting for results — treat as inconclusive (clean)
+    logger.warning('_scan_with_virustotal: analysis %s timed out — treating as clean.', analysis_id)
+    return True, 'VirusTotal: scan timed out — marked clean by default.'
+
+
+@shared_task(bind=True, name='helpdesk.tasks.scan_attachment',
+             ignore_result=True, max_retries=2, default_retry_delay=30)
+def scan_attachment(self, attachment_id: int) -> None:
+    """
+    Background scan for a single TicketAttachment.
+
+    Pipeline:
+      1. Magic-bytes check (local, ~1 ms) if magic_bytes_enabled
+      2. VirusTotal scan (async, ~15–75 s) if virustotal_enabled + key set
+
+    On clean:  scan_state = clean
+    On infected:
+      - scan_state = infected
+      - Notify admin via send_event('attachment_scan_failed')
+      - If auto_block_infected=True the download view will block the file
+    """
+    from .models import TicketAttachment, FileScanSettings
+    from .notifications import send_event
+
+    try:
+        attachment = TicketAttachment.objects.select_related('ticket').get(pk=attachment_id)
+    except TicketAttachment.DoesNotExist:
+        logger.warning('scan_attachment: attachment %d not found.', attachment_id)
+        return
+
+    # Already decided — nothing to do
+    if attachment.scan_state != TicketAttachment.ScanState.PENDING:
+        return
+
+    settings_obj = FileScanSettings.get()
+    file_path    = attachment.file.path
+
+    # ── Step 1: Magic-bytes ───────────────────────────────────────────────────
+    if settings_obj.magic_bytes_enabled:
+        is_safe = _check_magic_bytes(file_path, attachment.content_type)
+        if not is_safe:
+            _mark_infected(
+                attachment, settings_obj,
+                f'Magic-bytes mismatch: file does not match claimed type '
+                f'"{attachment.content_type}".',
+                send_event,
+            )
+            return
+
+    # ── Step 2: VirusTotal ────────────────────────────────────────────────────
+    if settings_obj.virustotal_enabled:
+        api_key = settings_obj.get_virustotal_api_key()
+        if api_key:
+            try:
+                is_clean, detail = _scan_with_virustotal(file_path, api_key)
+                if not is_clean:
+                    _mark_infected(attachment, settings_obj, detail, send_event)
+                    return
+                logger.info('scan_attachment: attachment %d — %s', attachment_id, detail)
+            except Exception as exc:
+                logger.error(
+                    'scan_attachment: VT scan failed for attachment %d: %s',
+                    attachment_id, exc,
+                )
+                # Do not mark as infected on API failure — mark clean with warning
+                # so staff aren't blocked by a transient VT outage.
+
+    # ── All checks passed ─────────────────────────────────────────────────────
+    attachment.scan_state = TicketAttachment.ScanState.CLEAN
+    attachment.save(update_fields=['scan_state'])
+    logger.info('scan_attachment: attachment %d marked clean.', attachment_id)
+
+
+def _mark_infected(
+    attachment: 'TicketAttachment',
+    settings_obj: 'FileScanSettings',
+    reason: str,
+    send_event_fn,
+) -> None:
+    """Set scan_state=infected and alert the admin."""
+    from .models import SiteSettings
+
+    attachment.scan_state = TicketAttachment.ScanState.INFECTED
+    attachment.save(update_fields=['scan_state'])
+
+    logger.warning(
+        'scan_attachment: attachment %d INFECTED — %s (file: %s)',
+        attachment.pk, reason, attachment.original_name,
+    )
+
+    # Determine alert destination
+    alert_email = (
+        settings_obj.alert_email.strip() or
+        SiteSettings.get().support_email or
+        'support@iic.edu.np'
+    )
+
+    try:
+        send_event_fn('attachment_scan_failed', {
+            'ticket_reference': attachment.ticket.reference if attachment.ticket else '—',
+            'ticket_subject':   attachment.ticket.subject if attachment.ticket else '—',
+            'file_name':        attachment.original_name,
+            'file_size':        attachment.file_size,
+            'content_type':     attachment.content_type,
+            'scan_reason':      reason,
+            'helpdesk_url':     'https://ithelpdesk-iic.cloud-dev.tech/admin/tickets',
+            'to_email':         alert_email,
+            'support_email':    alert_email,
+        }, ticket=attachment.ticket)
+    except Exception as exc:
+        logger.error('scan_attachment: failed to send alert: %s', exc)

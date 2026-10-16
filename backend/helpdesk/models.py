@@ -410,6 +410,7 @@ class EmailTemplate(models.Model):
         TICKET_STALE = 'ticket_stale', 'Ticket Stale / SLA Breach Alert'
         EMAIL_VERIFICATION = 'email_verification', 'Email Verification'
         PASSWORD_RESET = 'password_reset', 'Password Reset'
+        ATTACHMENT_SCAN_FAILED = 'attachment_scan_failed', 'Attachment Scan — Infected File Alert'
 
     event_type = models.CharField(max_length=30, choices=EventType.choices)
     name = models.CharField(max_length=200)
@@ -1673,6 +1674,112 @@ class SiteSettings(models.Model):
         """Return the singleton row, creating it with defaults if absent."""
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+# ---------------------------------------------------------------------------
+# File scan settings
+# ---------------------------------------------------------------------------
+
+
+class FileScanSettings(models.Model):
+    """
+    Singleton model — admin-configurable file scanning settings.
+
+    Scanning pipeline (background Celery task):
+      1. Magic-bytes check (local, instant) — if enabled
+      2. VirusTotal scan (async, ~15–60 s) — if enabled and API key set
+
+    The attachment scan_state field tracks: pending → clean | infected.
+    Staff can only download clean files.
+    """
+
+    _VT_KEY_PLACEHOLDER = '••••••••'
+
+    # ── Feature toggles ───────────────────────────────────────────────────────
+    magic_bytes_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            'Check the actual file signature (magic bytes) against the claimed '
+            'MIME type. Catches renamed scripts disguised as PDFs or images. '
+            'Fast, local, no external service required.'
+        ),
+    )
+    virustotal_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            'Upload attachments to VirusTotal for scanning by 70+ antivirus '
+            'engines. Requires a valid API key. Files are shared with '
+            'VirusTotal\'s database — do not enable for sensitive uploads '
+            'such as ID documents.'
+        ),
+    )
+    auto_block_infected = models.BooleanField(
+        default=True,
+        help_text=(
+            'When True, files flagged as infected are blocked from download. '
+            'When False, staff are alerted but the file remains accessible '
+            '(useful for investigating false positives).'
+        ),
+    )
+
+    # ── VirusTotal credentials ────────────────────────────────────────────────
+    virustotal_api_key = models.CharField(
+        max_length=256,
+        blank=True,
+        default='',
+        help_text=(
+            'VirusTotal Public API key. Free tier: 500 requests/day, '
+            '4 requests/minute. Never echoed back in full — masked after save. '
+            'Falls back to VIRUSTOTAL_API_KEY env var if blank.'
+        ),
+    )
+
+    # ── Alert destination ─────────────────────────────────────────────────────
+    alert_email = models.EmailField(
+        blank=True,
+        default='',
+        help_text=(
+            'Email address to notify when a file is flagged. '
+            'Leave blank to use the site support email.'
+        ),
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'File scan settings'
+        verbose_name_plural = 'File scan settings'
+
+    def __str__(self):
+        return 'File scan settings'
+
+    @classmethod
+    def get(cls) -> 'FileScanSettings':
+        """Return the singleton row, creating it with defaults if absent."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def get_virustotal_api_key(self) -> str:
+        """
+        Return the effective VT API key: DB value first, then env var fallback.
+        Never called from serializers — only from the Celery task.
+        """
+        import os
+        return (
+            self.virustotal_api_key.strip() or
+            os.environ.get('VIRUSTOTAL_API_KEY', '').strip()
+        )
+
+    def save(self, *args, **kwargs):
+        """Prevent accidental overwrite with the masked placeholder."""
+        if self.virustotal_api_key == self._VT_KEY_PLACEHOLDER:
+            # Re-read the current value from DB and restore it
+            try:
+                current = FileScanSettings.objects.get(pk=self.pk)
+                self.virustotal_api_key = current.virustotal_api_key
+            except FileScanSettings.DoesNotExist:
+                self.virustotal_api_key = ''
+        super().save(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
