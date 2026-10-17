@@ -5432,3 +5432,44 @@ class TicketPriorityView(APIView):
             )
 
         return Response(TicketSerializer(ticket).data)
+
+
+# ---------------------------------------------------------------------------
+# Attachment scan log — admin read-only list
+# ---------------------------------------------------------------------------
+
+class AttachmentScanLogListView(generics.ListAPIView):
+    """
+    GET /api/v1/admin/scan-logs/
+
+    Paginated, filterable list of AttachmentScanLog entries.
+
+    Query params
+    ────────────
+    result      filter by result value: clean | infected | error | skipped
+    scan_type   filter by scan type: magic_bytes | virustotal
+    page        page number (default 1, 50 items per page)
+    """
+    permission_classes = (IsAdministrator,)
+
+    class _Pagination(PageNumberPagination):
+        page_size = 50
+        page_size_query_param = 'page_size'
+        max_page_size = 200
+
+    pagination_class = _Pagination
+
+    def get_queryset(self):
+        from .models import AttachmentScanLog
+        qs = AttachmentScanLog.objects.all()
+        result    = self.request.query_params.get('result', '').strip()
+        scan_type = self.request.query_params.get('scan_type', '').strip()
+        if result:
+            qs = qs.filter(result=result)
+        if scan_type:
+            qs = qs.filter(scan_type=scan_type)
+        return qs
+
+    def get_serializer_class(self):
+        from .serializers import AttachmentScanLogSerializer
+        return AttachmentScanLogSerializer

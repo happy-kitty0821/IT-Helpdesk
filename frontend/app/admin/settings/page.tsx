@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Eye, EyeOff, Globe, HardDrive, MapPin, Phone, Plus, Save, Settings, Shield, Trash2,
+  Eye, EyeOff, Globe, HardDrive, MapPin, Phone, Plus, RefreshCw, Save, Settings, Shield, Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { csrfToken } from "@/lib/auth";
@@ -52,6 +52,17 @@ interface FileScanSettings {
   virustotal_api_key_display: string;
   alert_email:                string;
   updated_at:                 string;
+}
+
+interface AttachmentScanLogItem {
+  id:           number;
+  ticket_ref:   string;
+  file_name:    string;
+  scan_type:    "magic_bytes" | "virustotal";
+  result:       "clean" | "infected" | "error" | "skipped";
+  detail:       string;
+  engine_count: number | null;
+  scanned_at:   string;
 }
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -186,6 +197,13 @@ export default function SettingsPage() {
   const [showVtKey,    setShowVtKey]    = useState(false);
   const [newVtKey,     setNewVtKey]     = useState(""); // holds typed new key before save
 
+  // ── Scan log state ────────────────────────────────────────────────────────
+  const [scanLogs,        setScanLogs]        = useState<AttachmentScanLogItem[]>([]);
+  const [scanLogsLoading, setScanLogsLoading] = useState(false);
+  const [scanLogsError,   setScanLogsError]   = useState("");
+  const [scanLogFilter,   setScanLogFilter]   = useState<"" | "clean" | "infected" | "error" | "skipped">("");
+  const [autoRefresh,     setAutoRefresh]     = useState(false);
+
   // ── Load both on mount ────────────────────────────────────────────────────
   useEffect(() => {
     fetch("/api/v1/admin/settings/ticket-form/", { credentials: "include", cache: "no-store" })
@@ -295,6 +313,40 @@ export default function SettingsPage() {
     } catch { setError("Network error."); }
     finally { setScanSaving(false); }
   }
+
+  // ── Load scan logs ────────────────────────────────────────────────────────
+  async function loadScanLogs() {
+    setScanLogsLoading(true);
+    setScanLogsError("");
+    try {
+      const params = scanLogFilter ? `?result=${scanLogFilter}` : "";
+      const res = await fetch(`/api/v1/admin/scan-logs/${params}`, {
+        credentials: "include", cache: "no-store",
+      });
+      if (!res.ok) { setScanLogsError("Failed to load scan logs."); return; }
+      const data = await res.json();
+      setScanLogs(Array.isArray(data.results) ? data.results : Array.isArray(data) ? data : []);
+    } catch {
+      setScanLogsError("Network error loading scan logs.");
+    } finally {
+      setScanLogsLoading(false);
+    }
+  }
+
+  // Load logs when the scan tab is opened, and whenever filter changes
+  useEffect(() => {
+    if (tab !== "scan") return;
+    loadScanLogs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, scanLogFilter]);
+
+  // Auto-refresh interval (30 s) — cleared when toggled off or when leaving the tab
+  useEffect(() => {
+    if (tab !== "scan" || !autoRefresh) return;
+    const id = setInterval(loadScanLogs, 30_000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, autoRefresh, scanLogFilter]);
 
   // ── Office hours helpers ──────────────────────────────────────────────────
   function updateHourRow(i: number, key: "day" | "hours", value: string) {
@@ -879,6 +931,129 @@ export default function SettingsPage() {
                   </div>
                 </div>
               )}
+
+              {/* ── Scan log table ─────────────────────────────────────────── */}
+              <div style={{ marginTop: 36 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: ".95rem", fontWeight: 800, color: "#1e293b" }}>
+                      Scan log
+                    </h3>
+                    <p style={{ margin: "2px 0 0", fontSize: ".78rem", color: "#64748b" }}>
+                      Audit trail of every magic-bytes and VirusTotal scan decision.
+                    </p>
+                  </div>
+
+                  {/* Controls */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    {/* Filter pills */}
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {(["", "clean", "infected", "error", "skipped"] as const).map((f) => {
+                        const labels: Record<string, string> = { "": "All", clean: "Clean", infected: "Infected", error: "Error", skipped: "Skipped" };
+                        const active = scanLogFilter === f;
+                        return (
+                          <button key={f} onClick={() => setScanLogFilter(f)}
+                            style={{
+                              padding: "5px 12px", borderRadius: 999, fontSize: ".78rem", fontWeight: 700,
+                              cursor: "pointer", border: `1.5px solid ${active ? "#234395" : "#dbe2ee"}`,
+                              background: active ? "#234395" : "#f8fafc",
+                              color:      active ? "#fff"    : "#64748b",
+                              transition: "all 120ms",
+                            }}>
+                            {labels[f]}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Auto-refresh toggle */}
+                    <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: ".82rem", fontWeight: 700, color: autoRefresh ? "#166534" : "#64748b", cursor: "pointer", userSelect: "none" }}>
+                      <input
+                        type="checkbox"
+                        checked={autoRefresh}
+                        onChange={(e) => setAutoRefresh(e.target.checked)}
+                        style={{ width: 15, height: 15 }}
+                      />
+                      Auto-refresh (30 s)
+                    </label>
+
+                    {/* Manual refresh */}
+                    <button
+                      onClick={loadScanLogs}
+                      disabled={scanLogsLoading}
+                      style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #dbe2ee", borderRadius: 8, padding: "6px 13px", background: "#f8fafc", cursor: "pointer", fontSize: ".82rem", fontWeight: 700, color: "#374151" }}
+                      aria-label="Refresh scan logs"
+                    >
+                      <RefreshCw size={13} style={{ animation: scanLogsLoading ? "spin 1s linear infinite" : "none" }} aria-hidden="true" />
+                      {scanLogsLoading ? "Loading…" : "Refresh"}
+                    </button>
+                  </div>
+                </div>
+
+                {scanLogsError && (
+                  <p style={{ margin: "0 0 12px", color: "#dc2626", fontSize: ".83rem" }}>{scanLogsError}</p>
+                )}
+
+                {scanLogs.length === 0 && !scanLogsLoading ? (
+                  <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8", fontSize: ".88rem", border: "1px solid #e2e8f0", borderRadius: 12, background: "#fafafa" }}>
+                    {scanLogFilter ? `No ${scanLogFilter} scan results found.` : "No scan log entries yet. Upload a file to trigger a scan."}
+                  </div>
+                ) : (
+                  <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
+                      <thead>
+                        <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                          {["Time", "File", "Ticket", "Scan type", "Result", "Detail", "Engines"].map((h) => (
+                            <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#475569", whiteSpace: "nowrap" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scanLogs.map((log, i) => {
+                          const resultConfig: Record<string, { bg: string; color: string; label: string }> = {
+                            clean:    { bg: "#dcfce7", color: "#166534", label: "Clean"    },
+                            infected: { bg: "#fee2e2", color: "#991b1b", label: "Infected" },
+                            error:    { bg: "#fef3c7", color: "#92400e", label: "Error"    },
+                            skipped:  { bg: "#f1f5f9", color: "#64748b", label: "Skipped"  },
+                          };
+                          const rc = resultConfig[log.result] ?? resultConfig.error;
+                          const ts = new Date(log.scanned_at);
+                          const timeStr = ts.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+                          return (
+                            <tr key={log.id} style={{ borderBottom: i < scanLogs.length - 1 ? "1px solid #f1f5f9" : "none", background: i % 2 === 0 ? "#fff" : "#fafcff" }}>
+                              <td style={{ padding: "9px 14px", whiteSpace: "nowrap", color: "#64748b" }}>{timeStr}</td>
+                              <td style={{ padding: "9px 14px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={log.file_name}>
+                                {log.file_name || <span style={{ color: "#94a3b8" }}>—</span>}
+                              </td>
+                              <td style={{ padding: "9px 14px", whiteSpace: "nowrap", color: "#234395", fontWeight: 700 }}>
+                                {log.ticket_ref || <span style={{ color: "#94a3b8", fontWeight: 400 }}>—</span>}
+                              </td>
+                              <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
+                                <span style={{ padding: "2px 8px", borderRadius: 999, fontSize: ".75rem", fontWeight: 700,
+                                  background: log.scan_type === "virustotal" ? "#eef2ff" : "#f0fdf4",
+                                  color:      log.scan_type === "virustotal" ? "#3730a3" : "#15803d" }}>
+                                  {log.scan_type === "virustotal" ? "VirusTotal" : "Magic bytes"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "9px 14px" }}>
+                                <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: ".78rem", fontWeight: 700, background: rc.bg, color: rc.color }}>
+                                  {rc.label}
+                                </span>
+                              </td>
+                              <td style={{ padding: "9px 14px", color: "#475569", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={log.detail}>
+                                {log.detail || <span style={{ color: "#94a3b8" }}>—</span>}
+                              </td>
+                              <td style={{ padding: "9px 14px", textAlign: "center", color: "#64748b" }}>
+                                {log.engine_count ?? <span style={{ color: "#94a3b8" }}>—</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </section>
           )}
         </>

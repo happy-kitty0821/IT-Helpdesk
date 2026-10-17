@@ -473,17 +473,40 @@ def scan_attachment(self, attachment_id: int) -> None:
     settings_obj = FileScanSettings.get()
     file_path    = attachment.file.path
 
+    from .models import AttachmentScanLog
+
+    # Convenience helper — never raises, so a log-write failure can't block the scan outcome.
+    def _write_log(scan_type: str, result: str, detail: str = '', engine_count=None):
+        try:
+            AttachmentScanLog.objects.create(
+                attachment=attachment,
+                ticket_ref=attachment.ticket.reference if attachment.ticket else '',
+                file_name=attachment.original_name,
+                scan_type=scan_type,
+                result=result,
+                detail=detail,
+                engine_count=engine_count,
+            )
+        except Exception as log_exc:
+            logger.warning(
+                'scan_attachment: failed to write scan log for attachment %d: %s',
+                attachment_id, log_exc,
+            )
+
     # ── Step 1: Magic-bytes ───────────────────────────────────────────────────
     if settings_obj.magic_bytes_enabled:
         is_safe = _check_magic_bytes(file_path, attachment.content_type)
         if not is_safe:
-            _mark_infected(
-                attachment, settings_obj,
+            reason = (
                 f'Magic-bytes mismatch: file does not match claimed type '
-                f'"{attachment.content_type}".',
-                send_event,
+                f'"{attachment.content_type}".'
             )
+            _write_log('magic_bytes', 'infected', detail=reason)
+            _mark_infected(attachment, settings_obj, reason, send_event)
             return
+        _write_log('magic_bytes', 'clean', detail='Signature matches claimed type.')
+    else:
+        _write_log('magic_bytes', 'skipped', detail='Magic-bytes check is disabled.')
 
     # ── Step 2: VirusTotal ────────────────────────────────────────────────────
     if settings_obj.virustotal_enabled:
@@ -491,17 +514,30 @@ def scan_attachment(self, attachment_id: int) -> None:
         if api_key:
             try:
                 is_clean, detail = _scan_with_virustotal(file_path, api_key)
+                # Parse engine count from detail string if available
+                engine_count = None
+                import re as _re
+                m = _re.search(r'(\d+) engines', detail)
+                if m:
+                    engine_count = int(m.group(1))
                 if not is_clean:
+                    _write_log('virustotal', 'infected', detail=detail, engine_count=engine_count)
                     _mark_infected(attachment, settings_obj, detail, send_event)
                     return
+                _write_log('virustotal', 'clean', detail=detail, engine_count=engine_count)
                 logger.info('scan_attachment: attachment %d — %s', attachment_id, detail)
             except Exception as exc:
                 logger.error(
                     'scan_attachment: VT scan failed for attachment %d: %s',
                     attachment_id, exc,
                 )
+                _write_log('virustotal', 'error', detail=str(exc))
                 # Do not mark as infected on API failure — mark clean with warning
                 # so staff aren't blocked by a transient VT outage.
+        else:
+            _write_log('virustotal', 'skipped', detail='VirusTotal enabled but no API key configured.')
+    else:
+        _write_log('virustotal', 'skipped', detail='VirusTotal scan is disabled.')
 
     # ── All checks passed ─────────────────────────────────────────────────────
     attachment.scan_state = TicketAttachment.ScanState.CLEAN

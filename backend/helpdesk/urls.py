@@ -81,6 +81,7 @@ from .views import (
     UploadChunkView,
     FinalizeChunkedUploadView,
     TicketPriorityView,
+    AttachmentScanLogListView,
 )
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -156,6 +157,7 @@ urlpatterns = [
     re_path(r'^settings/site/?$',                                 SiteSettingsView.as_view(),        name='settings-site-public'),
     re_path(r'^admin/settings/site/?$',                           SiteSettingsView.as_view(),        name='settings-site-admin'),
     re_path(r'^admin/settings/file-scan/?$',                      FileScanSettingsView.as_view(),    name='settings-file-scan'),
+    re_path(r'^admin/scan-logs/?$',                               AttachmentScanLogListView.as_view(), name='scan-logs'),
     re_path(r'^admin/settings/roles/?$',                          RoleConfigListView.as_view(),      name='settings-roles'),
     re_path(r'^admin/settings/roles/(?P<role>[a-z_]+)/?$',        RoleConfigDetailView.as_view(),    name='settings-role-detail'),
     re_path(r'^admin/settings/intern-scope/?$',                   InternScopeListView.as_view(),     name='settings-intern-scope'),

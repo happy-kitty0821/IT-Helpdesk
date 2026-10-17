@@ -1783,6 +1783,72 @@ class FileScanSettings(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Attachment scan log
+# ---------------------------------------------------------------------------
+
+
+class AttachmentScanLog(models.Model):
+    """
+    Audit trail for every file-scan decision made by the scan_attachment task.
+
+    One row is written per scan step (magic-bytes check, VirusTotal check)
+    so a single file upload can produce two rows.  The attachment FK is
+    nullable — rows survive attachment deletion for the audit record.
+
+    result values
+    ─────────────
+    clean    — scan passed.
+    infected — scan flagged the file.
+    error    — scan could not complete (e.g. VT API down).
+    skipped  — scan step was disabled / no credentials configured.
+    """
+
+    class ScanType(models.TextChoices):
+        MAGIC_BYTES  = 'magic_bytes',  'Magic Bytes'
+        VIRUSTOTAL   = 'virustotal',   'VirusTotal'
+
+    class Result(models.TextChoices):
+        CLEAN    = 'clean',    'Clean'
+        INFECTED = 'infected', 'Infected'
+        ERROR    = 'error',    'Error'
+        SKIPPED  = 'skipped',  'Skipped'
+
+    attachment = models.ForeignKey(
+        'TicketAttachment',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='scan_logs',
+    )
+    # Denormalised fields — survive attachment deletion
+    ticket_ref = models.CharField(max_length=20, blank=True, default='',
+                                  help_text='Ticket reference at time of scan.')
+    file_name  = models.CharField(max_length=255, blank=True, default='',
+                                  help_text='Original file name at time of scan.')
+
+    scan_type  = models.CharField(max_length=20, choices=ScanType.choices)
+    result     = models.CharField(max_length=20, choices=Result.choices, db_index=True)
+    detail     = models.TextField(blank=True, default='')
+    engine_count = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Total AV engines checked (VirusTotal only).',
+    )
+    scanned_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-scanned_at']
+        verbose_name = 'Attachment scan log'
+        verbose_name_plural = 'Attachment scan logs'
+
+    def __str__(self):
+        return (
+            f'{self.get_scan_type_display()} — '
+            f'{self.get_result_display()} — '
+            f'{self.file_name or "unknown"} ({self.scanned_at:%Y-%m-%d %H:%M})'
+        )
+
+
+# ---------------------------------------------------------------------------
 # Service status board
 # ---------------------------------------------------------------------------
 

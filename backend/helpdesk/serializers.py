@@ -1354,3 +1354,29 @@ class FileScanSettingsSerializer(serializers.ModelSerializer):
         if submitted_key == FSS._VT_KEY_PLACEHOLDER:
             validated_data.pop('virustotal_api_key', None)
         return super().update(instance, validated_data)
+
+
+# ---------------------------------------------------------------------------
+# Attachment scan log serializer
+# ---------------------------------------------------------------------------
+
+class AttachmentScanLogSerializer(serializers.ModelSerializer):
+    scan_type_display = serializers.CharField(source='get_scan_type_display', read_only=True)
+    result_display    = serializers.CharField(source='get_result_display',    read_only=True)
+
+    class Meta:
+        from .models import AttachmentScanLog
+        model  = AttachmentScanLog
+        fields = (
+            'id',
+            'ticket_ref',
+            'file_name',
+            'scan_type',
+            'scan_type_display',
+            'result',
+            'result_display',
+            'detail',
+            'engine_count',
+            'scanned_at',
+        )
+        read_only_fields = fields
