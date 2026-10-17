@@ -240,6 +240,10 @@ CELERY_RESULT_SERIALIZER   = 'json'
 CELERY_TIMEZONE            = TIME_ZONE          # reuse Django's timezone
 CELERY_TASK_TRACK_STARTED  = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# Fail fast if broker is unreachable during a request — never block user-facing HTTP.
+# 2-second connection timeout, no retries in the request path.
+CELERY_BROKER_CONNECTION_TIMEOUT = 2.0
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 0
 
 # Beat schedule — stale-ticket check runs every 15 minutes
 from celery.schedules import crontab  # noqa: E402 — safe at module bottom

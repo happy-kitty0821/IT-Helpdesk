@@ -544,8 +544,22 @@ class TicketListCreate(generics.ListCreateAPIView):
                 uploaded_by=self.request.user,
                 # scan_state defaults to 'pending' — Celery task below marks it clean/infected
             )
-            # Fire background scan — never blocks the HTTP response
-            scan_attachment.delay(att.pk)
+            # Fire background scan — must never block the HTTP response.
+            # If Redis/Celery is unavailable the ticket still saves cleanly;
+            # the attachment stays pending and can be re-queued manually.
+            try:
+                scan_attachment.apply_async(
+                    (att.pk,),
+                    countdown=2,       # 2-second delay so the file is fully flushed to disk
+                    retry=False,       # do NOT retry the broker connection — fail fast
+                )
+            except Exception as _scan_exc:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    'perform_create: could not queue scan for attachment %d '
+                    '(broker unavailable?): %s — attachment stays pending.',
+                    att.pk, _scan_exc,
+                )
 
 
 # ── Ticket status state machine ───────────────────────────────────────────────
