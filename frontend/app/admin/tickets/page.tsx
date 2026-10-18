@@ -271,6 +271,9 @@ export default function AdminTicketsPage() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
 
   // Filters — changes trigger a fresh server-side fetch
+  // searchInput  = what the user sees as they type (updates instantly, no fetch)
+  // searchQuery  = committed value sent to the API (set after debounce delay)
+  const [searchInput, setSearchInput]     = useState("");
   const [searchQuery, setSearchQuery]     = useState("");
   const [statusFilter, setStatusFilter]   = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
@@ -484,12 +487,23 @@ export default function AdminTicketsPage() {
   }, [statusFilter, priorityFilter, assigneeFilter]);
 
   function handleSearchChange(value: string) {
-    setSearchQuery(value);
+    // Update the visible input immediately — no flicker while typing
+    setSearchInput(value);
+    // Defer the actual API fetch until the user pauses for 600 ms
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
+      setSearchQuery(value);
       setNextUrl(null);
       fetchTickets(value, statusFilter, priorityFilter, assigneeFilter);
-    }, 400);
+    }, 600);
+  }
+
+  function clearSearch() {
+    setSearchInput("");
+    setSearchQuery("");
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setNextUrl(null);
+    fetchTickets("", statusFilter, priorityFilter, assigneeFilter);
   }
 
   // ── Auto-scroll messages to bottom ──────────────────────────────────────
@@ -934,11 +948,20 @@ export default function AdminTicketsPage() {
             <div className="atq-search">
               <Search size={15} aria-hidden="true" />
               <input
-                value={searchQuery}
+                value={searchInput}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search reference, subject, requester..."
                 aria-label="Search tickets"
               />
+              {searchInput && (
+                <button
+                  onClick={clearSearch}
+                  aria-label="Clear search"
+                  style={{ background: "none", border: "none", padding: "0 4px", cursor: "pointer", color: "#94a3b8", display: "flex", alignItems: "center" }}
+                >
+                  <X size={13} aria-hidden="true" />
+                </button>
+              )}
             </div>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
               <option value="">All statuses</option>
@@ -974,7 +997,7 @@ export default function AdminTicketsPage() {
             {visibleTickets.length === 0 ? (
               <div className="atq-empty">
                 <Inbox size={32} aria-hidden="true" />
-                <p>{searchQuery || statusFilter || priorityFilter || assigneeFilter
+                <p>{searchInput || statusFilter || priorityFilter || assigneeFilter
                   ? "No tickets match the current filters."
                   : "No tickets in the queue yet."}</p>
               </div>
