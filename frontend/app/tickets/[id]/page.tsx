@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft, Calendar, CheckCircle2, ChevronRight, CircleDot,
-  Clock, History, Info, MessageSquare, Send, Star, Tag, TrendingUp, User, Wifi, WifiOff, XCircle,
+  Clock, History, Info, MessageSquare, RotateCcw, Send, Star, Tag, TrendingUp, User, Wifi, WifiOff, XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -534,7 +534,7 @@ export default function TicketDetailPage() {
   const [pageError, setPageError] = useState<"not_found" | "error" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
-  const [showReasonFor, setShowReasonFor] = useState<"cancelled" | "closed" | null>(null);
+  const [showReasonFor, setShowReasonFor] = useState<"cancelled" | "closed" | "reopened" | null>(null);
   const [reason, setReason] = useState("");
 
   // Stages from the category
@@ -675,7 +675,7 @@ export default function TicketDetailPage() {
 
   // ── Status change (cancel / close) ──────────────────────────────────────
 
-  async function submitStatusChange(newStatus: "cancelled" | "closed") {
+  async function submitStatusChange(newStatus: "cancelled" | "closed" | "in_progress") {
     if (!ticket) return;
     setTransitioning(true);
     setActionError(null);
@@ -692,8 +692,14 @@ export default function TicketDetailPage() {
         setShowReasonFor(null);
         setReason("");
       } else {
-        const d = await res.json().catch(() => ({})) as { detail?: string };
-        setActionError(d.detail ?? "Could not update status.");
+        const d = await res.json().catch(() => ({})) as { detail?: string; code?: string };
+        if (d.code === "reopen_window_expired") {
+          setActionError("This ticket can no longer be reopened — the 7-day window has passed. Please submit a new request if you still need help.");
+        } else if (d.code === "invalid_transition") {
+          setActionError(d.detail ?? "That status change is not allowed at this stage.");
+        } else {
+          setActionError(d.detail ?? "Could not update status.");
+        }
       }
     } catch {
       setActionError("A network error occurred.");
@@ -860,6 +866,13 @@ export default function TicketDetailPage() {
   const canCancel = ticket.status === "submitted" || ticket.status === "triaged";
   const canClose  = ticket.status === "resolved";
   const isClosed  = ticket.status === "closed" || ticket.status === "cancelled";
+
+  // Reopen is available when closed within the last 7 days
+  const canReopen = ticket.status === "closed" && (() => {
+    const closedAt = new Date(ticket.updated_at).getTime();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    return Date.now() - closedAt < sevenDaysMs;
+  })();
 
   // Promotion is available when the ticket is active (not terminal) and
   // the current priority is not already Critical (p1).
@@ -1107,8 +1120,24 @@ export default function TicketDetailPage() {
               )}
             </div>
 
+            {/* Reopen window expired notice — shown when closed but >7 days ago */}
+            {ticket.status === "closed" && !canReopen && !showReasonFor && (
+              <div style={{
+                marginTop: 16, padding: "12px 14px",
+                background: "#f8fafc", border: "1px solid #e2e8f0",
+                borderRadius: 10, display: "flex", gap: 10, alignItems: "flex-start",
+              }}>
+                <Info size={15} style={{ color: "#94a3b8", flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+                <p style={{ margin: 0, fontSize: ".82rem", color: "#64748b", lineHeight: 1.55 }}>
+                  This ticket is closed. The 7-day window to reopen it has passed.
+                  If you still need help, please{" "}
+                  <a href="/tickets/new" style={{ color: "#234395", fontWeight: 700 }}>submit a new request</a>.
+                </p>
+              </div>
+            )}
+
             {/* Action buttons */}
-            {(canCancel || canClose) && !showReasonFor && (
+            {(canCancel || canClose || canReopen) && !showReasonFor && (
               <div className="ticket-actions" style={{ marginTop: 16 }}>
                 {canCancel && (
                   <button
@@ -1127,6 +1156,23 @@ export default function TicketDetailPage() {
                     <CheckCircle2 size={16} aria-hidden="true" /> Close &amp; confirm
                   </button>
                 )}
+                {canReopen && (
+                  <button
+                    style={{
+                      display: "flex", alignItems: "center", gap: 7,
+                      padding: "10px 18px", border: "1.5px solid #fcd34d",
+                      borderRadius: 10, background: "#fef9c3", color: "#92400e",
+                      cursor: "pointer", fontWeight: 700, fontSize: ".88rem",
+                      width: "100%", justifyContent: "center",
+                      transition: "background 0.12s, border-color 0.12s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#fef08a"; e.currentTarget.style.borderColor = "#f59e0b"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "#fef9c3"; e.currentTarget.style.borderColor = "#fcd34d"; }}
+                    onClick={() => { setShowReasonFor("reopened"); setReason(""); }}
+                  >
+                    <RotateCcw size={15} aria-hidden="true" /> Reopen ticket
+                  </button>
+                )}
               </div>
             )}
 
@@ -1140,7 +1186,7 @@ export default function TicketDetailPage() {
                   style={{ marginTop: 16, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, padding: 18 }}
                 >
                   <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: ".9rem" }}>
-                    {showReasonFor === "cancelled" ? "Why are you cancelling?" : "Any notes before closing?"}
+                    {showReasonFor === "cancelled" ? "Why are you cancelling?" : showReasonFor === "reopened" ? "Why are you reopening?" : "Any notes before closing?"}
                     {" "}<span style={{ color: "var(--muted)", fontWeight: 400 }}>(optional)</span>
                   </p>
                   <textarea
@@ -1156,14 +1202,16 @@ export default function TicketDetailPage() {
                   />
                   <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                     <button
-                      className={showReasonFor === "cancelled" ? "danger-button" : "primary-button"}
+                      className={showReasonFor === "cancelled" ? "danger-button" : showReasonFor === "reopened" ? "secondary-button" : "primary-button"}
                       disabled={transitioning}
                       style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-                      onClick={() => submitStatusChange(showReasonFor)}
+                      onClick={() => submitStatusChange(
+                        showReasonFor === "reopened" ? "in_progress" : showReasonFor!
+                      )}
                     >
                       {transitioning
                         ? "Updating..."
-                        : showReasonFor === "cancelled" ? "Confirm cancel" : "Confirm close"}
+                        : showReasonFor === "cancelled" ? "Confirm cancel" : showReasonFor === "reopened" ? "Confirm reopen" : "Confirm close"}
                     </button>
                     <button className="secondary-button" onClick={() => setShowReasonFor(null)}>
                       Back

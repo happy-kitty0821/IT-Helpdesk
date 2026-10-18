@@ -738,16 +738,34 @@ class TicketStatusView(APIView):
                 )
         else:
             # Requester: limited set of self-service transitions
+            from datetime import timedelta
+            REOPEN_WINDOW_DAYS = 7
+
             REQUESTER_ALLOWED: dict[str, tuple[str, ...]] = {
                 'submitted': ('cancelled',),
                 'triaged':   ('cancelled',),
                 'resolved':  ('closed',),
+                'closed':    ('in_progress',),  # reopen within 7-day window
             }
             if new_status not in REQUESTER_ALLOWED.get(current, ()):
                 return Response(
                     {'detail': f'You cannot move this ticket from "{current}" to "{new_status}".'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            # Extra guard for reopen: enforce the 7-day window
+            if current == 'closed' and new_status == 'in_progress':
+                window_cutoff = timezone.now() - timedelta(days=REOPEN_WINDOW_DAYS)
+                if ticket.updated_at < window_cutoff:
+                    return Response(
+                        {
+                            'code':   'reopen_window_expired',
+                            'detail': (
+                                'This ticket can no longer be reopened. '
+                                f'Tickets may only be reopened within {REOPEN_WINDOW_DAYS} days of closing.'
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
         ticket.status = new_status
         # Persist the reason for closed/cancelled/resolved transitions
