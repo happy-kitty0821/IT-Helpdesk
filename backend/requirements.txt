@@ -31,17 +31,25 @@ uritemplate==4.2.0
 urllib3==2.7.0
 whitenoise==6.12.0
 openpyxl==3.1.5
-waitress==3.0.2
+
+# ── WSGI server — OS-conditional ──────────────────────────────────────────────
+# pip automatically installs the right one for the current platform.
+# Linux / macOS → gunicorn (gthread workers, supports SSE + file uploads)
+# Windows       → waitress (pure Python, no fork(), works as a Windows Service)
+gunicorn==23.0.0  ; sys_platform != "win32"
+waitress==3.0.2   ; sys_platform == "win32"
 
 # ── Database drivers ───────────────────────────────────────────────────────────
 # Uncomment the driver for your production database.
 # Only one driver is needed; leave the others commented out.
 #
-# PostgreSQL (recommended for production):
+# PostgreSQL (recommended for production — works on Linux, macOS, Windows):
 #   psycopg2-binary==2.9.10
 #
-# MySQL / MariaDB:
+# MySQL / MariaDB on Linux or macOS:
 #   mysqlclient==2.2.4
 #
-# Pure-Python MySQL fallback (no compile step, slower than mysqlclient):
+# MySQL / MariaDB on Windows (no C compiler needed — pure Python):
 #   PyMySQL==1.1.1
+#   # Also add this to backend/Project/__init__.py:
+#   #   import pymysql; pymysql.install_as_MySQLdb()
