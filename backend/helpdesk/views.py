@@ -2804,8 +2804,9 @@ class TicketExportView(APIView):
         a2_row = [1, 2, 3, 4, 5]   # mutable via list so nested fns can close over it
         row2   = [LOGO_ROWS + 2]
 
-        # Chart placement cursor — charts stack vertically in column F
-        chart_row = [2]   # start near top; incremented after each chart
+        # Chart placement cursor — charts stack vertically in column F,
+        # starting BELOW the logo (LOGO_ROWS rows) so charts don't overlap it.
+        chart_row = [LOGO_ROWS + 2]
 
         def row_():
             return row2[0]
@@ -3045,6 +3046,31 @@ class TicketExportView(APIView):
             _set_axis(bc, x_title="Number of Tickets", y_title="Service Category")
             bc.legend = None
             place_chart(bc, "Volume of Tickets by Service Category")
+
+        # ── Category avg resolution time table ────────────────────────────
+        section_header2("Avg Resolution Time by Service Category")
+        cat_res_times: dict[str, list[float]] = {}
+        for t in tickets:
+            if t.status in ("resolved", "closed") and t.updated_at and t.created_at:
+                cat_name = t.category.name if t.category else "Unknown"
+                hours = (t.updated_at - t.created_at).total_seconds() / 3600
+                cat_res_times.setdefault(cat_name, []).append(hours)
+        cat_res_rows = sorted(
+            [
+                (cat, len(times), f"{sum(times)/len(times):.1f}h",
+                 f"{min(times):.1f}h", f"{max(times):.1f}h")
+                for cat, times in cat_res_times.items()
+            ],
+            key=lambda x: x[0],
+        )
+        if cat_res_rows:
+            write_table2(
+                ["Category", "Resolved Count", "Avg Resolution", "Min", "Max"],
+                cat_res_rows,
+            )
+        else:
+            write_kv2("No resolved tickets in this date range", "—", bold_val=False)
+            inc_()
 
         # ── SLA table + column BAR chart ──────────────────────────────────
         section_header2("SLA Bucket Distribution (Time to Resolve / Current Age)")
@@ -3388,6 +3414,142 @@ class TicketExportView(APIView):
             ws4.cell(row=ROLE_HEADER_ROW + 1, column=1,
                      value="No role audit events recorded.").font = Font(
                 italic=True, color="94A3B8", name="Calibri", size=10)
+
+        # =================================================================
+        # SHEET 5 — Satisfaction Feedback
+        # =================================================================
+
+        ws5 = wb.create_sheet("Satisfaction Feedback")
+        ws5.sheet_view.showGridLines = True
+
+        write_sheet_logo(ws5, "A1")
+
+        ws5.merge_cells("D1:J1")
+        ws5["D1"].value = "IIC IT Helpdesk — Satisfaction Feedback"
+        ws5["D1"].font  = Font(bold=True, size=13, color="234395", name="Calibri")
+        ws5["D1"].alignment = Alignment(horizontal="left", vertical="center")
+
+        ws5.merge_cells("D2:J2")
+        ws5["D2"].value = (
+            f"Generated: {iso_now}    "
+            f"Scope: {len(ticket_ids)} ticket(s) in export"
+        )
+        ws5["D2"].font = Font(size=9, italic=True, color="64748B", name="Calibri")
+
+        FB_HEADER_ROW = LOGO_ROWS + 2
+        fb_sheet_cols: list[tuple[str, int]] = [
+            ("#",              5),
+            ("Ticket Ref",    14),
+            ("Category",      24),
+            ("Status",        18),
+            ("Rating (1–5)",  14),
+            ("Rating Label",  22),
+            ("Comment",       60),
+            ("Submitted At",  22),
+            ("Requester",     28),
+        ]
+        styled_header_row(ws5, FB_HEADER_ROW, fb_sheet_cols)
+        ws5.freeze_panes = f"A{FB_HEADER_ROW + 1}"
+        ws5.auto_filter.ref = (
+            f"A{FB_HEADER_ROW}:{get_column_letter(len(fb_sheet_cols))}{FB_HEADER_ROW}"
+        )
+
+        rating_label_map = {
+            1: "Very dissatisfied",
+            2: "Dissatisfied",
+            3: "Neutral",
+            4: "Satisfied",
+            5: "Very satisfied",
+        }
+        fb_fill_map = {
+            1: PatternFill("solid", fgColor="FEE2E2"),
+            2: PatternFill("solid", fgColor="FFEDD5"),
+            3: PatternFill("solid", fgColor="FEF9C3"),
+            4: PatternFill("solid", fgColor="DCFCE7"),
+            5: PatternFill("solid", fgColor="BBF7D0"),
+        }
+
+        fb_list_all = list(
+            TicketFeedback.objects
+            .filter(ticket_id__in=ticket_ids)
+            .select_related('ticket', 'ticket__category', 'submitted_by')
+            .order_by('-created_at')
+        )
+
+        for seq, fb in enumerate(fb_list_all, start=1):
+            row_num = FB_HEADER_ROW + seq
+            t_ref   = fb.ticket.reference if fb.ticket else "—"
+            cat_name = (
+                fb.ticket.category.name if fb.ticket and fb.ticket.category else "Unknown"
+            )
+            status  = (
+                fb.ticket.status.replace("_", " ").title() if fb.ticket else "—"
+            )
+            req_name = (
+                (fb.submitted_by.get_full_name() or fb.submitted_by.username)
+                if fb.submitted_by else "—"
+            )
+            submitted = (
+                fb.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                if fb.created_at else "—"
+            )
+
+            row_vals = [
+                seq,
+                t_ref,
+                cat_name,
+                status,
+                fb.rating,
+                rating_label_map.get(fb.rating, "—"),
+                fb.comment or "",
+                submitted,
+                req_name,
+            ]
+            row_fill = fb_fill_map.get(fb.rating, white_fill)
+            for col_idx, val in enumerate(row_vals, start=1):
+                cell = ws5.cell(row=row_num, column=col_idx, value=val)
+                cell.fill   = row_fill
+                cell.font   = normal_font
+                cell.border = border
+                cell.alignment = (
+                    center_align if col_idx in (1, 4, 5)
+                    else Alignment(horizontal="left", vertical="center", wrap_text=(col_idx == 7))
+                )
+            ws5.row_dimensions[row_num].height = 15
+
+        if not fb_list_all:
+            ws5.cell(row=FB_HEADER_ROW + 1, column=1,
+                     value="No satisfaction feedback submitted for tickets in this export.").font = Font(
+                italic=True, color="94A3B8", name="Calibri", size=10)
+
+        # Summary block below the table
+        if fb_list_all:
+            summary_row = FB_HEADER_ROW + len(fb_list_all) + 3
+            from collections import Counter as _Counter
+            rating_dist = _Counter(f.rating for f in fb_list_all)
+            avg_fb = sum(f.rating for f in fb_list_all) / len(fb_list_all)
+
+            ws5.cell(row=summary_row, column=1, value="Summary").font = Font(
+                bold=True, size=11, color="FFFFFF", name="Calibri")
+            ws5.cell(row=summary_row, column=1).fill = PatternFill("solid", fgColor="234395")
+            ws5.merge_cells(f"A{summary_row}:D{summary_row}")
+            summary_row += 1
+
+            for label, value in [
+                ("Total responses",        len(fb_list_all)),
+                ("Average rating",         f"{avg_fb:.2f} / 5"),
+                ("★★★★★ Very satisfied (5)", rating_dist.get(5, 0)),
+                ("★★★★  Satisfied (4)",      rating_dist.get(4, 0)),
+                ("★★★   Neutral (3)",        rating_dist.get(3, 0)),
+                ("★★    Dissatisfied (2)",   rating_dist.get(2, 0)),
+                ("★     Very dissatisfied (1)", rating_dist.get(1, 0)),
+            ]:
+                lc = ws5.cell(row=summary_row, column=1, value=label)
+                lc.font = Font(bold=True, size=10, color="334155", name="Calibri")
+                vc = ws5.cell(row=summary_row, column=2, value=value)
+                vc.font = Font(size=10, name="Calibri")
+                vc.alignment = Alignment(horizontal="right")
+                summary_row += 1
 
         return wb
 
