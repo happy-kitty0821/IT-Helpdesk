@@ -186,14 +186,28 @@ function MetricCard({
 
 // ── Quick action card ─────────────────────────────────────────────────────────
 
-function ActionCard({ href, icon, title, desc }: {
+function ActionCard({ href, icon, title, desc, badge }: {
   href: string; icon: React.ReactNode; title: string; desc: string;
+  badge?: number;
 }) {
   return (
     <Link href={href} className="dash-action">
       <div className="dash-action-icon">{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p className="dash-action-title">{title}</p>
+        <p className="dash-action-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {title}
+          {!!badge && badge > 0 && (
+            <span style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              minWidth: 20, height: 20, padding: "0 6px",
+              borderRadius: 999, fontSize: ".7rem", fontWeight: 800,
+              background: "#ef4444", color: "#fff", lineHeight: 1,
+              flexShrink: 0,
+            }}>
+              {badge > 99 ? "99+" : badge}
+            </span>
+          )}
+        </p>
         <p className="dash-action-desc">{desc}</p>
       </div>
       <ArrowRight size={15} className="dash-action-arrow" aria-hidden="true" />
@@ -642,11 +656,13 @@ export default function AdminOverview() {
               <Settings size={14} aria-hidden="true" /> Quick actions
             </h2>
             <div className="dash-actions-grid">
-              <ActionCard href="/admin/tickets"       icon={<CircleDot       size={20} />} title="Ticket queue"        desc="Triage, assign, and manage all support requests." />
+              <ActionCard href="/admin/tickets"       icon={<CircleDot       size={20} />} title="Ticket queue"        desc="Triage, assign, and manage all support requests."
+                badge={(summary.unassigned_open ?? 0) + (summary.pending_review ?? 0)} />
               <ActionCard href="/admin/users"         icon={<Users           size={20} />} title="User management"    desc="Review accounts, roles, and suspension status." />
               <ActionCard href="/admin/guides"        icon={<BookOpen        size={20} />} title="Help guides"        desc="Publish and manage PDF guides for students." />
               <ActionCard href="/admin/software"      icon={<Boxes           size={20} />} title="Software catalogue" desc="Manage approved downloads and guides." />
               <ActionCard href="/admin/notifications" icon={<FileSpreadsheet size={20} />} title="Notifications"      desc="Configure email templates and channels." />
+              <ActionCard href="/admin/reports"       icon={<FileSpreadsheet size={20} />} title="Reports"             desc="Export ticket data and view queue metrics." />
               <ActionCard href="/admin/settings"      icon={<Settings        size={20} />} title="Settings"           desc="Ticket form, contact info, site config." />
             </div>
           </motion.section>
