@@ -2138,6 +2138,13 @@ class NotificationLogListView(generics.ListAPIView):
     permission_classes = (IsAdministrator,)
     serializer_class = NotificationLogSerializer
 
+    class _Pagination(PageNumberPagination):
+        page_size = 50
+        page_size_query_param = 'page_size'
+        max_page_size = 1000  # dashboard uses ?page_size=1000 for aggregation
+
+    pagination_class = _Pagination
+
     def get_queryset(self):
         qs = NotificationLog.objects.select_related('channel', 'ticket')
         status_filter = self.request.query_params.get('status')
@@ -5442,13 +5449,13 @@ class AttachmentScanLogListView(generics.ListAPIView):
     """
     GET /api/v1/admin/scan-logs/
 
-    Paginated, filterable list of AttachmentScanLog entries.
+    Paginated, filterable list of AttachmentScanLog entries (50/page).
 
     Query params
     ────────────
     result      filter by result value: clean | infected | error | skipped
     scan_type   filter by scan type: magic_bytes | virustotal
-    page        page number (default 1, 50 items per page)
+    page        page number (default 1)
     """
     permission_classes = (IsAdministrator,)
 

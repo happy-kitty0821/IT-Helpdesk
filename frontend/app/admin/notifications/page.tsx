@@ -359,6 +359,12 @@ export default function NotificationsPage() {
   const [logs, setLogs] = useState<NotificationLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logStatusFilter, setLogStatusFilter] = useState<"" | "sent" | "failed">("");
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsCount, setLogsCount] = useState(0);
+  const [logsNext, setLogsNext] = useState<string | null>(null);
+  const [logsPrev, setLogsPrev] = useState<string | null>(null);
+  // All logs fetched once for dashboard aggregation (up to 1000)
+  const [allLogs, setAllLogs] = useState<NotificationLog[]>([]);
 
   // Channel editor state
   const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null);
@@ -435,21 +441,34 @@ export default function NotificationsPage() {
 
   useEffect(loadAll, []);
 
-  function loadLogs(statusFilter: "" | "sent" | "failed" = logStatusFilter) {
+  function loadLogs(statusFilter: "" | "sent" | "failed" = logStatusFilter, page = logsPage) {
     setLogsLoading(true);
-    const params = statusFilter ? `?status=${statusFilter}` : "";
-    fetch(`/api/v1/admin/notifications/logs/${params}`, { credentials: "include", cache: "no-store" })
-      .then((r) => r.ok ? (r.json() as Promise<{ results?: NotificationLog[] } | NotificationLog[]>) : { results: [] })
+    const params = new URLSearchParams();
+    if (statusFilter) params.set("status", statusFilter);
+    params.set("page", String(page));
+    fetch(`/api/v1/admin/notifications/logs/?${params}`, { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? r.json() as Promise<{ results: NotificationLog[]; count: number; next: string | null; previous: string | null }> : { results: [], count: 0, next: null, previous: null })
       .then((data) => {
-        const items = Array.isArray(data) ? data : (data as { results?: NotificationLog[] }).results ?? [];
-        setLogs(items);
+        setLogs(data.results ?? []);
+        setLogsCount(data.count ?? 0);
+        setLogsNext(data.next ?? null);
+        setLogsPrev(data.previous ?? null);
       })
       .catch(() => setLogs([]))
       .finally(() => setLogsLoading(false));
   }
 
+  function loadAllLogs() {
+    // Fetch up to 1000 rows for dashboard aggregation — single call, no UI pagination
+    fetch(`/api/v1/admin/notifications/logs/?page_size=1000`, { credentials: "include", cache: "no-store" })
+      .then((r) => r.ok ? r.json() as Promise<{ results: NotificationLog[] }> : { results: [] })
+      .then((data) => setAllLogs(data.results ?? []))
+      .catch(() => setAllLogs([]));
+  }
+
   useEffect(() => {
-    if (activeTab === "logs" || activeTab === "dashboard") loadLogs();
+    if (activeTab === "logs") { setLogsPage(1); loadLogs(logStatusFilter, 1); }
+    if (activeTab === "dashboard") loadAllLogs();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
@@ -914,19 +933,19 @@ export default function NotificationsPage() {
         <>
           {/* ── Dashboard tab ── */}
           {activeTab === "dashboard" && (() => {
-            const totalLogs   = logs.length;
-            const sentLogs    = logs.filter((l) => l.status === "sent").length;
-            const failedLogs  = logs.filter((l) => l.status === "failed").length;
+            const totalLogs   = allLogs.length;
+            const sentLogs    = allLogs.filter((l) => l.status === "sent").length;
+            const failedLogs  = allLogs.filter((l) => l.status === "failed").length;
             const failRate    = totalLogs > 0 ? ((failedLogs / totalLogs) * 100).toFixed(1) : "0.0";
-            const recentFails = logs.filter((l) => l.status === "failed").slice(0, 8);
+            const recentFails = allLogs.filter((l) => l.status === "failed").slice(0, 8);
             // Channel failure counts
             const failByChannel: Record<string, number> = {};
-            logs.filter((l) => l.status === "failed").forEach((l) => {
+            allLogs.filter((l) => l.status === "failed").forEach((l) => {
               const k = l.channel_name ?? "Unknown";
               failByChannel[k] = (failByChannel[k] ?? 0) + 1;
             });
             const eventCounts: Record<string, number> = {};
-            logs.forEach((l) => { eventCounts[l.event_type] = (eventCounts[l.event_type] ?? 0) + 1; });
+            allLogs.forEach((l) => { eventCounts[l.event_type] = (eventCounts[l.event_type] ?? 0) + 1; });
 
             return (
               <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }}>
@@ -935,7 +954,7 @@ export default function NotificationsPage() {
                     <h2>Notification dashboard</h2>
                     <p>At-a-glance health of your notification pipeline.</p>
                   </div>
-                  <button className="secondary-button" style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={() => loadLogs()}>
+                  <button className="secondary-button" style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={() => loadAllLogs()}>
                     <Clock size={14} aria-hidden="true" /> Refresh
                   </button>
                 </div>
@@ -1319,7 +1338,8 @@ export default function NotificationsPage() {
                     onChange={(e) => {
                       const v = e.target.value as "" | "sent" | "failed";
                       setLogStatusFilter(v);
-                      loadLogs(v);
+                      setLogsPage(1);
+                      loadLogs(v, 1);
                     }}
                     style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "7px 10px", fontSize: ".83rem", background: "#fff" }}
                     aria-label="Filter log by status"
@@ -1328,7 +1348,7 @@ export default function NotificationsPage() {
                     <option value="sent">Sent only</option>
                     <option value="failed">Failed only</option>
                   </select>
-                  <button className="secondary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => loadLogs()}>
+                  <button className="secondary-button" style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={() => loadLogs(logStatusFilter, logsPage)}>
                     <Clock size={14} aria-hidden="true" /> Refresh
                   </button>
                 </div>
@@ -1342,55 +1362,80 @@ export default function NotificationsPage() {
                   No log entries {logStatusFilter ? `with status "${logStatusFilter}"` : "yet"}.
                 </div>
               ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
-                    <thead>
-                      <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
-                        {["Time", "Event", "Channel", "Ticket", "Status", "Error"].map((h) => (
-                          <th key={h} style={{ padding: "10px 14px", fontWeight: 800, color: "#475569", fontSize: ".74rem", textAlign: "left", textTransform: "uppercase", letterSpacing: ".07em", whiteSpace: "nowrap" }}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logs.map((log, i) => (
-                        <tr key={log.id} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 1 ? "#fafafa" : "#fff" }}>
-                          <td style={{ padding: "9px 14px", color: "#64748b", whiteSpace: "nowrap" }}>
-                            {new Date(log.created_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
-                          </td>
-                          <td style={{ padding: "9px 14px", color: "#0f172a", fontWeight: 600 }}>
-                            {EVENT_META[log.event_type as EventType]?.label ?? log.event_type}
-                          </td>
-                          <td style={{ padding: "9px 14px", color: "#475569" }}>
-                            {log.channel_name
-                              ? <><span style={{ marginRight: 5 }}>{CHANNEL_META[log.channel_type as ChannelType]?.emoji ?? "📢"}</span>{log.channel_name}</>
-                              : <span style={{ color: "#94a3b8" }}>—</span>}
-                          </td>
-                          <td style={{ padding: "9px 14px", color: "#475569", fontFamily: "ui-monospace,monospace", fontSize: ".78rem" }}>
-                            {log.ticket_reference ?? <span style={{ color: "#94a3b8" }}>—</span>}
-                          </td>
-                          <td style={{ padding: "9px 14px" }}>
-                            <span style={{
-                              display: "inline-flex", alignItems: "center", gap: 4,
-                              background: log.status === "sent" ? "#dcfce7" : "#fee2e2",
-                              color:      log.status === "sent" ? "#166534" : "#991b1b",
-                              borderRadius: 999, padding: "2px 9px", fontSize: ".74rem", fontWeight: 800,
-                            }}>
-                              {log.status === "sent"
-                                ? <CheckCircle2 size={10} aria-hidden="true" />
-                                : <XCircle size={10} aria-hidden="true" />}
-                              {log.status === "sent" ? "Sent" : "Failed"}
-                            </span>
-                          </td>
-                          <td style={{ padding: "9px 14px", color: "#991b1b", fontSize: ".76rem", maxWidth: 260, wordBreak: "break-word" }}>
-                            {log.error_message || <span style={{ color: "#94a3b8" }}>—</span>}
-                          </td>
+                <>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
+                      <thead>
+                        <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
+                          {["Time", "Event", "Channel", "Ticket", "Status", "Error"].map((h) => (
+                            <th key={h} style={{ padding: "10px 14px", fontWeight: 800, color: "#475569", fontSize: ".74rem", textAlign: "left", textTransform: "uppercase", letterSpacing: ".07em", whiteSpace: "nowrap" }}>
+                              {h}
+                            </th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {logs.map((log, i) => (
+                          <tr key={log.id} style={{ borderBottom: "1px solid #f1f5f9", background: i % 2 === 1 ? "#fafafa" : "#fff" }}>
+                            <td style={{ padding: "9px 14px", color: "#64748b", whiteSpace: "nowrap" }}>
+                              {new Date(log.created_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+                            </td>
+                            <td style={{ padding: "9px 14px", color: "#0f172a", fontWeight: 600 }}>
+                              {EVENT_META[log.event_type as EventType]?.label ?? log.event_type}
+                            </td>
+                            <td style={{ padding: "9px 14px", color: "#475569" }}>
+                              {log.channel_name
+                                ? <><span style={{ marginRight: 5 }}>{CHANNEL_META[log.channel_type as ChannelType]?.emoji ?? "📢"}</span>{log.channel_name}</>
+                                : <span style={{ color: "#94a3b8" }}>—</span>}
+                            </td>
+                            <td style={{ padding: "9px 14px", color: "#475569", fontFamily: "ui-monospace,monospace", fontSize: ".78rem" }}>
+                              {log.ticket_reference ?? <span style={{ color: "#94a3b8" }}>—</span>}
+                            </td>
+                            <td style={{ padding: "9px 14px" }}>
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: 4,
+                                background: log.status === "sent" ? "#dcfce7" : "#fee2e2",
+                                color:      log.status === "sent" ? "#166534" : "#991b1b",
+                                borderRadius: 999, padding: "2px 9px", fontSize: ".74rem", fontWeight: 800,
+                              }}>
+                                {log.status === "sent"
+                                  ? <CheckCircle2 size={10} aria-hidden="true" />
+                                  : <XCircle size={10} aria-hidden="true" />}
+                                {log.status === "sent" ? "Sent" : "Failed"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "9px 14px", color: "#991b1b", fontSize: ".76rem", maxWidth: 260, wordBreak: "break-word" }}>
+                              {log.error_message || <span style={{ color: "#94a3b8" }}>—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination controls */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 10 }}>
+                    <span style={{ fontSize: ".8rem", color: "#64748b" }}>
+                      Page {logsPage} of {Math.ceil(logsCount / 50) || 1} &mdash; {logsCount} total
+                    </span>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        disabled={!logsPrev}
+                        onClick={() => { const p = logsPage - 1; setLogsPage(p); loadLogs(logStatusFilter, p); }}
+                        style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #dbe2ee", background: logsPrev ? "#fff" : "#f8fafc", color: logsPrev ? "#234395" : "#94a3b8", fontWeight: 700, cursor: logsPrev ? "pointer" : "default", fontSize: ".83rem" }}
+                      >
+                        ← Prev
+                      </button>
+                      <button
+                        disabled={!logsNext}
+                        onClick={() => { const p = logsPage + 1; setLogsPage(p); loadLogs(logStatusFilter, p); }}
+                        style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #dbe2ee", background: logsNext ? "#fff" : "#f8fafc", color: logsNext ? "#234395" : "#94a3b8", fontWeight: 700, cursor: logsNext ? "pointer" : "default", fontSize: ".83rem" }}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </motion.div>
           )}

@@ -203,6 +203,10 @@ export default function SettingsPage() {
   const [scanLogsError,   setScanLogsError]   = useState("");
   const [scanLogFilter,   setScanLogFilter]   = useState<"" | "clean" | "infected" | "error" | "skipped">("");
   const [autoRefresh,     setAutoRefresh]     = useState(false);
+  const [scanLogsPage,    setScanLogsPage]    = useState(1);
+  const [scanLogsCount,   setScanLogsCount]   = useState(0);
+  const [scanLogsNext,    setScanLogsNext]    = useState<string | null>(null);
+  const [scanLogsPrev,    setScanLogsPrev]    = useState<string | null>(null);
 
   // ── Load both on mount ────────────────────────────────────────────────────
   useEffect(() => {
@@ -315,17 +319,22 @@ export default function SettingsPage() {
   }
 
   // ── Load scan logs ────────────────────────────────────────────────────────
-  async function loadScanLogs() {
+  async function loadScanLogs(page = scanLogsPage) {
     setScanLogsLoading(true);
     setScanLogsError("");
     try {
-      const params = scanLogFilter ? `?result=${scanLogFilter}` : "";
-      const res = await fetch(`/api/v1/admin/scan-logs/${params}`, {
+      const params = new URLSearchParams();
+      if (scanLogFilter) params.set("result", scanLogFilter);
+      params.set("page", String(page));
+      const res = await fetch(`/api/v1/admin/scan-logs/?${params}`, {
         credentials: "include", cache: "no-store",
       });
       if (!res.ok) { setScanLogsError("Failed to load scan logs."); return; }
-      const data = await res.json();
-      setScanLogs(Array.isArray(data.results) ? data.results : Array.isArray(data) ? data : []);
+      const data = await res.json() as { results: AttachmentScanLogItem[]; count: number; next: string | null; previous: string | null };
+      setScanLogs(data.results ?? []);
+      setScanLogsCount(data.count ?? 0);
+      setScanLogsNext(data.next ?? null);
+      setScanLogsPrev(data.previous ?? null);
     } catch {
       setScanLogsError("Network error loading scan logs.");
     } finally {
@@ -333,20 +342,21 @@ export default function SettingsPage() {
     }
   }
 
-  // Load logs when the scan tab is opened, and whenever filter changes
+  // Load logs when the scan tab is opened, and whenever filter changes (reset to page 1)
   useEffect(() => {
     if (tab !== "scan") return;
-    loadScanLogs();
+    setScanLogsPage(1);
+    loadScanLogs(1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, scanLogFilter]);
 
   // Auto-refresh interval (30 s) — cleared when toggled off or when leaving the tab
   useEffect(() => {
     if (tab !== "scan" || !autoRefresh) return;
-    const id = setInterval(loadScanLogs, 30_000);
+    const id = setInterval(() => loadScanLogs(scanLogsPage), 30_000);
     return () => clearInterval(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, autoRefresh, scanLogFilter]);
+  }, [tab, autoRefresh, scanLogFilter, scanLogsPage]);
 
   // ── Office hours helpers ──────────────────────────────────────────────────
   function updateHourRow(i: number, key: "day" | "hours", value: string) {
@@ -979,7 +989,7 @@ export default function SettingsPage() {
 
                     {/* Manual refresh */}
                     <button
-                      onClick={loadScanLogs}
+                      onClick={() => loadScanLogs(scanLogsPage)}
                       disabled={scanLogsLoading}
                       style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #dbe2ee", borderRadius: 8, padding: "6px 13px", background: "#f8fafc", cursor: "pointer", fontSize: ".82rem", fontWeight: 700, color: "#374151" }}
                       aria-label="Refresh scan logs"
@@ -999,6 +1009,7 @@ export default function SettingsPage() {
                     {scanLogFilter ? `No ${scanLogFilter} scan results found.` : "No scan log entries yet. Upload a file to trigger a scan."}
                   </div>
                 ) : (
+                  <>
                   <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #e2e8f0" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".83rem" }}>
                       <thead>
@@ -1052,6 +1063,32 @@ export default function SettingsPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Pagination controls */}
+                  {scanLogsCount > 50 && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, flexWrap: "wrap", gap: 10 }}>
+                      <span style={{ fontSize: ".8rem", color: "#64748b" }}>
+                        Page {scanLogsPage} of {Math.ceil(scanLogsCount / 50)} &mdash; {scanLogsCount} total
+                      </span>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          disabled={!scanLogsPrev}
+                          onClick={() => { const p = scanLogsPage - 1; setScanLogsPage(p); loadScanLogs(p); }}
+                          style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #dbe2ee", background: scanLogsPrev ? "#fff" : "#f8fafc", color: scanLogsPrev ? "#234395" : "#94a3b8", fontWeight: 700, cursor: scanLogsPrev ? "pointer" : "default", fontSize: ".83rem" }}
+                        >
+                          ← Prev
+                        </button>
+                        <button
+                          disabled={!scanLogsNext}
+                          onClick={() => { const p = scanLogsPage + 1; setScanLogsPage(p); loadScanLogs(p); }}
+                          style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #dbe2ee", background: scanLogsNext ? "#fff" : "#f8fafc", color: scanLogsNext ? "#234395" : "#94a3b8", fontWeight: 700, cursor: scanLogsNext ? "pointer" : "default", fontSize: ".83rem" }}
+                        >
+                          Next →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  </>
                 )}
               </div>
             </section>
