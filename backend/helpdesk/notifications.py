@@ -189,37 +189,49 @@ def send_to_channel(channel, event_type: str, context: dict, ticket=None) -> tup
                     pass
                 return True, 'No active template — skipped.'
 
-            # Admin chose "use default file template" — not supported for channel sends
-            # (channels need a stored subject/body; file templates have no subject).
-            # Treat use_file_fallback as skipped with a clear log entry.
+            # Admin chose "use default file template" — render the on-disk file and
+            # derive a subject from the event type so channel sends still work.
             if template.use_file_fallback:
                 try:
-                    NotificationLog.objects.create(
-                        channel=channel,
-                        event_type=event_type,
-                        ticket=ticket,
-                        status='failed',
-                        error_message=(
-                            f'Template "{template.name}" has use_file_fallback=True. '
-                            'Channel emails require a DB template with subject and body. '
-                            'Disable "Use default file template" on the template to send.'
-                        ),
+                    from django.template.loader import render_to_string
+                    body = render_to_string(f'email/{event_type}.html', context)
+                    # Derive a readable subject from context or event type name
+                    subject = (
+                        context.get('subject')
+                        or f"[IIC IT Helpdesk] {event_type.replace('_', ' ').title()}"
                     )
-                except Exception:
-                    pass
-                return True, 'Template set to use file fallback — skipped for channel send.'
-
-            to_email = context.get('to_email') or context.get('requester_email', '')
-            if not to_email:
-                return True, 'No recipient email — skipped.'
-
-            subject = render_template(template.subject_template, context)
-            body = render_template(template.body_html_template, context)
-
-            if ctype == 'email_smtp':
-                success, message = send_smtp(config, to_email, subject, body)
+                except Exception as exc:
+                    logger.warning(
+                        'send_to_channel[%s]: file fallback render failed: %s', event_type, exc
+                    )
+                    try:
+                        NotificationLog.objects.create(
+                            channel=channel, event_type=event_type, ticket=ticket,
+                            status='failed',
+                            error_message=f'File template render error: {exc}',
+                        )
+                    except Exception:
+                        pass
+                    return True, 'File template render failed — skipped.'
+                to_email = context.get('to_email') or context.get('requester_email', '')
+                if not to_email:
+                    return True, 'No recipient email — skipped.'
+                if ctype == 'email_smtp':
+                    success, message = send_smtp(config, to_email, subject, body)
+                else:
+                    success, message = send_mailgun(config, to_email, subject, body)
             else:
-                success, message = send_mailgun(config, to_email, subject, body)
+                to_email = context.get('to_email') or context.get('requester_email', '')
+                if not to_email:
+                    return True, 'No recipient email — skipped.'
+
+                subject = render_template(template.subject_template, context)
+                body = render_template(template.body_html_template, context)
+
+                if ctype == 'email_smtp':
+                    success, message = send_smtp(config, to_email, subject, body)
+                else:
+                    success, message = send_mailgun(config, to_email, subject, body)
 
     except Exception as exc:
         success, message = False, str(exc)
