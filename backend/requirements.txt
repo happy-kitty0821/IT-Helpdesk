@@ -7,6 +7,7 @@ celery[redis]==5.5.3
 Django==6.1.1
 django-rest==0.8.7
 djangorestframework==3.18.1
+dj-database-url==2.3.0
 drf-spectacular==0.30.0
 drf-spectacular-sidecar==2026.9.1
 google-auth==2.41.1
@@ -30,3 +31,16 @@ uritemplate==4.2.0
 urllib3==2.7.0
 whitenoise==6.12.0
 openpyxl==3.1.5
+
+# ── Database drivers ───────────────────────────────────────────────────────────
+# Uncomment the driver for your production database.
+# Only one driver is needed; leave the others commented out.
+#
+# PostgreSQL (recommended for production):
+#   psycopg2-binary==2.9.10
+#
+# MySQL / MariaDB:
+#   mysqlclient==2.2.4
+#
+# Pure-Python MySQL fallback (no compile step, slower than mysqlclient):
+#   PyMySQL==1.1.1

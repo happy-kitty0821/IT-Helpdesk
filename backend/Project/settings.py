@@ -83,11 +83,23 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'Project.wsgi.application'
 
+# ── Database ───────────────────────────────────────────────────────────────────
+# Reads DATABASE_URL from the environment if set; falls back to SQLite for
+# local development.  Set DATABASE_URL in production .env to switch engines
+# without touching this file.
+#
+# Examples (see .env.example for full reference):
+#   PostgreSQL: postgres://user:pass@localhost:5432/helpdesk
+#   MySQL:      mysql://user:pass@localhost:3306/helpdesk
+#   SQLite:     sqlite:///db.sqlite3  (relative to BASE_DIR)
+import dj_database_url as _dj_db_url  # noqa: E402
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': _dj_db_url.config(
+        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
+        conn_max_age=600,           # keep connections alive for 10 min (ignored for SQLite)
+        conn_health_checks=True,    # verify connection is alive before reuse
+    )
 }
 
 AUTH_PASSWORD_VALIDATORS = [
