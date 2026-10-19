@@ -1,0 +1,53 @@
+# =============================================================================
+# systemd service unit — IIC IT Helpdesk Celery Worker
+#
+# Handles: file attachment scanning, email delivery, SLA overdue checks,
+#          auto-close, and notification outbox retries.
+#
+# INSTALL
+# ───────
+#   sudo cp iic-helpdesk-celery-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now iic-helpdesk-celery-worker
+#
+# VIEW LOGS
+#   sudo journalctl -u iic-helpdesk-celery-worker -f
+# =============================================================================
+
+[Unit]
+Description=IIC IT Helpdesk — Celery Worker
+Documentation=https://github.com/happy-kitty0821/IT-Helpdesk
+After=network.target redis-server.service iic-helpdesk-backend.service
+Requires=redis-server.service
+Wants=iic-helpdesk-backend.service
+
+[Service]
+Type=simple
+
+User=iicapp
+Group=iicapp
+
+WorkingDirectory=/var/www/iic-app/backend
+EnvironmentFile=/var/www/iic-app/backend/.env
+
+ExecStart=/var/www/iic-app/backend/venv/bin/celery \
+    -A Project worker \
+    --loglevel=info \
+    --concurrency=2
+
+# Celery workers handle the SIGTERM shutdown signal themselves.
+# Give them up to 30 s to finish in-flight tasks before force-kill.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iic-helpdesk-celery-worker
+
+[Install]
+WantedBy=multi-user.target

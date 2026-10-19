@@ -1,0 +1,63 @@
+# =============================================================================
+# systemd service unit — IIC IT Helpdesk Next.js Frontend
+#
+# Runs the Next.js production server (pnpm start) on 127.0.0.1:3000.
+# Cloudflare Tunnel forwards public HTTPS traffic to this port.
+#
+# INSTALL
+# ───────
+#   sudo cp iic-helpdesk-frontend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now iic-helpdesk-frontend
+#
+# AFTER A FRONTEND REBUILD (pnpm build)
+#   sudo systemctl restart iic-helpdesk-frontend
+#
+# VIEW LOGS
+#   sudo journalctl -u iic-helpdesk-frontend -f
+# =============================================================================
+
+[Unit]
+Description=IIC IT Helpdesk — Next.js Frontend
+Documentation=https://github.com/happy-kitty0821/IT-Helpdesk
+After=network.target iic-helpdesk-backend.service
+Wants=iic-helpdesk-backend.service
+
+[Service]
+Type=simple
+
+User=iicapp
+Group=iicapp
+
+WorkingDirectory=/var/www/iic-app/frontend
+
+# Runtime environment
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+
+# DJANGO_INTERNAL_URL tells next.config.ts rewrites where to proxy API calls.
+# Uses the loopback address because backend runs on the same host.
+Environment=DJANGO_INTERNAL_URL=http://127.0.0.1:8000
+
+# Start Next.js production server via pnpm.
+# pnpm must be installed at the system level or under the iicapp user PATH.
+# Alternative if pnpm is not on PATH:
+#   ExecStart=/usr/bin/node node_modules/.bin/next start --hostname 127.0.0.1 --port 3000
+ExecStart=/usr/bin/pnpm start --hostname 127.0.0.1 --port 3000
+
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iic-helpdesk-frontend
+
+[Install]
+WantedBy=multi-user.target

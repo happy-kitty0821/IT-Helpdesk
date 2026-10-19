@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   skipTrailingSlashRedirect: true,
 
+  // Standalone output for Docker — produces a self-contained server bundle.
+  // Has no effect on local pnpm dev or pnpm build outside Docker.
+  output: "standalone",
+
   // ── Rewrite proxy timeout ──────────────────────────────────────────────────
   // Default is 10 s — insufficient for large file chunk uploads which write
   // to disk on the Django side.  Set to 0 to disable the timeout entirely

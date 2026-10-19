@@ -1,0 +1,55 @@
+# =============================================================================
+# systemd service unit — IIC IT Helpdesk Celery Beat Scheduler
+#
+# Fires periodic tasks:
+#   • check_stale_tickets         every 15 minutes
+#   • auto_close_resolved_tickets every hour
+#   • deliver_notification_outbox every 2 minutes
+#
+# IMPORTANT: run exactly ONE beat process per deployment.
+#            Multiple beat instances will fire duplicate tasks.
+#
+# INSTALL
+# ───────
+#   sudo cp iic-helpdesk-celery-beat.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now iic-helpdesk-celery-beat
+#
+# VIEW LOGS
+#   sudo journalctl -u iic-helpdesk-celery-beat -f
+# =============================================================================
+
+[Unit]
+Description=IIC IT Helpdesk — Celery Beat Scheduler
+Documentation=https://github.com/happy-kitty0821/IT-Helpdesk
+After=network.target redis-server.service iic-helpdesk-backend.service
+Requires=redis-server.service
+Wants=iic-helpdesk-backend.service
+
+[Service]
+Type=simple
+
+User=iicapp
+Group=iicapp
+
+WorkingDirectory=/var/www/iic-app/backend
+EnvironmentFile=/var/www/iic-app/backend/.env
+
+ExecStart=/var/www/iic-app/backend/venv/bin/celery \
+    -A Project beat \
+    --loglevel=info
+
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iic-helpdesk-celery-beat
+
+[Install]
+WantedBy=multi-user.target

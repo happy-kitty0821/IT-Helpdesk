@@ -9,3 +9,7 @@ frontend/.next/
 frontend/.env.local
 *.log
 .kiro
+
+# Docker
+.env.docker
+docker-compose.override.yml

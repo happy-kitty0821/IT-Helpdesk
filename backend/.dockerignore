@@ -1,0 +1,43 @@
+# backend/.dockerignore
+# Excludes files from the Docker build context (./backend)
+# to keep the image small and avoid leaking dev artifacts.
+
+# Virtual environment — rebuilt inside the image
+venv/
+.venv/
+
+# Compiled Python files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Secrets — never bake into image; injected at runtime via env_file
+.env
+.env.*
+!.env.example
+
+# Development database
+db.sqlite3
+
+# Test / coverage artifacts
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Logs (mounted as a volume)
+logs/
+*.log
+
+# Media uploads (mounted as a volume)
+media/
+
+# Collected static (regenerated at first run)
+staticfiles/

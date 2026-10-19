@@ -1,0 +1,196 @@
+# =============================================================================
+# docker-compose.yml — IIC IT Helpdesk
+# =============================================================================
+#
+# Services
+# ────────
+#   postgres       — PostgreSQL 16 (production database)
+#   redis          — Redis 7 (Celery broker + result backend)
+#   backend        — Django + Gunicorn (port 8000, internal only)
+#   celery-worker  — Celery task worker (same image as backend)
+#   celery-beat    — Celery beat scheduler (same image as backend)
+#   frontend       — Next.js production server (port 3000, exposed)
+#
+# Quick start
+# ──────────
+#   cp backend/.env.example backend/.env   # fill in values
+#   docker compose up --build
+#
+# First run (DB migrations + admin bootstrap):
+#   docker compose exec backend python manage.py migrate
+#   docker compose exec backend python manage.py bootstrap_admin
+#   docker compose exec backend python manage.py seed_rate_limits
+#   docker compose exec backend python manage.py collectstatic --noinput
+#
+# Environment
+# ───────────
+# All backend env vars are read from backend/.env via env_file.
+# Frontend build-time args are declared in the build.args section below.
+# Never commit backend/.env — it is in .gitignore.
+#
+# Volumes
+# ───────
+#   postgres-data  — PostgreSQL data directory (persistent)
+#   backend-media  — Uploaded files (shared between backend + frontend for /media/)
+#   backend-static — Collected static files
+#   backend-logs   — Gunicorn / Celery logs
+# =============================================================================
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-helpdesk}
+      POSTGRES_USER:     ${POSTGRES_USER:-helpdesk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-helpdesk} -d ${POSTGRES_DB:-helpdesk}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Postgres is NOT exposed to the host — only reachable inside the Docker network.
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Redis is NOT exposed to the host — only reachable inside the Docker network.
+
+  # ── Django backend ───────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override to use the Docker service names instead of 127.0.0.1
+      REDIS_URL:            redis://redis:6379/0
+      DATABASE_URL:         postgres://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-helpdesk}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+    volumes:
+      - backend-media:/app/media
+      - backend-static:/app/staticfiles
+      - backend-logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Backend is NOT exposed to the host — accessed only via the frontend proxy.
+
+  # ── Celery worker ────────────────────────────────────────────────────────────
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - Project
+      - worker
+      - --loglevel=info
+      - --concurrency=2
+    env_file:
+      - ./backend/.env
+    environment:
+      REDIS_URL:    redis://redis:6379/0
+      DATABASE_URL: postgres://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-helpdesk}
+    volumes:
+      - backend-media:/app/media
+      - backend-logs:/app/logs
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A Project inspect ping --timeout=5 2>&1 | grep -q pong || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+
+  # ── Celery beat ──────────────────────────────────────────────────────────────
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - Project
+      - beat
+      - --loglevel=info
+    env_file:
+      - ./backend/.env
+    environment:
+      REDIS_URL:    redis://redis:6379/0
+      DATABASE_URL: postgres://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-helpdesk}
+    volumes:
+      - backend-logs:/app/logs
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Only one beat process must ever run — restart: unless-stopped prevents
+    # duplicate beat instances if the container is briefly stopped and restarted.
+
+  # ── Next.js frontend ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        # The build-time proxy destination — must match the backend service name.
+        DJANGO_INTERNAL_URL:        http://backend:8000
+        # NEXT_PUBLIC_* vars are baked into the JS bundle at build time.
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        NEXT_PUBLIC_DJANGO_URL:       ${NEXT_PUBLIC_DJANGO_URL:-}
+        NEXT_PUBLIC_SITE_URL:         ${NEXT_PUBLIC_SITE_URL:-}
+    restart: unless-stopped
+    environment:
+      # Runtime proxy destination (reads by next.config.ts rewrites at request time)
+      DJANGO_INTERNAL_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+# =============================================================================
+volumes:
+  postgres-data:
+  redis-data:
+  backend-media:
+  backend-static:
+  backend-logs:

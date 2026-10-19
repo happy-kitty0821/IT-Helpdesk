@@ -1,0 +1,57 @@
+# =============================================================================
+# systemd service unit — IIC IT Helpdesk Django backend (Gunicorn)
+#
+# INSTALL
+# ───────
+#   sudo cp iic-helpdesk-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now iic-helpdesk-backend
+#
+# AFTER gunicorn.conf.py CHANGES
+#   sudo systemctl restart iic-helpdesk-backend
+#
+# VIEW LOGS
+#   sudo journalctl -u iic-helpdesk-backend -f
+# =============================================================================
+
+[Unit]
+Description=IIC IT Helpdesk — Django/Gunicorn Backend
+Documentation=https://github.com/happy-kitty0821/IT-Helpdesk
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=notify
+
+# Run as the application user — never root
+User=iicapp
+Group=iicapp
+
+WorkingDirectory=/var/www/iic-app/backend
+
+# Load all environment variables from .env
+EnvironmentFile=/var/www/iic-app/backend/.env
+
+# Gunicorn with gthread workers for concurrent SSE streams + file uploads.
+# Config is in gunicorn.conf.py (workers, threads, timeout, bind address).
+ExecStart=/var/www/iic-app/backend/venv/bin/gunicorn \
+    Project.wsgi:application \
+    --config /var/www/iic-app/backend/gunicorn.conf.py
+
+# Graceful shutdown: SIGTERM → wait graceful_timeout seconds → SIGKILL
+KillSignal=SIGTERM
+TimeoutStopSec=40
+
+# Restart automatically on unexpected exit (not on clean stop or SIGTERM)
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Logging — captured by systemd journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iic-helpdesk-backend
+
+[Install]
+WantedBy=multi-user.target

@@ -39,7 +39,7 @@ Gunicorn does not support Windows. Waitress is the recommended production WSGI s
 
 ```powershell
 # 1. Clone the repo
-git clone https://github.com/your-org/iic-helpdesk.git C:\iic-helpdesk
+git clone https://github.com/happy-kitty0821/IT-Helpdesk.git C:\iic-helpdesk
 Set-Location C:\iic-helpdesk
 
 # 2. Copy and fill in environment variables

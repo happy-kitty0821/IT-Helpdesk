@@ -249,10 +249,16 @@ IIC-IT Helpdesk/
 │
 ├── k6/                               ← 13 performance + functional test files
 ├── deploy/
-│   ├── iic-helpdesk-backend.service  ← systemd unit (Linux)
-│   ├── windows-deploy.ps1            ← Windows deployment script (NSSM)
-│   ├── windows-services-readme.md    ← Windows service documentation
-│   └── README.md                     ← Server config (Nginx, Gunicorn, cloudflared)
+│   ├── linux/
+│   │   ├── iic-helpdesk-backend.service     ← systemd: Django/Gunicorn
+│   │   ├── iic-helpdesk-celery-worker.service ← systemd: Celery worker
+│   │   ├── iic-helpdesk-celery-beat.service  ← systemd: Celery beat
+│   │   ├── iic-helpdesk-frontend.service     ← systemd: Next.js
+│   │   └── README.md                         ← Linux install guide
+│   ├── windows/
+│   │   ├── windows-deploy.ps1               ← Windows deployment script (NSSM)
+│   │   └── README.md                        ← Windows service documentation
+│   └── README.md                            ← Deployment method overview
 │
 ├── cloudflared-config.yml            ← Tunnel config
 ├── Jenkinsfile                       ← CI/CD pipeline
@@ -648,7 +654,7 @@ scan_state = infected  →  alert email sent  →  file blocked (if auto_block_i
 
 ## 17. Deployment — Linux
 
-See `deploy/README.md` for detailed server config. Quick reference:
+See `deploy/linux/README.md` for detailed server config. Quick reference:
 
 ```bash
 # 1. Cloudflare Tunnel
@@ -687,10 +693,10 @@ Set-Location "C:\iic-helpdesk"
 Copy-Item backend\.env.example backend\.env
 notepad backend\.env                         # Fill in values
 
-.\deploy\windows-deploy.ps1                  # Full deploy
-.\deploy\windows-deploy.ps1 -SkipBuild       # Backend-only re-deploy
-.\deploy\windows-deploy.ps1 -SkipTests       # Skip test run
-.\deploy\windows-deploy.ps1 -Uninstall       # Remove all services
+.\deploy\windows\windows-deploy.ps1                  # Full deploy
+.\deploy\windows\windows-deploy.ps1 -SkipBuild       # Backend-only re-deploy
+.\deploy\windows\windows-deploy.ps1 -SkipTests       # Skip test run
+.\deploy\windows\windows-deploy.ps1 -Uninstall       # Remove all services
 ```
 
 **Services registered:**
@@ -707,7 +713,7 @@ Get-Service iic-helpdesk-*          # Check status
 Get-Content logs\backend-stdout.log -Tail 50   # View logs
 ```
 
-See `deploy/windows-services-readme.md` for full documentation.
+See `deploy/windows/README.md` for full documentation.
 
 ---
 

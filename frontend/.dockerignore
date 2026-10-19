@@ -1,0 +1,22 @@
+# frontend/.dockerignore
+# Excludes files from the Docker build context (./frontend)
+
+# Dependencies — reinstalled inside the image
+node_modules/
+
+# Next.js build output — rebuilt inside the image
+.next/
+
+# Secrets
+.env.local
+.env.development
+.env.production
+.env
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
