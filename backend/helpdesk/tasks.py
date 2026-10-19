@@ -174,34 +174,23 @@ def check_stale_tickets(self):
         }
 
         # Determine who to notify
-        recipient_emails: list[str] = []
-
-        if ticket.assigned_to:
-            # Assigned — alert the assignee
-            if ticket.assigned_to.email:
-                recipient_emails.append(ticket.assigned_to.email)
-            # On escalation, also loop in service leads
-            if is_escalation:
-                recipient_emails += _get_service_lead_emails()
-        else:
-            # Unassigned — always go to service leads / admins
-            recipient_emails = _get_service_lead_emails()
-
-        # Deduplicate while preserving order
-        seen: set[str] = set()
-        unique_recipients = [e for e in recipient_emails
-                             if e not in seen and not seen.add(e)]  # type: ignore[func-returns-value]
-
-        for email in unique_recipients:
-            try:
-                ctx = dict(context)
-                ctx['to_email'] = email
-                send_event('ticket_stale', ctx, ticket=ticket)
-            except Exception as exc:
-                logger.exception(
-                    'Failed to send ticket_stale alert for %s to %s: %s',
-                    ticket.reference, email, exc,
-                )
+        # Previously the task built its own recipient list (assignee + service
+        # leads on escalation) and called send_event once per address.  That
+        # caused duplicate emails because send_event also resolves recipients
+        # through the NotificationRule system (via _resolve_recipients).
+        #
+        # Fix: call send_event exactly once per ticket and let the rule system
+        # own all recipient resolution — identical to every other event type.
+        # The escalation flag is included in context so rules / templates can
+        # use it (e.g. a custom-recipients rule can add service leads on
+        # escalation by checking {{is_escalation}} in the template).
+        try:
+            send_event('ticket_stale', context, ticket=ticket)
+        except Exception as exc:
+            logger.exception(
+                'Failed to send ticket_stale alert for %s: %s',
+                ticket.reference, exc,
+            )
 
         # Update ticket fields
         ticket.is_overdue          = True
