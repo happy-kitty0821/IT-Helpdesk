@@ -41,7 +41,7 @@ param(
     [switch]$Uninstall,   # Stop + remove all four services; preserves data
     [switch]$SkipBuild,   # Skip frontend pnpm install + build
     [switch]$SkipTests,   # Skip Django test suite
-    [string]$AppDir = (Split-Path -Parent $PSScriptRoot)
+    [string]$AppDir = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 )
 
 # ── Strict mode — catch undefined variables ───────────────────────────────────
@@ -202,18 +202,19 @@ function Read-EnvFile([string]$Path) {
 # Parse REDIS_URL and validate connectivity using redis-cli with the
 # correct host/port/auth, without printing the password to the console.
 function Test-RedisConnectivity([string]$RedisUrl) {
-    # Default values
-    $host   = '127.0.0.1'
-    $port   = '6379'
-    $pass   = ''
-    $db     = '0'
+    # Default values -- use $redisHost to avoid conflict with PowerShell's
+    # built-in read-only $Host automatic variable.
+    $redisHost = '127.0.0.1'
+    $redisPort = '6379'
+    $redisPass = ''
+    $redisDb   = '0'
 
     # Parse redis://[:password@]host[:port][/db]
     if ($RedisUrl -match '^redis://(:[^@]+@)?([^:/]+)(:(\d+))?(/(\d+))?') {
-        if ($Matches[1]) { $pass = $Matches[1].TrimStart(':').TrimEnd('@') }
-        $host = $Matches[2]
-        if ($Matches[4]) { $port = $Matches[4] }
-        if ($Matches[6]) { $db   = $Matches[6] }
+        if ($Matches[1]) { $redisPass = $Matches[1].TrimStart(':').TrimEnd('@') }
+        $redisHost = $Matches[2]
+        if ($Matches[4]) { $redisPort = $Matches[4] }
+        if ($Matches[6]) { $redisDb   = $Matches[6] }
     }
 
     $redisCli = Get-Command 'redis-cli' -ErrorAction SilentlyContinue
@@ -225,13 +226,13 @@ function Test-RedisConnectivity([string]$RedisUrl) {
 
     # Build args — do NOT include password in plain text if avoidable.
     # redis-cli supports REDISCLI_AUTH env var to avoid shell history exposure.
-    $env:REDISCLI_AUTH = $pass
+    $env:REDISCLI_AUTH = $redisPass
     try {
-        $result = & redis-cli -h $host -p $port -n $db PING 2>&1
+        $result = & redis-cli -h $redisHost -p $redisPort -n $redisDb PING 2>&1
         if ($result -match 'PONG') {
             return $true
         }
-        Write-Fail "Redis at ${host}:${port}/db${db} did not return PONG (got: $result)"
+        Write-Fail "Redis at ${redisHost}:${redisPort}/db${redisDb} did not return PONG (got: $result)"
         return $false
     } finally {
         # Clear password from environment
@@ -701,7 +702,7 @@ if (-not $backendOk) {
 }
 
 # Redis: re-check after services are running
-$env:REDISCLI_AUTH = $EnvVars['REDIS_URL']   # not the password — just preventing empty-var error
+# Test-RedisConnectivity handles auth internally via REDISCLI_AUTH env var.
 if (Test-RedisConnectivity $redisUrl) {
     Write-OK 'Redis health check passed'
 } else {

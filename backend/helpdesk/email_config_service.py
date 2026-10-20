@@ -209,3 +209,58 @@ def get_effective_mailer() -> dict:
     if t and '_mailer' in t:
         return t['_mailer']
     return _env_mailer_dict()
+
+
+def is_real_smtp_configured() -> bool:
+    """
+    Return True when a real outgoing transport (SMTP or Mailgun) is available.
+
+    Returns False when only the console or dummy backend is configured,
+    meaning emails would only be printed to stdout and never actually sent.
+
+    Used by bootstrap_admin to decide whether to send immediately or queue
+    the welcome email in NotificationOutbox for later delivery.
+    """
+    # 1. Any active NotificationChannel email rule → real SMTP/Mailgun
+    try:
+        from .models import NotificationChannel
+        if NotificationChannel.objects.filter(
+            type__in=('email_smtp', 'email_mailgun'),
+            is_active=True,
+        ).exists():
+            return True
+    except Exception:
+        pass
+
+    # 2. Active EmailConfiguration DB row → real transport
+    db = _db_config_transport()
+    if db:
+        mailer_backend = db.get('_mailer', {}).get('BACKEND', '')
+        fake_backends = (
+            'django.core.mail.backends.console.EmailBackend',
+            'django.core.mail.backends.dummy.EmailBackend',
+            'django.core.mail.backends.locmem.EmailBackend',
+            'django.core.mail.backends.filebased.EmailBackend',
+        )
+        if mailer_backend not in fake_backends:
+            return True
+
+    # 3. .env MAILERS["default"]
+    mailer = _env_mailer_dict()
+    env_backend = mailer.get('BACKEND', '')
+    fake_backends = (
+        'django.core.mail.backends.console.EmailBackend',
+        'django.core.mail.backends.dummy.EmailBackend',
+        'django.core.mail.backends.locmem.EmailBackend',
+        'django.core.mail.backends.filebased.EmailBackend',
+    )
+    if env_backend == _SMTP_BACKEND or env_backend not in fake_backends:
+        # If it's the real SMTP backend, also check that a host is configured
+        opts = mailer.get('OPTIONS', {})
+        host = opts.get('host', 'localhost')
+        if host and host not in ('localhost', '127.0.0.1'):
+            return True
+        # If host is localhost it's probably the dev default — treat as fake
+        return False
+
+    return False

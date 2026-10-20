@@ -94,13 +94,25 @@ WSGI_APPLICATION = 'Project.wsgi.application'
 #   SQLite:     sqlite:///db.sqlite3  (relative to BASE_DIR)
 import dj_database_url as _dj_db_url  # noqa: E402
 
-DATABASES = {
-    'default': _dj_db_url.config(
-        default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
-        conn_max_age=600,           # keep connections alive for 10 min (ignored for SQLite)
-        conn_health_checks=True,    # verify connection is alive before reuse
-    )
-}
+_database_url = os.environ.get('DATABASE_URL', '').strip()
+
+if _database_url:
+    # A DATABASE_URL is explicitly set — parse it (PostgreSQL, MySQL, etc.)
+    DATABASES = {
+        'default': _dj_db_url.parse(
+            _database_url,
+            conn_max_age=600,        # persistent connections (ignored for SQLite)
+            conn_health_checks=True,
+        )
+    }
+else:
+    # No DATABASE_URL — use SQLite for local development / Windows standalone
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
