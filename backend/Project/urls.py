@@ -17,12 +17,29 @@ Including another URLconf
 from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
-from django.urls import include, path
+from django.urls import include, path, re_path
+from django.views.static import serve
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/', include('helpdesk.urls')),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Serve media files directly from Django.
+#
+# When Nginx is available: set MEDIA_ACCEL_REDIRECT=true in .env — Nginx
+# handles /media/ via X-Accel-Redirect and Django never touches the bytes.
+#
+# Without Nginx (Cloudflare Tunnel → Next.js → Django, or local dev):
+# Django serves the files itself.  Downloads are still auth-gated by the
+# individual download views — this pattern only exposes the URL routing,
+# not the files directly.  WhiteNoise does not cover MEDIA_ROOT, so we
+# use django.views.static.serve regardless of DEBUG.
+if not settings.MEDIA_ACCEL_REDIRECT:
+    urlpatterns += [
+        re_path(
+            r'^media/(?P<path>.*)$',
+            serve,
+            {'document_root': settings.MEDIA_ROOT},
+        ),
+    ]

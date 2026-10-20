@@ -274,7 +274,7 @@ export default function AnnouncementsPage() {
       {/* Two-column layout when editor is open */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: isOpen ? "1fr 400px" : "1fr",
+        gridTemplateColumns: isOpen ? "minmax(0, 1fr) min(400px, 100%)" : "1fr",
         gap: 24,
         alignItems: "start",
         transition: "grid-template-columns 220ms ease",
@@ -468,6 +468,14 @@ export default function AnnouncementsPage() {
               exit={{ opacity: 0, x: 20, scale: 0.98 }}
               transition={{ type: "spring", stiffness: 340, damping: 32 }}
               aria-label={creating ? "New announcement" : "Edit announcement"}
+              style={{
+                position: "sticky",
+                top: 22,
+                maxHeight: "calc(100vh - 60px)",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
             >
               {/* Panel header */}
               <header>
@@ -483,7 +491,7 @@ export default function AnnouncementsPage() {
               </header>
 
               <form onSubmit={submit} style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 18, padding: "20px 22px", flex: 1 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "16px 20px", flex: 1 }}>
 
                   {error && (
                     <p role="alert" style={{

@@ -411,7 +411,17 @@ function MessageThread({
       </h2>
 
       {/* Thread */}
-      <div role="log" aria-live="polite" aria-label="Message thread">
+      <div
+        role="log"
+        aria-live="polite"
+        aria-label="Message thread"
+        style={{
+          maxHeight: 460,
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          paddingRight: 4,
+        }}
+      >
         {messages.length === 0 ? (
           <div style={{ textAlign: "center", padding: "24px 0", color: "#94a3b8" }}>
             <MessageSquare size={28} style={{ margin: "0 auto 8px", display: "block" }} aria-hidden="true" />
