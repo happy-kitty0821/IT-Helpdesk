@@ -11,8 +11,8 @@ const ROUTE_ROLES: Array<{ prefix: string; allowed: string[] }> = [
   { prefix: "/admin/guides",        allowed: ["administrator", "service_lead", "content_editor", "superuser"] },
   { prefix: "/admin/software",      allowed: ["administrator", "service_lead", "content_editor", "superuser"] },
   { prefix: "/admin",               allowed: [
-      "administrator", "service_lead", "it_agent", "it_noc_intern",
-      "designated_approver", "content_editor", "superuser",
+      "administrator", "service_lead",
+      "designated_approver", "superuser",
     ],
   },
 ];
@@ -34,6 +34,38 @@ const NON_STAFF_FALLBACK = "/";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // ── Block direct browser navigation to /api/v1/* ──────────────────────────
+  // If a user types an API URL into the browser address bar, redirect them to
+  // the home page instead of showing the DRF JSON response (or worse, the
+  // browsable API HTML in development).
+  //
+  // Browser navigations send Accept: text/html as their primary preference.
+  // fetch()/XHR calls from the frontend send Accept: */* or application/json
+  // and must pass through untouched.
+  //
+  // Swagger/Redoc documentation endpoints are exempted — they are intentionally
+  // HTML and are protected by Django's own auth.
+  if (pathname.startsWith("/api/v1/")) {
+    const isDocPath =
+      pathname.startsWith("/api/v1/api/docs") ||
+      pathname.startsWith("/api/v1/api/redoc") ||
+      pathname.startsWith("/api/v1/api/schema");
+
+    if (!isDocPath) {
+      const accept = request.headers.get("accept") ?? "";
+      const isBrowserNav =
+        accept.startsWith("text/html") ||
+        accept.includes("text/html,application/xhtml+xml");
+
+      if (isBrowserNav) {
+        const home = new URL("/", request.url);
+        return NextResponse.redirect(home, { status: 302 });
+      }
+    }
+    return NextResponse.next();
+  }
+
+  // ── Admin route permission guard ──────────────────────────────────────────
   if (!pathname.startsWith("/admin")) return NextResponse.next();
 
   const djangoBase = process.env.DJANGO_INTERNAL_URL ?? "http://127.0.0.1:8000";
@@ -97,5 +129,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/api/v1/:path*"],
 };
