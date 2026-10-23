@@ -724,10 +724,25 @@ class NotificationTests(APITestCase):
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_notification_log_created_on_ticket_creation(self):
-        from helpdesk.models import NotificationChannel, NotificationLog, ServiceCategory
+        """
+        Ticket creation queues a notification in NotificationOutbox (email channels)
+        or fires a daemon thread (webhook channels).
+
+        This test uses an email channel to verify the outbox-based async path.
+        The outbox row is written synchronously during ticket creation; Celery
+        delivers it and creates a NotificationLog later.
+        """
+        from helpdesk.models import NotificationChannel, NotificationOutbox, ServiceCategory
+        # Use an email channel so send_event writes to NotificationOutbox.
+        # Webhook channels (Discord/Slack) use daemon threads instead.
         NotificationChannel.objects.create(
-            type='discord', name='Log Test Discord', is_active=True,
-            config={'webhook_url': 'https://invalid-url-for-test.local/webhook'}
+            type='email_smtp', name='Log Test SMTP', is_active=True,
+            config={
+                'host': 'smtp.example.com', 'port': 587,
+                'username': 'test@example.com', 'password': 'testpass',
+                'from_email': 'test@example.com',
+                'use_tls': True, 'use_ssl': False,
+            }
         )
         cat, _ = ServiceCategory.objects.get_or_create(
             slug='test-notif-cat',
@@ -742,12 +757,17 @@ class NotificationTests(APITestCase):
         r = self.client.post('/api/v1/tickets/', {
             'category': cat.id,
             'subject': 'Notification log test ticket',
-            'description': 'Testing that notification log is created on ticket save.',
+            'description': 'Testing that notification outbox is created on ticket save.',
             'priority': 'p3',
             'extra_fields': {},
         }, format='json')
         self.assertEqual(r.status_code, 201)
-        self.assertTrue(NotificationLog.objects.filter(event_type='ticket_submitted').exists())
+        # Outbox row is created synchronously in the signal handler.
+        # NotificationLog is written later by the Celery deliver_notification_outbox task.
+        self.assertTrue(
+            NotificationOutbox.objects.filter(event_type='ticket_submitted').exists(),
+            'Expected a NotificationOutbox row for ticket_submitted after ticket creation.'
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
