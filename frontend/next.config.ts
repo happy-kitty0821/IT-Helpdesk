@@ -22,10 +22,32 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // All pages: allow same-origin framing, block cross-origin.
+        // All pages: security headers
         source: "/(.*)",
         headers: [
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-Frame-Options",           value: "SAMEORIGIN" },
+          { key: "X-Content-Type-Options",     value: "nosniff" },
+          { key: "Referrer-Policy",            value: "strict-origin-when-cross-origin" },
+          // CSP for Next.js pages.
+          // 'unsafe-inline' on style-src is required because Next.js injects
+          // critical CSS via <style> tags in the document head at SSR time.
+          // script-src includes accounts.google.com for Google Sign-In.
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' https://accounts.google.com 'unsafe-eval'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob:",
+              "font-src 'self'",
+              "connect-src 'self'",
+              "frame-src 'self' https://accounts.google.com",
+              "frame-ancestors 'self'",
+              "form-action 'self'",
+              "base-uri 'self'",
+              "object-src 'none'",
+            ].join("; "),
+          },
         ],
       },
       {
@@ -34,7 +56,9 @@ const nextConfig: NextConfig = {
         source: "/media/:path*",
         headers: [
           { key: "Cross-Origin-Opener-Policy", value: "unsafe-none" },
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-Frame-Options",            value: "SAMEORIGIN" },
+          { key: "X-Content-Type-Options",     value: "nosniff" },
+          { key: "Referrer-Policy",            value: "strict-origin-when-cross-origin" },
         ],
       },
     ];

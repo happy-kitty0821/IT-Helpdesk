@@ -363,7 +363,7 @@ class TicketListCreate(generics.ListCreateAPIView):
         user = self.request.user
         roles = get_user_roles(user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         # Superusers always see all tickets even if they have no explicit RoleGrant
         is_staff = user.is_superuser or bool(roles.intersection(staff_roles))
         if is_staff:
@@ -614,7 +614,7 @@ class TicketDetail(generics.RetrieveUpdateAPIView):
         user = self.request.user
         roles = get_user_roles(user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         qs = Ticket.objects.select_related('category', 'requester', 'assigned_to')
         is_staff = user.is_superuser or bool(roles.intersection(staff_roles))
         if is_staff:
@@ -631,11 +631,22 @@ class TicketDetail(generics.RetrieveUpdateAPIView):
         from .permissions import get_user_roles
         roles = get_user_roles(self.request.user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         if not roles.intersection(staff_roles):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied('Only staff may update ticket details.')
 
+
+        # Defense-in-depth: restricted-category tickets may only be patched
+        # by the assigned agent, service leads, or admins — not just any staff.
+        _privileged = {'administrator', 'service_lead'}
+        if (ticket is not None
+                and not self.request.user.is_superuser
+                and not roles.intersection(_privileged)
+                and getattr(getattr(ticket, 'category', None), 'is_restricted', False)
+                and getattr(ticket, 'assigned_to_id', None) != self.request.user.pk):
+            from rest_framework.exceptions import PermissionDenied as _RestrictedPD
+            raise _RestrictedPD('You are not assigned to this restricted ticket.')
     def partial_update(self, request, *args, **kwargs):
         ticket = self.get_object()
         self.check_patch_permission(ticket)
@@ -708,7 +719,7 @@ class TicketStatusView(APIView):
 
         roles = get_user_roles(request.user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         is_staff    = bool(roles.intersection(staff_roles))
         is_requester = ticket.requester_id == request.user.pk
 
@@ -1564,7 +1575,7 @@ class TicketMessageListCreate(APIView):
         from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
         roles = get_user_roles(request.user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         is_staff = bool(roles.intersection(staff_roles))
 
         try:
@@ -2021,7 +2032,7 @@ class TicketAttachmentListView(APIView):
     def _get_ticket_and_check_access(self, request, pk):
         from .permissions import get_user_roles
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         roles = get_user_roles(request.user)
         is_staff = bool(roles.intersection(staff_roles))
         try:
@@ -2065,7 +2076,7 @@ class TicketEventListView(APIView):
 
         roles = get_user_roles(request.user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         is_staff = bool(roles.intersection(staff_roles)) or request.user.is_superuser
 
         try:
@@ -3692,7 +3703,7 @@ class TicketStreamView(View):
 
         roles = get_user_roles(request.user)
         staff_roles = {"administrator", "service_lead", "it_agent", "it_noc_intern",
-                       "content_editor", "designated_approver"}
+                       "designated_approver"}  # content_editor removed
         is_staff = request.user.is_superuser or bool(roles.intersection(staff_roles))
 
         if is_staff:
@@ -4547,28 +4558,30 @@ class ForgotPasswordView(APIView):
 
         email = (request.data.get('email') or '').strip().lower()
         if not email:
-            return _ok
+           return _ok
 
         User = get_user_model()
+        eligible_user = None
         try:
-            user = User.objects.select_related('profile').get(
-                email__iexact=email, is_active=True
-            )
+           candidate = User.objects.select_related('profile').get(
+               email__iexact=email, is_active=True
+           )
+           # Only verified, non-suspended accounts can request a reset
+           try:
+               profile = candidate.profile
+               if not profile.is_suspended and profile.email_verified:
+                   eligible_user = candidate
+           except Exception:
+               pass  # no profile — treated as ineligible
         except User.DoesNotExist:
-            return _ok
+           # Timing defence: always perform a dummy set_password so response
+           # time is indistinguishable regardless of whether the account exists.
+           User().set_password(email)
 
-        # Only verified, non-suspended accounts can request a reset
-        try:
-            profile = user.profile
-            if profile.is_suspended or not profile.email_verified:
-                return _ok
-        except Exception:
-            return _ok
-
-        raw_token, _instance = PasswordResetToken.create_for_user(user)
-        _send_password_reset_email(user, raw_token)
+        if eligible_user is not None:
+           raw_token, _instance = PasswordResetToken.create_for_user(eligible_user)
+           _send_password_reset_email(eligible_user, raw_token)
         return _ok
-
 
 class ResetPasswordView(APIView):
     """
@@ -4855,25 +4868,29 @@ class TicketApprovalView(APIView):
             return None
 
     def get(self, request, pk):
-        from .models import Approval
-        ticket = self._get_ticket(pk)
-        if ticket is None:
-            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+     def get(self, request, pk):
+         from .models import Approval
+         from .permissions import get_user_roles, user_has_intern_scope_only, get_intern_scope_slugs
+         ticket = self._get_ticket(pk)
+         if ticket is None:
+             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        approval = Approval.objects.filter(ticket=ticket).order_by('-created_at').first()
-        if approval is None:
-            return Response({'detail': 'No approval record for this ticket.'}, status=status.HTTP_404_NOT_FOUND)
-
-        return Response({
-            'id':           approval.pk,
-            'ticket':       str(ticket.pk),
-            'decision':     approval.decision,
-            'reason':       approval.reason,
-            'requested_by': approval.requested_by.get_full_name() if approval.requested_by else None,
-            'approver':     approval.approver.get_full_name() if approval.approver else None,
-            'decided_at':   approval.decided_at.isoformat() if approval.decided_at else None,
-            'created_at':   approval.created_at.isoformat(),
-        })
+         # Scope check: only staff who can legitimately access this ticket may read its approval.
+         # service_lead/admin see all; interns scoped to category; others need assignment.
+         roles = get_user_roles(request.user)
+         privileged = {'administrator', 'service_lead'}
+         if not request.user.is_superuser and not roles.intersection(privileged):
+             # Interns: must be within their category scope
+             if user_has_intern_scope_only(request.user):
+                 if ticket.category and ticket.category.slug not in get_intern_scope_slugs():
+                     return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+             else:
+                 # Other IT staff: must be the assigned agent or the designated approver on record
+                 is_approver = Approval.objects.filter(
+                     ticket=ticket, approver=request.user
+                 ).exists()
+                 if ticket.assigned_to_id != request.user.pk and not is_approver:
+                     return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     def post(self, request, pk):
         """Create an approval request and move ticket to waiting_approval."""
@@ -5057,7 +5074,7 @@ class TicketFeedbackView(APIView):
 
         roles = get_user_roles(request.user)
         staff_roles = {'administrator', 'service_lead', 'it_agent', 'it_noc_intern',
-                       'content_editor', 'designated_approver'}
+                       'designated_approver'}  # content_editor removed — no ticket access needed
         is_staff = bool(roles.intersection(staff_roles)) or request.user.is_superuser
 
         if not is_staff and ticket.requester_id != request.user.pk:

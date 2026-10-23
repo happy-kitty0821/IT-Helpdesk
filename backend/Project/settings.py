@@ -61,9 +61,25 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'Project.middleware.MediaCoopMiddleware',
+    'Project.middleware.SecurityHeadersMiddleware',
 ]
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
+
+# ── Security headers (Django SecurityMiddleware) ───────────────────────────────
+# X-Content-Type-Options: nosniff — prevents browsers from MIME-sniffing
+# responses away from the declared content-type.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# Strict-Transport-Security — only set in production (requires HTTPS).
+# In development (DEBUG=True) this would break the HTTP dev server.
+if not DEBUG:
+    SECURE_HSTS_SECONDS       = 31536000   # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD       = True
+    # Redirect all HTTP → HTTPS (behind Cloudflare Tunnel this is safe;
+    # cloudflared only forwards HTTPS, so plain HTTP never reaches Django).
+    SECURE_SSL_REDIRECT       = False  # Cloudflare handles TLS — don't double-redirect
 ROOT_URLCONF = 'Project.urls'
 
 TEMPLATES = [
@@ -169,6 +185,20 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # In production (DEBUG=False) only return JSON — never the DRF browsable
+    # HTML interface.  This prevents external users from browsing the API,
+    # discovering endpoints, or using the built-in login form.
+    # In development the browsable renderer is kept for convenience.
+    'DEFAULT_RENDERER_CLASSES': (
+        [
+            'rest_framework.renderers.JSONRenderer',
+            'rest_framework.renderers.BrowsableAPIRenderer',
+        ]
+        if DEBUG else
+        [
+            'rest_framework.renderers.JSONRenderer',
+        ]
+    ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_RATES': {
