@@ -257,54 +257,93 @@ def send_to_channel(channel, event_type: str, context: dict, ticket=None) -> tup
 
 def send_event(event_type: str, context: dict, ticket=None):
     """
-    Send notifications to channels that have an active rule for this event.
+    Queue notifications to channels that have an active rule for this event.
+
+    Email channels (email_smtp / email_mailgun):
+        Write a NotificationOutbox row per recipient — delivery is handled
+        asynchronously by the deliver_notification_outbox Celery beat task
+        (runs every 2 minutes, retries with exponential back-off).
+        This means ticket creation / status changes complete instantly;
+        the email arrives a few seconds later at most.
+
+    Webhook channels (Discord, Teams, Slack, Google Workspace):
+        Dispatched in a daemon thread — fire-and-forget, no retry needed.
+        These are non-critical alerts; a dropped webhook is acceptable.
+
     Falls back to all active channels if no rules exist for this event
-    (backward-compatible: behaves like before if no rules are configured).
+    (backward-compatible with unconfigured deployments).
     """
-    from .models import NotificationChannel, NotificationRule
+    import threading
+    from .models import NotificationChannel, NotificationRule, NotificationOutbox
 
     rules = NotificationRule.objects.filter(
         event_type=event_type, is_active=True
     ).select_related('channel')
 
+    def _dispatch_webhook(channel, ctx):
+        """Send a webhook notification in a daemon thread."""
+        try:
+            send_to_channel(channel, event_type, ctx, ticket=ticket)
+        except Exception as exc:
+            logger.exception(
+                'Webhook send failed for channel %s event %s: %s',
+                channel.id, event_type, exc,
+            )
+
+    def _queue_email(channel, recipient_email, ctx, rule=None):
+        """Write one NotificationOutbox row — Celery delivers it asynchronously."""
+        from .email_dispatch import _resolve_template
+        try:
+            resolved_subject, _ = _resolve_template(event_type, ctx)
+            subject = resolved_subject or f'[IIC IT Helpdesk] {event_type.replace("_", " ").title()}'
+            NotificationOutbox.objects.create(
+                event_type      = event_type,
+                recipient_email = recipient_email,
+                subject         = subject[:500],
+                context_json    = ctx,
+                ticket          = ticket,
+            )
+        except Exception as exc:
+            logger.exception(
+                'Failed to queue outbox item for channel %s event %s to %s: %s',
+                channel.id, event_type, recipient_email, exc,
+            )
+
     if rules.exists():
-        # Rules configured — use them
         for rule in rules:
             if not rule.channel.is_active:
                 continue
-            # Build recipient list for email channels
             rule_context = dict(context)
             if rule.channel.type in ('email_smtp', 'email_mailgun'):
+                # Queue one outbox row per resolved recipient
                 recipients = _resolve_recipients(rule, context, ticket)
-                if not recipients:
-                    continue
                 for recipient_email in recipients:
                     ctx = dict(rule_context)
                     ctx['to_email'] = recipient_email
-                    try:
-                        send_to_channel(rule.channel, event_type, ctx, ticket=ticket)
-                    except Exception as exc:
-                        logger.exception(
-                            'Error sending to channel %s for rule %s: %s',
-                            rule.channel.id, rule.id, exc
-                        )
+                    _queue_email(rule.channel, recipient_email, ctx, rule)
             else:
-                # Webhook channels — send once per rule
-                try:
-                    send_to_channel(rule.channel, event_type, rule_context, ticket=ticket)
-                except Exception as exc:
-                    logger.exception(
-                        'Error sending to channel %s for rule %s: %s',
-                        rule.channel.id, rule.id, exc
-                    )
+                # Webhook — daemon thread, fire-and-forget
+                t = threading.Thread(
+                    target=_dispatch_webhook,
+                    args=(rule.channel, rule_context),
+                    daemon=True,
+                )
+                t.start()
     else:
-        # No rules configured — fall back to all active channels (backward compat)
+        # No rules — fall back to all active channels
         channels = NotificationChannel.objects.filter(is_active=True)
         for channel in channels:
-            try:
-                send_to_channel(channel, event_type, context, ticket=ticket)
-            except Exception as exc:
-                logger.exception('Unexpected error sending to channel %s: %s', channel.id, exc)
+            if channel.type in ('email_smtp', 'email_mailgun'):
+                recipient = context.get('to_email') or context.get('requester_email', '')
+                if recipient:
+                    _queue_email(channel, recipient, dict(context))
+            else:
+                t = threading.Thread(
+                    target=_dispatch_webhook,
+                    args=(channel, dict(context)),
+                    daemon=True,
+                )
+                t.start()
 
 
 def _resolve_recipients(rule, context: dict, ticket) -> list:

@@ -72,7 +72,10 @@ class SecurityHeadersMiddleware:
     # Build the CSP directive string once at class definition time.
     _CSP = "; ".join([
         "default-src 'self'",
-        "script-src 'self' https://accounts.google.com",
+        # Next.js requires 'unsafe-inline' for SSR-injected inline scripts.
+        # Cloudflare beacon (static.cloudflareinsights.com) is intentionally
+        # excluded — it is a third-party tracker and is not needed.
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self'",
